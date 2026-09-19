@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===== MAP =====
-    function initMap() {
+    async function initMap() {
         // Read config from localStorage (set by software Live page)
         let config = null;
         try {
@@ -284,14 +284,60 @@ document.addEventListener('DOMContentLoaded', () => {
         const centerLat = (config && config.center && config.center.lat) ? config.center.lat : 8.2626;
         const centerLng = (config && config.center && config.center.lng) ? config.center.lng : -4.6301;
         const zoomVal = (config && config.zoom) ? config.zoom : 14;
-        const zones = (config && config.zones && config.zones.length) ? config.zones : [
+
+        // Zones: config > CSV file > hardcoded
+        let zones = (config && config.zones && config.zones.length) ? config.zones : null;
+        if (!zones) {
+            try {
+                const resp = await fetch('data/Mining Areas.csv');
+                if (resp.ok) {
+                    const text = await resp.text();
+                    const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim().split('\n');
+                    if (lines.length >= 2) {
+                        const header = lines[0].toLowerCase();
+                        const sep = header.includes('\t') ? '\t' : (header.includes(';') ? ';' : ',');
+                        const cols = header.split(sep).map(c => c.trim()).filter(c => c);
+                        let nameIdx = cols.findIndex(c => c === 'name' || c === 'nom' || c === 'zone');
+                        let xIdx = cols.findIndex(c => c === 'x' || c === 'easting');
+                        let yIdx = cols.findIndex(c => c === 'y' || c === 'northing');
+                        let colorIdx = cols.findIndex(c => c === 'color' || c === 'couleur');
+                        if (xIdx === -1 || yIdx === -1) { xIdx = 0; yIdx = 1; }
+                        const colorMap = { 'vert':'green','green':'green','or':'orange','orange':'orange','violet':'blue','bleu':'blue','blue':'blue','jaune':'yellow','yellow':'yellow' };
+                        zones = [];
+                        for (let i = 1; i < lines.length; i++) {
+                            const line = lines[i].trim();
+                            if (!line) continue;
+                            const parts = line.split(sep).map(p => p.trim());
+                            const rawX = parseFloat(parts[xIdx]);
+                            const rawY = parseFloat(parts[yIdx]);
+                            if (!isFinite(rawX) || !isFinite(rawY)) continue;
+                            const ll = convertCRS(rawX, rawY);
+                            zones.push({ name: (nameIdx >= 0 && parts[nameIdx]) ? parts[nameIdx] : 'Zone ' + i, lat: ll.lat, lng: ll.lng, color: colorMap[(colorIdx >= 0 && parts[colorIdx] || '').toLowerCase().trim()] || 'blue' });
+                        }
+                    }
+                }
+            } catch(e) { console.warn('Fetch CSV zones failed:', e); }
+        }
+
+        function convertCRS(x, y) {
+            if (Math.abs(x) > 180 || Math.abs(y) > 90) {
+                if (typeof proj4 !== 'undefined') {
+                    try { const ll = proj4('EPSG:32630', 'EPSG:4326', [x, y]); return { lat: ll[1], lng: ll[0] }; } catch(e) {}
+                }
+                return { lat: 0, lng: 0 };
+            }
+            return { lat: x, lng: y };
+        }
+
+        if (!zones) zones = [
             { name: 'Main Pit', lat: 8.2691, lng: -4.6312, color: 'blue' },
             { name: 'West Pit', lat: 8.2606, lng: -4.6375, color: 'green' },
             { name: 'ROM Pad 1', lat: 8.2716, lng: -4.6381, color: 'yellow' },
             { name: 'ROM Pad 2', lat: 8.2688, lng: -4.6432, color: 'orange' },
             { name: 'ROM Pad 3', lat: 8.2652, lng: -4.6437, color: 'yellow' },
         ];
-        // Trails: priorite a la cle dediee (fiable), puis config, puis defauts
+
+        // Trails: config > localStorage > GeoJSON file > hardcoded
         let trailsDef = null;
         try {
             const savedTrails = localStorage.getItem('oreTrackingTrails');
@@ -301,14 +347,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch(e) {}
         if (!trailsDef) trailsDef = (config && config.trails && config.trails.length) ? config.trails : null;
-        if (!trailsDef) trailsDef = [
-            { from: 'Main Pit', to: 'ROM Pad 1', color: '#f97316' },
-            { from: 'West Pit', to: 'ROM Pad 2', color: '#22d3ee' },
-            { from: 'Main Pit', to: 'ROM Pad 3', color: '#a3e635' },
-            { from: 'Main Pit', to: 'West Pit', color: '#94a3b8' },
-            { from: 'ROM Pad 1', to: 'ROM Pad 2', color: '#fbbf24' },
-            { from: 'ROM Pad 2', to: 'ROM Pad 3', color: '#34d399' }
-        ];
+        if (!trailsDef) {
+            try {
+                const resp = await fetch('data/Trails.geojson.geojson');
+                if (resp.ok) {
+                    const geo = await resp.json();
+                    const features = geo.features || [];
+                    trailsDef = [];
+                    features.forEach(feat => {
+                        const coords = feat.geometry && feat.geometry.coordinates;
+                        if (!coords || coords.length < 2) return;
+                        const waypoints = coords.map(c => [c[1], c[0]]);
+                        trailsDef.push({ type: 'imported', name: (feat.properties && feat.properties.name) || 'Trail', color: '#f97316', waypoints, useColor: true });
+                    });
+                }
+            } catch(e) { console.warn('Fetch GeoJSON trails failed:', e); }
+        }
         console.log('[Dashboard] trailsDef:', trailsDef.map(t => (t.name ? (t.name + ' (' + (t.waypoints ? t.waypoints.length : 'manual') + ' pts)') : (t.from + ' -> ' + t.to))));
 
         const showZones = !config || config.showZones !== false;
@@ -557,8 +611,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderEnvironment();
     renderFuelAlerts();
 
-    setTimeout(() => {
-        const m = initMap();
+    setTimeout(async () => {
+        const m = await initMap();
         m.setZoom(12);
         setTimeout(() => m.invalidateSize(), 300);
     }, 300);
