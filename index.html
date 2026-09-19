@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OreTracking V2</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+    <div class="app">
+        <!-- TOP MENU BAR -->
+        <header class="menu-bar">
+            <div class="menu-left">
+                <span class="app-name">OreTracking</span>
+                <nav class="menu-items">
+                    <span class="menu-item">Files</span>
+                    <span class="menu-item">Edit</span>
+                    <span class="menu-item">Export</span>
+                    <span class="menu-item">Synchronisation</span>
+                    <span class="menu-item">Help</span>
+                </nav>
+            </div>
+            <div class="menu-right">
+                <span class="app-version">OreTracking V2</span>
+                <div class="window-controls">
+                    <button class="win-btn win-minimize"><i class="fas fa-window-minimize"></i></button>
+                    <button class="win-btn win-maximize"><i class="far fa-square"></i></button>
+                    <button class="win-btn win-close"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <!-- LEFT SIDEBAR -->
+            <aside class="sidebar">
+                <nav class="sidebar-nav">
+                    <div class="nav-top">
+                        <a class="sidebar-link" data-page="home">
+                            <i class="fas fa-home"></i>
+                            <span>Home</span>
+                        </a>
+                        <a class="sidebar-link active" data-page="live">
+                            <i class="fas fa-satellite-dish"></i>
+                            <span>Live</span>
+                        </a>
+                        <a class="sidebar-link" data-page="alerts">
+                            <i class="fas fa-bell"></i>
+                            <span>Alerts</span>
+                        </a>
+                        <a class="sidebar-link" data-page="inbox">
+                            <i class="fas fa-inbox"></i>
+                            <span>Inbox</span>
+                        </a>
+                    </div>
+                    <div class="nav-bottom">
+                        <a class="sidebar-link" data-page="settings">
+                            <i class="fas fa-cog"></i>
+                            <span>Settings</span>
+                        </a>
+                        <a class="sidebar-link" data-page="sync">
+                            <i class="fas fa-sync-alt"></i>
+                            <span>Sync</span>
+                        </a>
+                    </div>
+                </nav>
+
+                <div class="sidebar-user">
+                    <div class="user-avatar">
+                        <i class="fas fa-user-circle"></i>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">Gaston Albert</span>
+                        <span class="user-email">gaston.albert@oresys.com</span>
+                    </div>
+                    <button class="btn-logout" title="Deconnexion">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- MAIN CONTENT AREA -->
+            <main class="content">
+
+                <!-- PAGE: HOME -->
+                <section class="page" id="page-home">
+                    <div class="page-home-grid">
+                        <div class="home-welcome">
+                            <h2>Bienvenue sur OreTracking V2</h2>
+                            <p>Systeme de tracking minier en temps reel</p>
+                        </div>
+                        <div class="home-stats">
+                            <div class="stat-card">
+                                <i class="fas fa-truck"></i>
+                                <div class="stat-value">5</div>
+                                <div class="stat-label">Engins actifs</div>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <div class="stat-value">2</div>
+                                <div class="stat-label">Alertes</div>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-gem"></i>
+                                <div class="stat-value">53.5t</div>
+                                <div class="stat-label">Minerais today</div>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-coins"></i>
+                                <div class="stat-value">1.5k oz</div>
+                                <div class="stat-label">Ore today</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- PAGE: LIVE -->
+                <section class="page active" id="page-live">
+                    <div class="live-grid">
+                        <!-- LEFT COLUMN: MAP + KPI -->
+                        <div class="live-left">
+                            <!-- MAP TRACKING -->
+                            <div class="panel panel-map">
+                                <div class="panel-label">
+                                    <span><i class="fas fa-map-marked-alt"></i> Map Tracking</span>
+                                    <div class="panel-actions" id="mapPanelActions">
+                                        <button class="btn-action btn-unlock" id="btnUnlockMap"><i class="fas fa-lock"></i> Modifier</button>
+                                        <button class="btn-action btn-confirm" id="btnConfirmMap" style="display:none"><i class="fas fa-check"></i> Confirmer</button>
+                                        <button class="btn-action btn-cancel" id="btnCancelMap" style="display:none"><i class="fas fa-times"></i> Annuler</button>
+                                    </div>
+                                </div>
+                                <div class="panel-content">
+                                    <div class="map-config" id="mapConfig">
+
+                                        <!-- FOND DE CARTE -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-layer-group"></i> Fond de carte</h4>
+                                            <div class="map-config-row">
+                                                <div class="map-config-group" style="flex:1">
+                                                    <label>Carte de fond</label>
+                                                    <select class="form-select-sm" id="cfgBasemap">
+                                                        <option value="osm">OpenStreetMap (HOT)</option>
+                                                        <option value="esri-sat" selected>Satellite (ESRI World Imagery)</option>
+                                                        <option value="esri-topo">Topographique (ESRI)</option>
+                                                        <option value="esri-dark">Sombre (ESRI)</option>
+                                                        <option value="mbtiles">MBTiles (serveur local)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <!-- MBTILES PANEL -->
+                                            <div class="mbtiles-panel" id="mbtilesPanel" style="display:none">
+                                                <div class="map-config-row">
+                                                    <div class="map-config-group" style="flex:1">
+                                                        <label>Fichier MBTiles</label>
+                                                        <div class="mbtiles-file-row">
+                                                            <input type="text" class="form-input-sm" id="cfgMbtilesFile" readonly placeholder="Aucun fichier selectionne" />
+                                                            <button class="btn-tiff" id="btnPickMbtiles"><i class="fas fa-folder-open"></i></button>
+                                                            <input type="file" id="mbtilesFileInput" accept=".mbtiles" style="display:none" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="map-config-row">
+                                                    <div class="map-config-group" style="flex:1">
+                                                        <label>URL tile server</label>
+                                                        <input type="text" class="form-input-sm" id="cfgMbtilesUrl" value="http://localhost:8080" placeholder="http://localhost:8080" />
+                                                    </div>
+                                                    <div class="map-config-group">
+                                                        <label>&nbsp;</label>
+                                                        <div class="mbtiles-status-row">
+                                                            <span class="mbtiles-status-dot" id="mbtilesStatusDot"></span>
+                                                            <button class="btn-tiff" id="btnTestMbtiles"><i class="fas fa-plug"></i> Tester</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="map-config-row">
+                                                    <div class="map-config-group" style="flex:1">
+                                                        <label>Commande serveur</label>
+                                                        <div class="mbtiles-cmd-row">
+                                                            <code class="mbtiles-cmd" id="mbtilesCmd">python serve_tiles.py</code>
+                                                            <button class="btn-tiff" id="btnCopyCmd"><i class="fas fa-copy"></i></button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- COUCHES PERSONNALISEES -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-images"></i> Couches <button class="btn-toggle-all" id="btnToggleAllLayers" title="Activer / Desactiver toutes les couches"><i class="fas fa-eye"></i></button></h4>
+                                            <div class="tiff-layer-list" id="layerList">
+                                                <!-- Dynamiquement rempli par JS -->
+                                            </div>
+                                            <div class="zone-actions">
+                                                <button class="btn-add-zone" id="btnAddLayer"><i class="fas fa-plus"></i> Ajouter une couche</button>
+                                                <button class="btn-add-zone" id="btnDiagLayers" title="Diagnostiquer les couches" style="margin-left:6px"><i class="fas fa-bug"></i></button>
+                                            </div>
+                                        </div>
+
+                                        <!-- CENTRE & ZOOM -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-crosshairs"></i> Centre & Zoom</h4>
+                                            <div class="map-config-row">
+                                                <div class="map-config-group">
+                                                    <label id="cfgCenterLatLabel">Latitude</label>
+                                                    <input type="text" inputmode="decimal" class="form-input-sm" id="cfgCenterLat" value="320460" placeholder="Latitude" />
+                                                </div>
+                                                <div class="map-config-group">
+                                                    <label id="cfgCenterLngLabel">Longitude</label>
+                                                    <input type="text" inputmode="decimal" class="form-input-sm" id="cfgCenterLng" value="913696" placeholder="Longitude" />
+                                                </div>
+                                                <div class="map-config-group">
+                                                    <label>Zoom</label>
+                                                    <input type="number" class="form-input-sm" id="cfgZoom" value="14" min="10" max="18" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- SYSTEME DE COORDONNEES -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-globe"></i> Systeme de coordonnees</h4>
+                                            <div class="map-config-row">
+                                                <div class="map-config-group" style="flex:1">
+                                                    <label>Format</label>
+                                                    <select class="form-select-sm" id="cfgCRS">
+                                                        <option value="wgs84">WGS84 (Latitude / Longitude decimaux)</option>
+                                                        <option value="utm">UTM (Easting / Northing entiers)</option>
+                                                    </select>
+                                                </div>
+                                                <div class="map-config-group" id="utmGroup" style="display:none; width:80px">
+                                                    <label>EPSG</label>
+                                                    <input type="text" class="form-input-sm" id="cfgEPSG" value="32630" placeholder="32630" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- ZONES -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-map-marker-alt"></i> Zones minieres</h4>
+                                            <div class="zone-list" id="zoneList"></div>
+                                            <div class="zone-actions">
+                                                <button class="btn-add-zone" id="btnAddZone"><i class="fas fa-plus"></i> Ajouter zone</button>
+                                                <button class="btn-add-zone" id="btnImportZones"><i class="fas fa-file-csv"></i> Importer CSV</button>
+                                                <input type="file" id="zoneFileInput" accept=".csv" style="display:none" />
+                                            </div>
+                                        </div>
+
+                                        <!-- TRAILS -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-route"></i> Trails (chemins)</h4>
+
+                                            <div class="trail-mode-tabs">
+                                                <button class="trail-mode-tab active" data-mode="manual">
+                                                    <i class="fas fa-hand-pointer"></i> Definir manuellement
+                                                </button>
+                                                <button class="trail-mode-tab" data-mode="import">
+                                                    <i class="fas fa-file-import"></i> Importer fichier
+                                                </button>
+                                            </div>
+
+                                            <!-- OPTION A : Manuel -->
+                                            <div class="trail-mode-panel active" id="trailModeManual">
+                                                <div class="trail-list" id="trailList"></div>
+                                                <button class="btn-add-zone" id="btnAddTrail"><i class="fas fa-plus"></i> Ajouter trail</button>
+                                            </div>
+
+                                            <!-- OPTION B : Import fichier -->
+                                            <div class="trail-mode-panel" id="trailModeImport">
+                                                <div class="trail-import-zone" id="trailDropZone">
+                                                    <i class="fas fa-cloud-upload-alt"></i>
+                                                    <p>Glissez un fichier ici ou <span class="trail-import-browse">parcourir</span></p>
+                                                    <p class="trail-import-formats">GeoJSON (.geojson/.json) | CSV (lat,lng ou x,y) — un trail par feature GeoJSON, ou par valeur de la colonne nom/name/route/chemin</p>
+                                                    <input type="file" id="trailFileInput" accept=".geojson,.json,.csv" style="display:none" />
+                                                </div>
+                                                <div class="trail-import-list" id="trailImportList">
+                                                    <!-- Dynamiquement rempli par JS -->
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- AFFICHAGE -->
+                                        <div class="map-config-section">
+                                            <h4 class="map-config-title"><i class="fas fa-eye"></i> Affichage</h4>
+                                            <div class="map-config-row">
+                                                <label class="check-item"><input type="checkbox" id="cfgShowZones" checked /> Zones</label>
+                                                <label class="check-item"><input type="checkbox" id="cfgShowTrails" checked /> Trails</label>
+                                                <label class="check-item"><input type="checkbox" id="cfgShowLabels" checked /> Labels engins</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- KPI -->
+                            <div class="panel panel-kpi">
+                                <div class="panel-label">KPI - Configuration</div>
+                                <div class="panel-content">
+                                    <div class="kpi-config-grid">
+                                        <!-- KPI MINERAIS -->
+                                        <div class="kpi-block">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#94a3b8"></span>
+                                                <span class="kpi-name">Minerais - Tonnage</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="53500" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="55000" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" value="10" min="0" max="100" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- KPI ORE -->
+                                        <div class="kpi-block">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#fbbf24"></span>
+                                                <span class="kpi-name">Ore -onces</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="1500" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="1600" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" value="10" min="0" max="100" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- KPI WASTE -->
+                                        <div class="kpi-block">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#94a3b8"></span>
+                                                <span class="kpi-name">Waste - Tonnage</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="26000" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="25000" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" value="10" min="0" max="100" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- KPI OFFROAD -->
+                                        <div class="kpi-block">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#fbbf24"></span>
+                                                <span class="kpi-name">Offroad Count</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="5" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="6" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Max</label>
+                                                    <input type="number" class="form-input-sm" value="8" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- GRADE HIGH -->
+                                        <div class="kpi-block kpi-grade">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#ec4899"></span>
+                                                <span class="kpi-name">High Grade</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="4200" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="4500" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- GRADE MEDIUM -->
+                                        <div class="kpi-block kpi-grade">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#f97316"></span>
+                                                <span class="kpi-name">Medium Grade</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="3100" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="3000" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- GRADE LOW -->
+                                        <div class="kpi-block kpi-grade">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#eab308"></span>
+                                                <span class="kpi-name">Low Grade</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="2800" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="2600" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- GRADE MARGINAL -->
+                                        <div class="kpi-block kpi-grade">
+                                            <div class="kpi-block-header">
+                                                <span class="kpi-dot" style="background:#06b6d4"></span>
+                                                <span class="kpi-name">Marginal Ore</span>
+                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                            </div>
+                                            <div class="kpi-fields">
+                                                <div class="kpi-field">
+                                                    <label>Actuel</label>
+                                                    <input type="number" class="form-input-sm" value="900" />
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Planned</label>
+                                                    <input type="number" class="form-input-sm" value="1000" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT COLUMN: FILTRES + RENDU -->
+                        <div class="live-right">
+                            <!-- FILTRES -->
+                            <div class="panel panel-filters">
+                                <div class="panel-label">Filtres</div>
+                                <div class="panel-content">
+                                    <div class="filter-section">
+                                        <h4 class="filter-title">Engins</h4>
+                                        <div class="filter-group">
+                                            <label>Type</label>
+                                            <select class="form-select-sm">
+                                                <option>Tous</option>
+                                                <option>Dump Truck</option>
+                                                <option>Excavator</option>
+                                                <option>Bulldozer</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-group">
+                                            <label>Statut</label>
+                                            <select class="form-select-sm">
+                                                <option>Tous</option>
+                                                <option>Actif</option>
+                                                <option>Idle</option>
+                                                <option>Maintenance</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-group">
+                                            <label>Zone</label>
+                                            <select class="form-select-sm">
+                                                <option>Toutes</option>
+                                                <option>Main Pit</option>
+                                                <option>West Pit</option>
+                                                <option>ROM Pad 1</option>
+                                                <option>ROM Pad 2</option>
+                                                <option>ROM Pad 3</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-section">
+                                        <h4 class="filter-title">Shift</h4>
+                                        <div class="filter-group">
+                                            <label>Periode</label>
+                                            <select class="form-select-sm">
+                                                <option>Tous</option>
+                                                <option>Jour (06h-18h)</option>
+                                                <option>Nuit (18h-06h)</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-group">
+                                            <label>Date</label>
+                                            <input type="date" class="form-input-sm" />
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-section">
+                                        <h4 class="filter-title">Grade</h4>
+                                        <label class="check-item"><input type="checkbox" checked /> High Grade</label>
+                                        <label class="check-item"><input type="checkbox" checked /> Medium Grade</label>
+                                        <label class="check-item"><input type="checkbox" checked /> Low Grade</label>
+                                        <label class="check-item"><input type="checkbox" checked /> Marginal Ore</label>
+                                    </div>
+
+                                    <button class="btn-apply-filter">Appliquer</button>
+                                    <button class="btn-reset-filter">Reinitialiser</button>
+                                </div>
+                            </div>
+
+                            <!-- RENDU -->
+                            <div class="panel panel-rendu">
+                                <div class="panel-label">Rendu</div>
+                                <div class="panel-content rendu-center">
+                                    <p class="rendu-desc">Configuration et lancement de la projection etendue</p>
+                                    <button class="btn-present" id="btnPresent">
+                                        <i class="fas fa-play"></i>
+                                        PRESENTER
+                                    </button>
+                                    <div class="rendu-options">
+                                        <div class="rendu-option">
+                                            <label>Mode</label>
+                                            <select class="form-select-sm">
+                                                <option>Plein ecran etendu</option>
+                                                <option>Fenetre</option>
+                                                <option>Double ecran</option>
+                                            </select>
+                                        </div>
+                                        <div class="rendu-option">
+                                            <label>Ecran cible</label>
+                                            <select class="form-select-sm">
+                                                <option>Automatique</option>
+                                                <option>Ecran 1</option>
+                                                <option>Ecran 2</option>
+                                            </select>
+                                        </div>
+                                        <label class="check-item"><input type="checkbox" checked /> Afficher alertes</label>
+                                        <label class="check-item"><input type="checkbox" checked /> Afficher trails</label>
+                                        <label class="check-item"><input type="checkbox" checked /> Animations</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- PAGE: ALERTS -->
+                <section class="page" id="page-alerts">
+                    <div class="panel panel-full">
+                        <div class="panel-label">Alerts du jour</div>
+                        <div class="panel-content">
+                            <div class="alerts-description">
+                                <p>Liste des alertes durant les voyages des DT. Le dumping est classifie par <strong class="highlight-green">Rompad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
+                            </div>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Heure</th>
+                                        <th>Engin</th>
+                                        <th>Type</th>
+                                        <th>Zone</th>
+                                        <th>Description</th>
+                                        <th>Severite</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>08:12</td>
+                                        <td>DT-01</td>
+                                        <td>Chemin</td>
+                                        <td>Main Pit</td>
+                                        <td>Mauvais chemin - trail non autorise vers ROM Pad 2</td>
+                                        <td><span class="sev-high">Haute</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>08:32</td>
+                                        <td>DT-01</td>
+                                        <td>Offroad</td>
+                                        <td>West Pit</td>
+                                        <td>Offroad detecte hors piste autorisee</td>
+                                        <td><span class="sev-high">Haute</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>09:05</td>
+                                        <td>DT-03</td>
+                                        <td>Carburant</td>
+                                        <td>Main Pit</td>
+                                        <td>Niveau carburant bas: 12% - Reservoir 300L</td>
+                                        <td><span class="sev-medium">Moyenne</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>09:18</td>
+                                        <td>-</td>
+                                        <td>Meteo</td>
+                                        <td>Site</td>
+                                        <td>Temperature atmospherique elevee: 42 C</td>
+                                        <td><span class="sev-high">Haute</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>09:45</td>
+                                        <td>-</td>
+                                        <td>Meteo</td>
+                                        <td>Site</td>
+                                        <td>Humidite elevee: 85% - Piste glissante</td>
+                                        <td><span class="sev-medium">Moyenne</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>10:05</td>
+                                        <td>DT-03</td>
+                                        <td>Carburant</td>
+                                        <td>West Pit</td>
+                                        <td>Niveau carburant critique: 8% - Ravitaillement requis</td>
+                                        <td><span class="sev-high">Haute</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>10:30</td>
+                                        <td>-</td>
+                                        <td>Grade</td>
+                                        <td>Site</td>
+                                        <td>Grade 24h: High Grade -15% vs Planned</td>
+                                        <td><span class="sev-medium">Moyenne</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>11:00</td>
+                                        <td>DT-02</td>
+                                        <td>Chemin</td>
+                                        <td>ROM Pad 2</td>
+                                        <td>Dumping non conforme - mauvais Rompad</td>
+                                        <td><span class="sev-high">Haute</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>11:15</td>
+                                        <td>-</td>
+                                        <td>Meteo</td>
+                                        <td>Site</td>
+                                        <td>Temperature basse: 8 C - Risque de gel</td>
+                                        <td><span class="sev-medium">Moyenne</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>11:45</td>
+                                        <td>DT-04</td>
+                                        <td>Carburant</td>
+                                        <td>ROM Pad 1</td>
+                                        <td>Niveau carburant bas: 14% - Reservoir 300L</td>
+                                        <td><span class="sev-medium">Moyenne</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- PAGE: INBOX -->
+                <section class="page" id="page-inbox">
+                    <div class="panel panel-full">
+                        <div class="panel-label">Inbox</div>
+                        <div class="panel-content">
+                            <div class="inbox-description">
+                                <p>Ici on affiche la liste de tous les voyages des DT. Le dumping est classifie par <strong class="highlight-green">Rompad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
+                            </div>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Engin</th>
+                                        <th>Depart</th>
+                                        <th>Destination</th>
+                                        <th>Rompad</th>
+                                        <th>Tonnage</th>
+                                        <th>Grade</th>
+                                        <th>Statut</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>#1024</td>
+                                        <td>DT-01</td>
+                                        <td>Main Pit</td>
+                                        <td>ROM Pad 1</td>
+                                        <td>ROM Pad 1</td>
+                                        <td>45.2 t</td>
+                                        <td><span class="grade-tag high">High Grade</span></td>
+                                        <td><span class="status-done">Termine</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>#1025</td>
+                                        <td>DT-02</td>
+                                        <td>West Pit</td>
+                                        <td>ROM Pad 2</td>
+                                        <td>ROM Pad 2</td>
+                                        <td>38.7 t</td>
+                                        <td><span class="grade-tag medium">Medium</span></td>
+                                        <td><span class="status-done">Termine</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>#1026</td>
+                                        <td>DT-03</td>
+                                        <td>Main Pit</td>
+                                        <td>ROM Pad 3</td>
+                                        <td>ROM Pad 3</td>
+                                        <td>42.1 t</td>
+                                        <td><span class="grade-tag low">Low Grade</span></td>
+                                        <td><span class="status-progress">En cours</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>#1027</td>
+                                        <td>DT-01</td>
+                                        <td>Main Pit</td>
+                                        <td>ROM Pad 1</td>
+                                        <td>ROM Pad 1</td>
+                                        <td>44.8 t</td>
+                                        <td><span class="grade-tag high">High Grade</span></td>
+                                        <td><span class="status-progress">En cours</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>#1028</td>
+                                        <td>DT-04</td>
+                                        <td>West Pit</td>
+                                        <td>ROM Pad 2</td>
+                                        <td>ROM Pad 2</td>
+                                        <td>41.3 t</td>
+                                        <td><span class="grade-tag marginal">Marginal</span></td>
+                                        <td><span class="status-pending">En attente</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- PAGE: SETTINGS -->
+                <section class="page" id="page-settings">
+                    <div class="settings-grid-5">
+                        <!-- PREFERENCES -->
+                        <div class="panel">
+                            <div class="panel-label">Preferences</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="form-row">
+                                        <label>Mode simulation</label>
+                                        <label class="toggle"><input type="checkbox" checked /><span class="toggle-slider"></span></label>
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Rafraichissement (sec)</label>
+                                        <input type="number" value="5" class="form-input" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Theme</label>
+                                        <select class="form-select">
+                                            <option>Sombre</option>
+                                            <option>Minuit</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Animations</label>
+                                        <label class="toggle"><input type="checkbox" checked /><span class="toggle-slider"></span></label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CONNECTION -->
+                        <div class="panel">
+                            <div class="panel-label">Connection</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="form-row">
+                                        <label>Serveur</label>
+                                        <input type="text" value="192.168.1.100" class="form-input" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Port</label>
+                                        <input type="number" value="5432" class="form-input" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Base</label>
+                                        <input type="text" value="oretracking_db" class="form-input" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label>User</label>
+                                        <input type="text" value="admin" class="form-input" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Mot de passe</label>
+                                        <input type="password" value="password" class="form-input" />
+                                    </div>
+                                    <button class="btn-test-db">Tester</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SECURITE -->
+                        <div class="panel">
+                            <div class="panel-label">Securite</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="form-row">
+                                        <label>Auth</label>
+                                        <select class="form-select">
+                                            <option>Mot de passe</option>
+                                            <option>LDAP</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label>Timeout (min)</label>
+                                        <input type="number" value="30" class="form-input" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label>2FA</label>
+                                        <label class="toggle"><input type="checkbox" /><span class="toggle-slider"></span></label>
+                                    </div>
+                                    <div class="accounts-list">
+                                        <h4>Comptes</h4>
+                                        <div class="account-item">
+                                            <i class="fas fa-user-circle"></i>
+                                            <span>Gaston Albert</span>
+                                            <span class="account-role">Admin</span>
+                                        </div>
+                                        <div class="account-item">
+                                            <i class="fas fa-user-circle"></i>
+                                            <span>Operateur 1</span>
+                                            <span class="account-role">Viewer</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ALERTES & SEUILS -->
+                        <div class="panel">
+                            <div class="panel-label">Alertes & Seuils</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="alert-threshold">
+                                        <h4><i class="fas fa-route"></i> Chemin</h4>
+                                        <div class="form-row">
+                                            <label>Alerte mauvais chemin</label>
+                                            <label class="toggle"><input type="checkbox" checked /><span class="toggle-slider"></span></label>
+                                        </div>
+                                    </div>
+                                    <div class="alert-threshold">
+                                        <h4><i class="fas fa-gem"></i> Grade 24h</h4>
+                                        <div class="form-row">
+                                            <label>Seuil ecart (%)</label>
+                                            <input type="number" value="10" class="form-input" />
+                                        </div>
+                                    </div>
+                                    <div class="alert-threshold">
+                                        <h4><i class="fas fa-truck-monster"></i> Offroad</h4>
+                                        <div class="form-row">
+                                            <label>Des que > 0</label>
+                                            <label class="toggle"><input type="checkbox" checked /><span class="toggle-slider"></span></label>
+                                        </div>
+                                    </div>
+                                    <div class="alert-threshold">
+                                        <h4><i class="fas fa-thermometer-half"></i> Temperature atm.</h4>
+                                        <div class="form-row">
+                                            <label>Max (C)</label>
+                                            <input type="number" value="40" class="form-input" />
+                                        </div>
+                                        <div class="form-row">
+                                            <label>Min (C)</label>
+                                            <input type="number" value="10" class="form-input" />
+                                        </div>
+                                    </div>
+                                    <div class="alert-threshold">
+                                        <h4><i class="fas fa-tint"></i> Humidite</h4>
+                                        <div class="form-row">
+                                            <label>Max (%)</label>
+                                            <input type="number" value="80" class="form-input" />
+                                        </div>
+                                    </div>
+                                    <div class="alert-threshold">
+                                        <h4><i class="fas fa-gas-pump"></i> Carburant</h4>
+                                        <div class="form-row">
+                                            <label>Seuil bas (%)</label>
+                                            <input type="number" value="15" class="form-input" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CARBURANT PAR ENGIN -->
+                        <div class="panel">
+                            <div class="panel-label">Carburant Engins</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <table class="fuel-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Engin</th>
+                                                <th>Reservoir (L)</th>
+                                                <th>Actuel (%)</th>
+                                                <th>Consommation (L/h)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><span class="tag tag-blue">DT-01</span></td>
+                                                <td><input type="number" value="300" class="form-input-sm" /></td>
+                                                <td><input type="number" value="72" class="form-input-sm" /></td>
+                                                <td><input type="number" value="25" class="form-input-sm" /></td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="tag tag-blue">DT-02</span></td>
+                                                <td><input type="number" value="300" class="form-input-sm" /></td>
+                                                <td><input type="number" value="45" class="form-input-sm" /></td>
+                                                <td><input type="number" value="25" class="form-input-sm" /></td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="tag tag-blue">DT-03</span></td>
+                                                <td><input type="number" value="300" class="form-input-sm" /></td>
+                                                <td><input type="number" value="12" class="form-input-sm fuel-danger" /></td>
+                                                <td><input type="number" value="25" class="form-input-sm" /></td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="tag tag-blue">DT-04</span></td>
+                                                <td><input type="number" value="300" class="form-input-sm" /></td>
+                                                <td><input type="number" value="88" class="form-input-sm" /></td>
+                                                <td><input type="number" value="25" class="form-input-sm" /></td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="tag tag-blue">DT-05</span></td>
+                                                <td><input type="number" value="300" class="form-input-sm" /></td>
+                                                <td><input type="number" value="56" class="form-input-sm" /></td>
+                                                <td><input type="number" value="25" class="form-input-sm" /></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- PAGE: SYNC -->
+                <section class="page" id="page-sync">
+                    <div class="panel panel-full">
+                        <div class="panel-label">Synchronisation</div>
+                        <div class="panel-content">
+                            <p class="panel-hint">Synchronisation des donnees avec le serveur central</p>
+                            <div class="sync-status">
+                                <div class="sync-card">
+                                    <i class="fas fa-check-circle"></i>
+                                    <span>Derniere sync: 10:23:40</span>
+                                </div>
+                                <div class="sync-card">
+                                    <i class="fas fa-cloud"></i>
+                                    <span>Serveur: Connecte</span>
+                                </div>
+                                <div class="sync-card">
+                                    <i class="fas fa-database"></i>
+                                    <span>Base de donnees: OK</span>
+                                </div>
+                            </div>
+                            <button class="btn-sync-now">Synchroniser maintenant</button>
+                        </div>
+                    </div>
+                </section>
+
+            </main>
+        </div>
+
+        <!-- BOTTOM STATUS BAR -->
+        <footer class="status-bar">
+            <div class="status-left">
+                <span class="status-item">
+                    <i class="fas fa-thermometer-half"></i> Temperature
+                </span>
+                <span class="status-item">
+                    <i class="fas fa-cloud-rain"></i> Temps pluvieux
+                </span>
+                <span class="status-item">
+                    <i class="fas fa-tint"></i> Humidite a 67%
+                </span>
+            </div>
+            <div class="status-right">
+                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
+                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

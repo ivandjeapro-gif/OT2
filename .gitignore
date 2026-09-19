@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.mbtiles
+*.mbtiles-shm
+*.mbtiles-wal
+*.xlsx
+.DS_Store
+Thumbs.db
+docs/

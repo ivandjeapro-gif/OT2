@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OreTracking - Dashboard Live</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="dashboard.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+    <div class="dashboard">
+        <!-- HEADER -->
+        <header class="header">
+            <div class="header-left">
+                <div class="signal-icon" id="signalIcon">
+                    <i class="fas fa-broadcast-tower"></i>
+                </div>
+            </div>
+            <div class="alert-banner" id="alertBanner">
+                <div class="alert-track" id="alertTrack">
+                    <span class="alert-text">Systeme operationnel - Tous engins connectes</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="notification-bell" id="notificationBell">
+                    <i class="fas fa-bell"></i>
+                    <span class="bell-badge hidden" id="bellBadge">0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- KPI CARDS -->
+        <div class="kpi-row">
+            <div class="kpi-card" id="kpiMineraisCard">
+                <div class="kpi-icon"><i class="fas fa-gem"></i></div>
+                <div class="kpi-body">
+                    <span class="kpi-label">Minerais</span>
+                    <div class="kpi-value" id="kpiMinerais">0</div>
+                    <span class="kpi-unit">Tonnage</span>
+                </div>
+                <div class="kpi-voyant" id="voyantMinerais"></div>
+            </div>
+            <div class="kpi-card kpi-gold" id="kpiOreCard">
+                <div class="kpi-icon gold"><i class="fas fa-coins"></i></div>
+                <div class="kpi-body">
+                    <span class="kpi-label">Ore</span>
+                    <div class="kpi-value gold" id="kpiOre">0</div>
+                    <span class="kpi-unit">onces</span>
+                </div>
+                <div class="kpi-voyant" id="voyantOre"></div>
+            </div>
+            <div class="kpi-card" id="kpiWasteCard">
+                <div class="kpi-icon"><i class="fas fa-mountain"></i></div>
+                <div class="kpi-body">
+                    <span class="kpi-label">Waste</span>
+                    <div class="kpi-value" id="kpiWaste">0</div>
+                    <span class="kpi-unit">Tonnage</span>
+                </div>
+                <div class="kpi-voyant" id="voyantWaste"></div>
+            </div>
+        </div>
+
+        <!-- MAIN -->
+        <div class="main">
+            <!-- MAP -->
+            <div class="map-wrapper">
+                <div id="map"></div>
+                <div class="map-controls">
+                    <div class="compass"><i class="fas fa-location-arrow"></i><span>N</span></div>
+                    <div class="zoom-group">
+                        <button class="zoom-btn" id="zoomIn">+</button>
+                        <button class="zoom-btn" id="zoomOut">&minus;</button>
+                        <button class="zoom-btn" id="zoomCenter"><i class="fas fa-crosshairs"></i></button>
+                    </div>
+                </div>
+                <div class="map-legend">
+                    <i class="fas fa-layer-group"></i>
+                    <span>Vue 3D - Relief</span>
+                </div>
+            </div>
+
+            <!-- SIDEBAR -->
+            <aside class="sidebar">
+                <!-- OFFROAD -->
+                <div class="offroad-card">
+                    <div class="offroad-header">
+                        <i class="fas fa-truck-monster"></i>
+                        <span>Offroad</span>
+                    </div>
+                    <div class="offroad-value" id="offroadCount">0</div>
+                    <div class="voyant-bar" id="voyantOffroad"></div>
+                </div>
+
+                <!-- GRADES -->
+                <div class="grade-block">
+                    <h3 class="grade-title c-pink">High Grade</h3>
+                    <div class="grade-row">
+                        <div class="grade-cell"><span class="gc-label">Actuel</span><span class="gc-val" id="hgActuel">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Planned</span><span class="gc-val" id="hgPlanned">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Var.</span><span class="gc-val var neutral" id="hgVar">0</span></div>
+                    </div>
+                    <div class="voyant-bar" id="voyantHG"></div>
+                </div>
+
+                <div class="grade-block">
+                    <h3 class="grade-title c-orange">Medium Grade</h3>
+                    <div class="grade-row">
+                        <div class="grade-cell"><span class="gc-label">Actuel</span><span class="gc-val" id="mgActuel">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Planned</span><span class="gc-val" id="mgPlanned">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Var.</span><span class="gc-val var neutral" id="mgVar">0</span></div>
+                    </div>
+                    <div class="voyant-bar" id="voyantMG"></div>
+                </div>
+
+                <div class="grade-block">
+                    <h3 class="grade-title c-yellow">Low Grade</h3>
+                    <div class="grade-row">
+                        <div class="grade-cell"><span class="gc-label">Actuel</span><span class="gc-val" id="lgActuel">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Planned</span><span class="gc-val" id="lgPlanned">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Var.</span><span class="gc-val var neutral" id="lgVar">0</span></div>
+                    </div>
+                    <div class="voyant-bar" id="voyantLG"></div>
+                </div>
+
+                <div class="grade-block">
+                    <h3 class="grade-title c-cyan">Marginal Ore</h3>
+                    <div class="grade-row">
+                        <div class="grade-cell"><span class="gc-label">Actuel</span><span class="gc-val" id="moActuel">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Planned</span><span class="gc-val" id="moPlanned">0</span></div>
+                        <div class="grade-cell"><span class="gc-label">Var.</span><span class="gc-val var neutral" id="moVar">0</span></div>
+                    </div>
+                    <div class="voyant-bar" id="voyantMO"></div>
+                </div>
+
+                <!-- ENVIRONNEMENT -->
+                <div class="env-block">
+                    <div class="env-header">
+                        <i class="fas fa-leaf"></i>
+                        <span>Environnement</span>
+                    </div>
+                    <div class="env-grid">
+                        <div class="env-card">
+                            <div class="env-icon env-icon-temp">
+                                <i class="fas fa-thermometer-half"></i>
+                            </div>
+                            <div class="env-info">
+                                <span class="env-label">Temperature</span>
+                                <span class="env-val" id="envTemp">--</span>
+                            </div>
+                        </div>
+                        <div class="env-card">
+                            <div class="env-icon env-icon-humid">
+                                <i class="fas fa-tint"></i>
+                            </div>
+                            <div class="env-info">
+                                <span class="env-label">Humidite</span>
+                                <span class="env-val" id="envHumid">--</span>
+                            </div>
+                        </div>
+                        <div class="env-card">
+                            <div class="env-icon env-icon-rain">
+                                <i class="fas fa-cloud-rain"></i>
+                            </div>
+                            <div class="env-info">
+                                <span class="env-label">Pluviometrie</span>
+                                <span class="env-val" id="envRain">--</span>
+                            </div>
+                        </div>
+                        <div class="env-card">
+                            <div class="env-icon env-icon-noise">
+                                <i class="fas fa-volume-up"></i>
+                            </div>
+                            <div class="env-info">
+                                <span class="env-label">Niveau sonore</span>
+                                <span class="env-val" id="envNoise">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="voyant-bar" id="voyantEnv"></div>
+                </div>
+
+                <!-- RESERVOIRS EN ALERTE -->
+                <div class="grade-block" id="fuelBlock">
+                    <h3 class="grade-title c-red">Reservoirs <span class="fuel-badge" id="fuelAlertCount">0</span></h3>
+                    <div class="fuel-alert-list" id="fuelAlertList">
+                        <div class="fuel-no-alert">Aucun reservoir en alerte</div>
+                    </div>
+                    <div class="voyant-bar" id="voyantFuel"></div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+</html>
