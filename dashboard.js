@@ -535,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 trail,
                 progress: v.start,
                 direction: v.dir,
-                step: 0.006 + (v.trailIdx % 3) * 0.002
+                step: 0.0032 + (v.trailIdx % 3) * 0.0004
             };
         });
 
