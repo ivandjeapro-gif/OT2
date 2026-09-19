@@ -490,10 +490,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!trails.length) return map;
 
-        // VEHICLES - 1 DT par trail
+        // VEHICLES - 1 DT par trail, max 3
         const vehicles = [];
         let dtNum = 0;
         trails.forEach((t, ti) => {
+            if (dtNum >= 3) return;
             dtNum++;
             vehicles.push({ id: 'DT-' + String(dtNum).padStart(2, '0'), online: true, trailIdx: ti, start: 0.1, dir: 1 });
         });
