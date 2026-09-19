@@ -9,9 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fuel: {
             DT01: { tank: 300, level: 72, consumption: 25 },
             DT02: { tank: 300, level: 45, consumption: 25 },
-            DT03: { tank: 300, level: 12, consumption: 25 },
-            DT04: { tank: 300, level: 88, consumption: 25 },
-            DT05: { tank: 300, level: 56, consumption: 25 }
+            DT03: { tank: 300, level: 12, consumption: 25 }
         },
         fuelThreshold: 15,
         vehicles: [],
@@ -501,7 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Niveaux de carburant par DT (reservoirs)
-        const fuelLevels = [72, 45, 12, 88, 56, 8, 62, 30, 18, 10, 66, 52];
+        const fuelLevels = [72, 45, 12];
         data.vehicles = vehicles.map((v, idx) => ({ id: v.id, fuel: fuelLevels[idx % fuelLevels.length] }));
         renderFuelAlerts();
 
