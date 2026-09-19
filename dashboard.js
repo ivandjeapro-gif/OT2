@@ -492,16 +492,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!trails.length) return map;
 
-        // VEHICLES - 2 DT sur la 1ere moitie des trails, 1 DT sur la 2eme moitie
+        // VEHICLES - 1 DT par trail
         const vehicles = [];
-        const half = Math.ceil(trails.length / 2);
         let dtNum = 0;
         trails.forEach((t, ti) => {
-            const dtCount = ti < half ? 2 : 1;
-            for (let k = 0; k < dtCount; k++) {
-                dtNum++;
-                vehicles.push({ id: 'DT-' + String(dtNum).padStart(2, '0'), online: true, trailIdx: ti, start: 0.12 + k * 0.42, dir: k === 0 ? 1 : -1 });
-            }
+            dtNum++;
+            vehicles.push({ id: 'DT-' + String(dtNum).padStart(2, '0'), online: true, trailIdx: ti, start: 0.1, dir: 1 });
         });
 
         // Niveaux de carburant par DT (reservoirs)
@@ -535,7 +531,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 trail,
                 progress: v.start,
                 direction: v.dir,
-                step: 0.0032 + (v.trailIdx % 3) * 0.0004
+                step: 0.0015 + (v.trailIdx % 3) * 0.0002,
+                lastPos: startPos
             };
         });
 
@@ -551,11 +548,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const pos = pointAt(st.trail.waypoints, st.progress);
                 vehicleMarkers[v.id].setLatLng([pos[0], pos[1]]);
 
-                // Retourner l'icône selon la direction
+                // Rotation reelle selon la direction de deplacement
                 const img = vehicleMarkers[v.id].getElement()?.querySelector('img');
-                if (img) {
-                    img.style.transform = st.direction === -1 ? 'scaleX(-1)' : 'scaleX(1)';
+                if (img && st.lastPos) {
+                    const dLat = pos[0] - st.lastPos[0];
+                    const dLng = pos[1] - st.lastPos[1];
+                    if (Math.abs(dLat) > 0.000001 || Math.abs(dLng) > 0.000001) {
+                        const angle = Math.atan2(dLng, dLat) * 180 / Math.PI;
+                        const rotation = 90 - angle;
+                        img.style.transform = `rotate(${rotation}deg)`;
+                        st.lastAngle = rotation;
+                    } else if (st.lastAngle !== undefined) {
+                        img.style.transform = `rotate(${st.lastAngle}deg)`;
+                    }
                 }
+                st.lastPos = pos;
             });
         }, 200);
 
