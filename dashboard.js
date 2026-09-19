@@ -508,6 +508,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const vehicleState = {};
         const vehicleMarkers = {};
 
+        // Calculer la longueur reelle de chaque trail pour normaliser la vitesse
+        function trailLength(waypoints) {
+            let len = 0;
+            for (let i = 1; i < waypoints.length; i++) {
+                const dLat = waypoints[i][0] - waypoints[i-1][0];
+                const dLng = waypoints[i][1] - waypoints[i-1][1];
+                len += Math.sqrt(dLat * dLat + dLng * dLng);
+            }
+            return len;
+        }
+        const baseSpeed = 0.000012;
+
         vehicles.forEach(v => {
             const trail = trails[v.trailIdx % trails.length];
             const startPos = pointAt(trail.waypoints, v.start);
@@ -531,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 trail,
                 progress: v.start,
                 direction: v.dir,
-                step: 0.0015 + (v.trailIdx % 3) * 0.0002,
+                step: baseSpeed / Math.max(trailLength(trail.waypoints), 0.001),
                 lastPos: startPos
             };
         });
@@ -553,11 +565,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (img && st.lastPos) {
                     const dLat = pos[0] - st.lastPos[0];
                     const dLng = pos[1] - st.lastPos[1];
-                    if (Math.abs(dLat) > 0.000001 || Math.abs(dLng) > 0.000001) {
-                        const angle = Math.atan2(dLng, dLat) * 180 / Math.PI;
-                        const rotation = 90 - angle;
-                        img.style.transform = `rotate(${rotation}deg)`;
-                        st.lastAngle = rotation;
+                    if (Math.abs(dLat) > 0.0000001 || Math.abs(dLng) > 0.0000001) {
+                        const angle = Math.atan2(dLng, dLat) * 180 / Math.PI - 90;
+                        img.style.transform = `rotate(${angle}deg)`;
+                        st.lastAngle = angle;
                     } else if (st.lastAngle !== undefined) {
                         img.style.transform = `rotate(${st.lastAngle}deg)`;
                     }
