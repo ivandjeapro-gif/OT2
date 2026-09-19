@@ -526,7 +526,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const icon = L.divIcon({
                 className: 'zone-marker',
-                html: `<img src="assets/icon DT.png" style="width:24px;height:24px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));transform:scaleX(${v.dir === -1 ? -1 : 1});" />`,
+                html: `<img src="assets/icon DT.png" class="dt-icon" data-dir="${v.dir}" style="width:24px;height:24px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));transform:scaleX(${v.dir === -1 ? -1 : 1});" />`,
                 iconSize: [24, 24],
                 iconAnchor: [12, 12]
             });
@@ -560,19 +560,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const pos = pointAt(st.trail.waypoints, st.progress);
                 vehicleMarkers[v.id].setLatLng([pos[0], pos[1]]);
 
-                // Rotation reelle selon la direction de deplacement
+                // Symetrie horizontale selon le sens de deplacement (pas de rotation)
                 const img = vehicleMarkers[v.id].getElement()?.querySelector('img');
-                if (img && st.lastPos) {
-                    const dLat = pos[0] - st.lastPos[0];
-                    const dLng = pos[1] - st.lastPos[1];
-                    if (Math.abs(dLat) > 0.0000001 || Math.abs(dLng) > 0.0000001) {
-                        const angle = Math.atan2(dLng, dLat) * 180 / Math.PI - 90;
-                        img.style.transform = `rotate(${angle}deg)`;
-                        st.lastAngle = angle;
-                    } else if (st.lastAngle !== undefined) {
-                        img.style.transform = `rotate(${st.lastAngle}deg)`;
-                    }
+                if (img) {
+                    img.style.transform = `scaleX(${st.direction === -1 ? -1 : 1})`;
                 }
+
                 st.lastPos = pos;
             });
         }, 200);

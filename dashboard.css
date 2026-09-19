@@ -260,8 +260,12 @@ body {
     flex: 1;
     gap: 0;
     padding: 0 16px 10px;
-    overflow: hidden;
     min-height: 0;
+    overflow: hidden;
+}
+
+.main > .sidebar {
+    overflow-y: auto;
 }
 
 /* MAP */
@@ -347,7 +351,8 @@ body {
     flex-direction: column;
     gap: 10px;
     overflow-y: auto;
-    flex-shrink: 0;
+    min-height: 0;
+    flex: 0 1 auto;
     padding-right: 4px;
 }
 
@@ -653,3 +658,254 @@ body {
 }
 
 .leaflet-tooltip-top::before { border-top-color: rgba(13,21,37,0.95) !important; }
+
+/* ===== RESPONSIVE: TABLETTE (<=1024px) ===== */
+@media (max-width: 1024px) {
+    html, body { overflow: auto; }
+
+    .dashboard {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    .main {
+        flex-direction: column;
+        overflow: visible;
+    }
+
+    .sidebar {
+        width: 100%;
+        margin-left: 0;
+        margin-top: 10px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 8px;
+        overflow-y: visible;
+        padding-right: 0;
+        max-height: none;
+    }
+
+    .sidebar > * {
+        flex: 1 1 200px;
+        min-width: 180px;
+    }
+
+    .offroad-card {
+        flex: 0 0 auto;
+    }
+
+    .grade-block {
+        flex: 1 1 180px;
+    }
+
+    .env-block {
+        flex: 1 1 250px;
+    }
+
+    .map-wrapper {
+        min-height: 350px;
+        max-height: 50vh;
+    }
+
+    #map {
+        min-height: 350px;
+    }
+}
+
+/* ===== RESPONSIVE: TABLETTE PETITE (<=768px) ===== */
+@media (max-width: 768px) {
+    html, body { overflow: auto; }
+
+    .dashboard {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    .header {
+        height: auto;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 8px;
+    }
+
+    .alert-banner {
+        order: 3;
+        width: 100%;
+        margin: 0;
+        flex: auto;
+    }
+
+    .kpi-row {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .kpi-card {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 140px;
+        padding: 8px 12px;
+    }
+
+    .kpi-value {
+        font-size: 26px;
+    }
+
+    .main {
+        padding: 0 12px 8px;
+        overflow: visible;
+        flex-direction: column;
+    }
+
+    .map-wrapper {
+        min-height: 260px;
+        max-height: 45vh;
+    }
+
+    #map {
+        min-height: 260px;
+    }
+
+    .sidebar {
+        width: 100%;
+        margin-left: 0;
+        margin-top: 10px;
+        flex-direction: column;
+        overflow-y: visible;
+    }
+
+    .sidebar > * {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .env-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+    }
+
+    .grade-row {
+        flex-wrap: wrap;
+    }
+
+    .grade-cell {
+        flex: 1 1 30%;
+        min-width: 60px;
+    }
+}
+
+/* ===== RESPONSIVE: MOBILE (<=480px) ===== */
+@media (max-width: 480px) {
+    .header {
+        padding: 6px 8px;
+    }
+
+    .signal-icon {
+        width: 36px;
+        height: 28px;
+        font-size: 14px;
+    }
+
+    .notification-bell {
+        width: 32px;
+        height: 28px;
+    }
+
+    .alert-text {
+        font-size: 10px;
+    }
+
+    .kpi-row {
+        padding: 6px 8px;
+    }
+
+    .kpi-card {
+        flex: 1 1 100%;
+        min-width: 0;
+        padding: 8px 10px;
+        gap: 10px;
+    }
+
+    .kpi-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+
+    .kpi-value {
+        font-size: 22px;
+    }
+
+    .kpi-label {
+        font-size: 9px;
+    }
+
+    .main {
+        padding: 0 8px 6px;
+    }
+
+    .map-wrapper {
+        min-height: 200px;
+        max-height: 40vh;
+        border-radius: 4px;
+    }
+
+    #map {
+        min-height: 200px;
+    }
+
+    .map-controls {
+        top: 8px;
+        right: 8px;
+    }
+
+    .compass {
+        width: 30px;
+        height: 30px;
+        font-size: 8px;
+    }
+
+    .compass i { font-size: 10px; }
+
+    .zoom-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 12px;
+    }
+
+    .map-legend {
+        padding: 4px 10px;
+        font-size: 10px;
+    }
+
+    .offroad-value {
+        font-size: 32px;
+    }
+
+    .grade-title {
+        font-size: 11px;
+    }
+
+    .gc-val {
+        font-size: 13px;
+    }
+
+    .env-card {
+        padding: 6px;
+        gap: 6px;
+    }
+
+    .env-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    .env-val {
+        font-size: 13px;
+    }
+
+    .fuel-alert-item {
+        font-size: 10px;
+    }
+}

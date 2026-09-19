@@ -1646,19 +1646,344 @@ body {
     50% { opacity: 0.6; box-shadow: 0 0 16px rgba(251, 191, 36, 1); }
 }
 
-/* ===== RESPONSIVE ===== */
-@media (max-width: 1100px) {
+/* ===== HAMBURGER (MOBILE) ===== */
+.hamburger {
+    display: none;
+    position: fixed;
+    top: calc(var(--menu-height) + 6px);
+    left: 8px;
+    z-index: 1100;
+    width: 38px;
+    height: 38px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 16px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.hamburger:hover { background: var(--border); }
+
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1050;
+}
+
+/* ===== RESPONSIVE: TABLETTE (<=1024px) ===== */
+@media (max-width: 1024px) {
+    .live-right {
+        width: 220px;
+    }
+
+    .kpi-config-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-grid-5 {
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: auto auto;
+    }
+
+    .settings-grid-5 .panel:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .settings-grid-5 .panel:nth-child(2) { grid-column: 2; grid-row: 1; }
+    .settings-grid-5 .panel:nth-child(3) { grid-column: 1; grid-row: 2; }
+    .settings-grid-5 .panel:nth-child(4) { grid-column: 2; grid-row: 2; }
+    .settings-grid-5 .panel:nth-child(5) { grid-column: 1 / 3; grid-row: 3; }
+
+    .home-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .menu-items {
+        gap: 0;
+    }
+
+    .menu-item {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+}
+
+/* ===== RESPONSIVE: TABLETTE PETITE (<=768px) ===== */
+@media (max-width: 768px) {
+    :root {
+        --sidebar-width: 0px;
+    }
+
+    .hamburger {
+        display: flex;
+    }
+
+    .sidebar-overlay.active {
+        display: block;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: var(--menu-height);
+        left: 0;
+        bottom: 0;
+        width: 220px;
+        z-index: 1060;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        background: var(--bg-sidebar);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .sidebar-link {
+        flex-direction: row;
+        gap: 10px;
+        padding: 10px 16px;
+        font-size: 13px;
+    }
+
+    .sidebar-link i {
+        width: 24px;
+        height: 24px;
+        font-size: 16px;
+    }
+
+    .sidebar-user {
+        flex-direction: row;
+        gap: 8px;
+        padding: 10px 12px;
+    }
+
+    .user-info {
+        align-items: flex-start;
+    }
+
+    .user-name { font-size: 12px; }
+    .user-email { font-size: 10px; }
+
+    .menu-bar {
+        padding: 0 8px 0 52px;
+    }
+
+    .app-name {
+        display: none;
+    }
+
+    .app-version {
+        display: none;
+    }
+
     .live-grid {
         flex-direction: column;
     }
+
     .live-right {
         width: 100%;
         flex-direction: row;
+        flex-wrap: wrap;
     }
+
     .live-right .panel {
-        flex: 1;
+        flex: 1 1 200px;
+        min-width: 0;
     }
+
+    .live-left {
+        min-height: 400px;
+    }
+
+    .settings-grid-5 {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+    }
+
+    .settings-grid-5 .panel:nth-child(1) { grid-column: 1; grid-row: auto; }
+    .settings-grid-5 .panel:nth-child(2) { grid-column: 1; grid-row: auto; }
+    .settings-grid-5 .panel:nth-child(3) { grid-column: 1; grid-row: auto; }
+    .settings-grid-5 .panel:nth-child(4) { grid-column: 1; grid-row: auto; }
+    .settings-grid-5 .panel:nth-child(5) { grid-column: 1; grid-row: auto; }
+
+    .home-stats {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .stat-card {
+        padding: 16px;
+    }
+
+    .stat-value {
+        font-size: 22px;
+    }
+
+    .home-welcome h2 {
+        font-size: 18px;
+    }
+
+    .sync-status {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .map-config-row {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .map-config-row .map-config-group {
+        width: 100%;
+    }
+
+    .zone-item {
+        flex-wrap: wrap;
+    }
+
+    .trail-item {
+        flex-wrap: wrap;
+    }
+}
+
+/* ===== RESPONSIVE: MOBILE (<=480px) ===== */
+@media (max-width: 480px) {
+    .menu-bar {
+        height: 34px;
+        padding: 0 6px 0 48px;
+    }
+
+    .menu-items {
+        display: none;
+    }
+
+    .page {
+        padding: 6px;
+    }
+
+    .page.active {
+        padding: 6px;
+    }
+
+    .panel-label {
+        font-size: 10px;
+        padding: 2px 8px;
+    }
+
+    .panel-content {
+        padding: 10px;
+        padding-top: 28px;
+    }
+
+    .live-grid {
+        gap: 6px;
+    }
+
+    .live-right {
+        flex-direction: column;
+    }
+
+    .live-right .panel {
+        flex: 1 1 auto;
+    }
+
+    .live-left {
+        min-height: 300px;
+    }
+
     .kpi-config-grid {
         grid-template-columns: 1fr;
+    }
+
+    .kpi-fields {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .home-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-card {
+        flex-direction: row;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .stat-card i {
+        font-size: 22px;
+    }
+
+    .stat-value {
+        font-size: 18px;
+    }
+
+    .home-welcome {
+        padding: 16px 0 6px;
+    }
+
+    .home-welcome h2 {
+        font-size: 15px;
+    }
+
+    .home-welcome p {
+        font-size: 11px;
+    }
+
+    .data-table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 6px 8px;
+        font-size: 10px;
+        white-space: nowrap;
+    }
+
+    .btn-present {
+        padding: 10px 20px;
+        font-size: 12px;
+    }
+
+    .rendu-desc {
+        font-size: 11px;
+    }
+
+    .filter-title {
+        font-size: 9px;
+    }
+
+    .map-config {
+        max-height: 300px;
+    }
+
+    .sidebar {
+        width: 200px;
+    }
+
+    .settings-grid-5 {
+        gap: 6px;
+    }
+
+    .settings-form {
+        gap: 6px;
+    }
+
+    .form-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .form-input, .form-select {
+        width: 100%;
     }
 }
