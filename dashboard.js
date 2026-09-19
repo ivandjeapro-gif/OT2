@@ -490,18 +490,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!trails.length) return map;
 
-        // VEHICLES - 1 DT par trail, max 3
+        // VEHICLES - 1 DT par trail
         const vehicles = [];
         let dtNum = 0;
         trails.forEach((t, ti) => {
-            if (dtNum >= 3) return;
             dtNum++;
             vehicles.push({ id: 'DT-' + String(dtNum).padStart(2, '0'), online: true, trailIdx: ti, start: 0.1, dir: 1 });
         });
 
-        // Niveaux de carburant par DT (reservoirs)
+        // Niveaux de carburant par DT (reservoirs) - max 3
         const fuelLevels = [72, 45, 12];
-        data.vehicles = vehicles.map((v, idx) => ({ id: v.id, fuel: fuelLevels[idx % fuelLevels.length] }));
+        data.vehicles = vehicles.slice(0, 3).map((v, idx) => ({ id: v.id, fuel: fuelLevels[idx % fuelLevels.length] }));
         renderFuelAlerts();
 
         const vehicleState = {};
