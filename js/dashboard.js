@@ -722,8 +722,9 @@ document.addEventListener('DOMContentLoaded', () => {
     renderFuelAlerts();
 
     setTimeout(async () => {
+        // Le zoom vient de la config Live (cfgZoom, 14 par defaut) : l'ancien
+        // setZoom(12) force ici l'ecrasait et montrait la mine de tres loin.
         const m = await initMap();
-        m.setZoom(12);
         setTimeout(() => m.invalidateSize(), 300);
     }, 300);
 
