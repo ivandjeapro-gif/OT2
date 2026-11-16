@@ -291,13 +291,21 @@
                             <div class="panel panel-kpi">
                                 <div class="panel-label">KPI - Configuration</div>
                                 <div class="panel-content">
+                                    <!-- Affichage des panneaux du dashboard sans valeur a saisir -->
+                                    <div class="kpi-panneaux">
+                                        <span class="kpi-panneaux-titre">Panneaux</span>
+                                        <label class="kpi-check"><input type="checkbox" data-kpi="env" checked /> Environnement</label>
+                                        <label class="kpi-check"><input type="checkbox" data-kpi="fuel" checked /> Reservoirs</label>
+                                        <label class="kpi-check"><input type="checkbox" data-kpi="tablets" checked /> Tablettes</label>
+                                        <span class="kpi-panneaux-info" id="kpiAppliqueInfo">Applique en direct au dashboard</span>
+                                    </div>
                                     <div class="kpi-config-grid">
                                         <!-- KPI MINERAIS -->
                                         <div class="kpi-block">
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#94a3b8"></span>
                                                 <span class="kpi-name">Minerais - Tonnage</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="minerais" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -320,7 +328,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#fbbf24"></span>
                                                 <span class="kpi-name">Ore -onces</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="ore" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -343,7 +351,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#94a3b8"></span>
                                                 <span class="kpi-name">Waste - Tonnage</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="waste" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -369,7 +377,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" id="offroadDot" style="background:#64748b"></span>
                                                 <span class="kpi-name">Offroad Count</span>
-                                                <label class="toggle-sm" title="Activer la detection de sortie de route"><input type="checkbox" id="cfgOffroadActif" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="offroad" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -385,7 +393,10 @@
                                                     <input type="number" class="form-input-sm" id="cfgOffroadDuree" value="10" min="0" max="600" step="1" title="Duree hors piste avant de declencher l'alerte" />
                                                 </div>
                                             </div>
-                                            <div class="kpi-offroad-status" id="offroadStatus">Passerelle : connexion...</div>
+                                            <div class="kpi-offroad-foot">
+                                                <label class="kpi-check" title="Detection des sorties de route par la passerelle"><input type="checkbox" id="cfgOffroadActif" checked /> Detection</label>
+                                                <div class="kpi-offroad-status" id="offroadStatus">Passerelle : connexion...</div>
+                                            </div>
                                         </div>
 
                                         <!-- GRADE HIGH -->
@@ -393,7 +404,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#ec4899"></span>
                                                 <span class="kpi-name">High Grade</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="hg" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -412,7 +423,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#f97316"></span>
                                                 <span class="kpi-name">Medium Grade</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="mg" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -431,7 +442,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#eab308"></span>
                                                 <span class="kpi-name">Low Grade</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="lg" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
@@ -450,7 +461,7 @@
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#06b6d4"></span>
                                                 <span class="kpi-name">Marginal Ore</span>
-                                                <label class="toggle-sm"><input type="checkbox" checked /><span class="toggle-track"></span></label>
+                                                <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="mo" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">

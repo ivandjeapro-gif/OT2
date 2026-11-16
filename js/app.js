@@ -108,20 +108,23 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             parts = null;
         }
+        // Pages sans barre d'etat (home, alerts...) : ne rien faire. Sans ce
+        // garde-fou, l'exception arretait TOUTE l'initialisation de app.js.
+        const elDate = document.getElementById('statusDate');
+        const elHeure = document.getElementById('statusTime');
+        if (!elDate || !elHeure) return;
         if (parts) {
-            document.getElementById('statusDate').textContent =
-                `${parts.weekday} ${parts.day} ${parts.month}`;
-            document.getElementById('statusTime').textContent =
-                `${parts.hour} h ${parts.minute} m ${parts.second} S`;
+            elDate.textContent = `${parts.weekday} ${parts.day} ${parts.month}`;
+            elHeure.textContent = `${parts.hour} h ${parts.minute} m ${parts.second} S`;
         } else {
             const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             const months = ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin',
                              'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'];
-            document.getElementById('statusDate').textContent = `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]}`;
+            elDate.textContent = `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]}`;
             const h = String(now.getHours()).padStart(2, '0');
             const m = String(now.getMinutes()).padStart(2, '0');
             const s = String(now.getSeconds()).padStart(2, '0');
-            document.getElementById('statusTime').textContent = `${h} h ${m} m ${s} S`;
+            elHeure.textContent = `${h} h ${m} m ${s} S`;
         }
     }
     updateClock();
@@ -1607,6 +1610,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     autoLoadDefaultData();
+
+    // ===== AFFICHAGE DES KPI SUR LE DASHBOARD =====
+    // Chaque interrupteur [data-kpi] de la page Live montre / masque le KPI
+    // correspondant sur le dashboard. Etat dans localStorage
+    // (oreTrackingKpi) : le dashboard deja ouvert l'applique en direct via
+    // l'evenement `storage`, sans recharger ni repasser par PRESENTER.
+    (function initAffichageKpi() {
+        const CLE = 'oreTrackingKpi';
+        const toggles = document.querySelectorAll('input[data-kpi]');
+        if (!toggles.length) return;
+        let etat = {};
+        try { etat = JSON.parse(localStorage.getItem(CLE)) || {}; } catch (e) { etat = {}; }
+        const info = document.getElementById('kpiAppliqueInfo');
+
+        function refleter(input) {
+            const bloc = input.closest('.kpi-block');
+            if (bloc) bloc.classList.toggle('kpi-off', !input.checked);
+        }
+        toggles.forEach((input) => {
+            const cle = input.dataset.kpi;
+            if (etat[cle] !== undefined) input.checked = etat[cle] !== false;
+            refleter(input);
+            input.addEventListener('change', () => {
+                etat[cle] = input.checked;
+                try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch (e) {}
+                refleter(input);
+                if (info) {
+                    info.textContent = (input.checked ? 'Affiche' : 'Masque') + ' sur le dashboard';
+                    info.classList.add('ok');
+                    clearTimeout(info._t);
+                    info._t = setTimeout(() => {
+                        info.textContent = 'Applique en direct au dashboard';
+                        info.classList.remove('ok');
+                    }, 2500);
+                }
+            });
+        });
+    })();
 
     // ===== OFFROAD : detection reelle par la passerelle (:8101) =====
     // Lecture : /api/offroad toutes les 5 s (compteur + etat de connexion).

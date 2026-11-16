@@ -27,7 +27,7 @@
 
   function rendreStats(etat) {
     const engins = (etat.engins || []).filter((e) => e.actif !== 0);
-    const alertes = (etat.alertes || []).filter((a) => !a.acquittee && a.type !== 'fin_mission');
+    const alertes = (etat.alertes || []).filter((a) => !a.acquittee && !MSUI.estInfo(a));
     const missions = (etat.missions || []).filter((m) => m.statut === 'en_cours');
     const aujourdhui = new Date().toISOString().slice(0, 10);
     const voy = (etat.voyages || []).filter(
@@ -52,7 +52,7 @@
     const seuilMs = (etat.seuilRougeMin || 10) * 60000;
 
     for (const a of (etat.alertes || [])) {
-      if (a.acquittee || a.type === 'fin_mission') continue;
+      if (a.acquittee || MSUI.estInfo(a)) continue;
       const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
       const vieux = Date.now() - t > seuilMs;
       items.push({

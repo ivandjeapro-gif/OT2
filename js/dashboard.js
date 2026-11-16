@@ -227,6 +227,41 @@ document.addEventListener('DOMContentLoaded', () => {
         if (banner) banner.style.visibility = 'hidden';
     }
 
+    // ===== AFFICHAGE DES KPI (pilote par la page Live) =====
+    // localStorage.oreTrackingKpi = { minerais: true, hg: false, ... }.
+    // Absent ou true = affiche. Une ligne / colonne entierement masquee
+    // disparait et la carte recupere la place.
+    const KPI_ELEMENTS = {
+        minerais: () => document.getElementById('kpiMineraisCard'),
+        ore:      () => document.getElementById('kpiOreCard'),
+        waste:    () => document.getElementById('kpiWasteCard'),
+        offroad:  () => document.querySelector('.offroad-card'),
+        hg:       () => document.getElementById('voyantHG')?.closest('.grade-block'),
+        mg:       () => document.getElementById('voyantMG')?.closest('.grade-block'),
+        lg:       () => document.getElementById('voyantLG')?.closest('.grade-block'),
+        mo:       () => document.getElementById('voyantMO')?.closest('.grade-block'),
+        env:      () => document.querySelector('.env-block'),
+        fuel:     () => document.getElementById('fuelBlock'),
+        tablets:  () => document.getElementById('tabletBlock'),
+    };
+
+    function appliquerAffichageKpi() {
+        let etat = {};
+        try { etat = JSON.parse(localStorage.getItem('oreTrackingKpi')) || {}; } catch (e) {}
+        Object.keys(KPI_ELEMENTS).forEach((cle) => {
+            const el = KPI_ELEMENTS[cle]();
+            if (el) el.style.display = etat[cle] === false ? 'none' : '';
+        });
+        const visible = (el) => el && el.style.display !== 'none';
+        const ligne = document.querySelector('.kpi-row');
+        if (ligne) ligne.style.display = [...ligne.children].some(visible) ? '' : 'none';
+        const colonne = document.querySelector('.sidebar');
+        if (colonne) colonne.style.display = [...colonne.children].some(visible) ? '' : 'none';
+        // Leaflet recalcule sa taille sur `resize` : la carte prend la place libre
+        window.dispatchEvent(new Event('resize'));
+    }
+    appliquerAffichageKpi();
+
     function jouerSonDanger() {
         if (!afficherAlertes || typeof PREFS === 'undefined') return;
         const now = Date.now();
@@ -357,6 +392,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // La page Live a relance PRESENTER (zones, trails, fond, options) :
     // on recharge pour appliquer la nouvelle configuration sans fermer la fenetre.
     window.addEventListener('storage', (e) => {
+        if (e.key === 'oreTrackingKpi') {
+            appliquerAffichageKpi();        // en direct, sans recharger
+            return;
+        }
         if (e.key === 'oreTrackingConfig' || e.key === 'oreTrackingTrails') {
             setTimeout(() => location.reload(), 300);
         }

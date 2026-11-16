@@ -178,6 +178,8 @@
     etat: ETAT, onTick, demarrer, voyant, rafraichir,
     heure, ilYA, duree,
     STATUT_MISSION, CONFORMITE,
+    // alerte d'information (fin, arrivee, retour a la normale) : rien a traiter
+    estInfo: (a) => !!(a && TYPES_INFO[a.type]),
     esc: (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   };

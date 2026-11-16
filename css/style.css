@@ -1519,6 +1519,28 @@ button.sg2-gray-bar:hover {
 .kpi-block.kpi-grade:nth-child(7) { border-left-color: #eab308; }
 .kpi-block.kpi-grade:nth-child(8) { border-left-color: #06b6d4; }
 
+/* Panneaux du dashboard pilotes depuis Live (affichage seulement) */
+.kpi-panneaux {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid #1c2d4a;
+    border-radius: 4px;
+}
+.kpi-panneaux-titre { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; }
+.kpi-panneaux-info { margin-left: auto; font-size: 10px; color: #475569; }
+.kpi-panneaux-info.ok { color: #22c55e; }
+.kpi-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #cbd5e1; cursor: pointer; white-space: nowrap; }
+.kpi-check input { accent-color: #22c55e; margin: 0; }
+.kpi-block.kpi-off { opacity: .45; }
+.kpi-block.kpi-off .kpi-fields { pointer-events: none; }
+.kpi-offroad-foot { display: flex; align-items: center; gap: 10px; margin-top: 5px; min-width: 0; }
+.kpi-offroad-foot .kpi-offroad-status { margin-top: 0; flex: 1; min-width: 0; }
+
 .kpi-offroad-status {
     margin-top: 5px;
     font-size: 10px;
