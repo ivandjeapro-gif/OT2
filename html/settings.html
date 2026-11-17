@@ -287,6 +287,61 @@
                             </div>
                         </div>
 
+                        <!-- LIAISONS DE LA PASSERELLE (:8101) : ses propres reglages, enregistres
+                             dans SA base (table params). Distincts du bloc Serveur_OT ci-dessus,
+                             qui ne regle que ce navigateur (Dig Plan). Les jetons ne reviennent
+                             jamais dans la page : seule leur empreinte est affichee. -->
+                        <div class="panel" id="panelRelais">
+                            <div class="panel-label">Liaisons de la passerelle (envois vers OT et SG)</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <p class="relais-aide">Utilisees par la passerelle pour envoyer evenements, alertes et
+                                        positions. Un jeton laisse vide n'est pas modifie.</p>
+                                    <div class="relais-env" id="relaisEnv" hidden></div>
+                                    <h4 class="relais-titre">Serveur_OT (bureau)</h4>
+                                    <div class="form-row form-row-block">
+                                        <label for="relaisOfficeUrl">URL de deploiement (/exec)</label>
+                                        <input type="text" class="form-input form-input-wide" id="relaisOfficeUrl"
+                                               name="relais-office-url" placeholder="https://script.google.com/macros/s/XXXX/exec"
+                                               spellcheck="false" autocomplete="off" data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <div class="form-row form-row-block">
+                                        <label for="relaisOfficeToken">Jeton <span class="relais-empreinte" id="relaisOfficeEmpreinte"></span></label>
+                                        <input type="password" class="form-input form-input-wide" id="relaisOfficeToken"
+                                               name="relais-office-token" placeholder="laisser vide pour conserver le jeton enregistre"
+                                               spellcheck="false" autocomplete="new-password" data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <h4 class="relais-titre">Serveur_SG (affectation)</h4>
+                                    <div class="form-row form-row-block">
+                                        <label for="relaisSgUrl">URL de deploiement (/exec)</label>
+                                        <input type="text" class="form-input form-input-wide" id="relaisSgUrl"
+                                               name="relais-sg-url" placeholder="https://script.google.com/macros/s/XXXX/exec"
+                                               spellcheck="false" autocomplete="off" data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <div class="form-row form-row-block">
+                                        <label for="relaisSgToken">Jeton <span class="relais-empreinte" id="relaisSgEmpreinte"></span></label>
+                                        <input type="password" class="form-input form-input-wide" id="relaisSgToken"
+                                               name="relais-sg-token" placeholder="laisser vide pour conserver le jeton enregistre"
+                                               spellcheck="false" autocomplete="new-password" data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisSgIntervalle">Envoi des positions toutes les (s)</label>
+                                        <input type="number" class="form-input" id="relaisSgIntervalle" min="5" max="3600" step="1" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisAlerteRouge">Alerte non vue en rouge apres (min)</label>
+                                        <input type="number" class="form-input" id="relaisAlerteRouge" min="1" max="1440" step="1" />
+                                    </div>
+                                    <div class="ot-actions">
+                                        <button type="button" class="ot-btn ot-btn-primaire" id="btnRelaisSave">Enregistrer</button>
+                                        <button type="button" class="ot-btn" id="btnRelaisTest">Tester les liaisons</button>
+                                    </div>
+                                    <div class="account-status" id="relaisStatus"></div>
+                                    <div class="relais-resultats" id="relaisResultats" hidden></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- CONNECTION -->
                         <div class="panel">
                             <div class="panel-label" data-i18n>Connection</div>
@@ -393,7 +448,7 @@
                                             <input type="checkbox" id="syncCoucheOffice" checked disabled />
                                             <span class="sync-layer-box">
                                                 <b>3. Synchro Office (relais vers la direction)</b>
-                                                <small>Envoi des alertes et billets vers le serveur Office. Toujours active actuellement — la case deviendra cochable quand le relais sera parametrable.</small>
+                                                <small>Envoi des alertes et evenements vers Serveur_OT. URL et jeton : bloc « Liaisons de la passerelle ». Toujours active (vider l'URL pour la couper).</small>
                                             </span>
                                         </label>
 
@@ -721,6 +776,7 @@
     <script src="../js/api.js"></script>
     <script type="module" src="../js/auth.js"></script>
     <script src="../js/ot-settings.js"></script>
+    <script src="../js/passerelle-relais.js"></script>
     <script src="../js/server-ui.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/xbee-serial.js"></script>
