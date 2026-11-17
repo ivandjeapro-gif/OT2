@@ -1649,6 +1649,71 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     })();
 
+    // ===== OBJECTIFS ET VALEURS REELLES DES KPI =====
+    // Planned / Alerte % : saisis ici, enregistres dans
+    // localStorage.oreTrackingKpiPlan, lus par le dashboard (en direct).
+    // Actuel : LECTURE SEULE, calcule par la passerelle sur les voyages du
+    // jour (/api/kpi) - plus aucune valeur saisie a la main ni simulee.
+    (function initObjectifsKpi() {
+        const CLE = 'oreTrackingKpiPlan';
+        const champs = document.querySelectorAll('input[data-planned], input[data-alerte]');
+        if (!champs.length) return;
+        let plan = {};
+        try { plan = JSON.parse(localStorage.getItem(CLE)) || {}; } catch (e) { plan = {}; }
+
+        function lire() {
+            const p = {};
+            document.querySelectorAll('input[data-planned]').forEach((el) => {
+                const k = el.dataset.planned;
+                p[k] = p[k] || {};
+                const v = parseFloat(el.value);
+                if (!isNaN(v)) p[k].planned = v;
+            });
+            document.querySelectorAll('input[data-alerte]').forEach((el) => {
+                const k = el.dataset.alerte;
+                p[k] = p[k] || {};
+                const v = parseFloat(el.value);
+                if (!isNaN(v)) p[k].alerte = v;
+            });
+            return p;
+        }
+        // restaurer, puis enregistrer l'etat complet (valeurs par defaut comprises)
+        champs.forEach((el) => {
+            const k = el.dataset.planned || el.dataset.alerte;
+            const prop = el.dataset.planned ? 'planned' : 'alerte';
+            if (plan[k] && plan[k][prop] !== undefined) el.value = plan[k][prop];
+            el.addEventListener('change', () => {
+                try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
+            });
+        });
+        try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
+
+        const base = () => (window.OTCFG && OTCFG.passerelle)
+            ? OTCFG.passerelle()
+            : 'http://' + (location.hostname || 'localhost') + ':8101';
+        const fmt = (v) => (Math.round((v || 0) * 10) / 10);
+        async function actualiser() {
+            try {
+                const k = await fetch(base() + '/api/kpi', { cache: 'no-store' }).then((r) => r.json());
+                const valeurs = {
+                    minerais: k.minerais_t, ore: k.onces, waste: k.waste_t,
+                    hg: k.grades.high.tonnes, mg: k.grades.medium.tonnes,
+                    lg: k.grades.low.tonnes, mo: k.grades.marginal.tonnes,
+                };
+                document.querySelectorAll('input[data-actuel]').forEach((el) => {
+                    el.value = fmt(valeurs[el.dataset.actuel]);
+                    el.title = 'Voyages du ' + k.jour + ' (' + k.voyages + ' voyage(s))';
+                });
+            } catch (e) {
+                document.querySelectorAll('input[data-actuel]').forEach((el) => {
+                    el.value = ''; el.title = 'Passerelle :8101 injoignable';
+                });
+            }
+        }
+        actualiser();
+        setInterval(actualiser, 10000);
+    })();
+
     // ===== OFFROAD : detection reelle par la passerelle (:8101) =====
     // Lecture : /api/offroad toutes les 5 s (compteur + etat de connexion).
     // Ecriture : /api/offroad/reglages des qu'un reglage change ; le

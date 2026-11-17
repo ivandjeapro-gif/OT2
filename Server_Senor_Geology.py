@@ -388,7 +388,10 @@ CREATE TABLE IF NOT EXISTS office_sync (
     payload TEXT NOT NULL,
     statut TEXT DEFAULT 'en_attente', -- en_attente, envoye, echec
     created_at TEXT DEFAULT (datetime('now')),
-    envoie_le TEXT DEFAULT ''
+    envoie_le TEXT DEFAULT '',
+    tentatives INTEGER DEFAULT 0,       -- essais d'envoi (rejeu des echecs)
+    derniere_tentative TEXT DEFAULT '',
+    event_id TEXT DEFAULT ''            -- UUID de l'evenement envoye a OT
 );
 
 CREATE TABLE IF NOT EXISTS voyages (
@@ -2328,7 +2331,7 @@ def verifier_deviation(conn, dt_code):
                 "ecart_m=? WHERE id=?", (round(ecart, 1), mission["id"]))
             conn.commit()
             creer_alerte(conn, "retour_trajet", dt_code, message)
-            evenement = {"type": "retour_trajet", "dt_code": dt_code,
+            evenement = {"type": "retour_trajet", "dt_code": dt_code, "x": x, "y": y,
                          "mission_id": mission["id"], "distance": ecart, "message": message}
         else:
             conn.execute("UPDATE missions SET ecart_m=? WHERE id=?",
@@ -2343,7 +2346,7 @@ def verifier_deviation(conn, dt_code):
                 "ecart_m=? WHERE id=?", (candidat, round(ecart, 1), mission["id"]))
             conn.commit()
             creer_alerte(conn, "deviation", dt_code, message)
-            evenement = {"type": "deviation", "dt_code": dt_code,
+            evenement = {"type": "deviation", "dt_code": dt_code, "x": x, "y": y,
                          "mission_id": mission["id"], "distance": ecart, "message": message}
         else:
             conn.execute(
@@ -2506,7 +2509,7 @@ def verifier_offroad(conn, dt_code):
                 (round(dist, 1), dt_code))
             conn.commit()
             creer_alerte(conn, "retour_piste", dt_code, message)
-            evenement = {"type": "retour_piste", "dt_code": dt_code,
+            evenement = {"type": "retour_piste", "dt_code": dt_code, "x": x, "y": y,
                          "distance": dist, "duree_s": duree, "message": message}
         else:
             conn.execute("UPDATE engins SET offroad_distance=? WHERE code=?",
@@ -2558,6 +2561,61 @@ def etat_offroad(conn):
         "ORDER BY offroad_depuis")]
     return {"actif": not motif, "motif": motif, "count": len(dts), "dts": dts,
             "reglages": reglages, "aretes": len(aretes)}
+
+
+# ------------------------------------------------------------- KPI reels ---
+# KPI du dashboard calcules sur les VOYAGES REELS (16/11). Avant : constantes
+# simulees dans dashboard.js, et un /api/stats SaaS lisant une table vide.
+#   - minerais_t : tonnage des voyages de blocs minerai
+#   - waste_t    : tonnage des voyages de blocs steriles (code WST / dest. W)
+#   - onces      : or contenu = tonnes x Au (g/t, colonne Au_ok du Geosum)
+#                  / 31,1035 (g par once troy), minerai seulement
+#   - grades     : tonnage par code de teneur du NOM de bloc (4e segment,
+#                  cf. nomenclature) : HG (+ SHG), MG, LG, MO
+GRAMMES_PAR_ONCE = 31.1035
+KPI_GRADES = {"HG": "high", "SHG": "high", "MG": "medium", "MG1": "medium",
+              "MG2": "medium", "LG": "low", "LG1": "low", "LG2": "low", "MO": "marginal"}
+
+
+def code_teneur_bloc(nom):
+    """Code du 4e segment du nom (260_LMP2_113_MG_FR_021_OP -> MG), '' sinon."""
+    parties = str(nom or "").split("_")
+    return parties[3].upper() if len(parties) >= 4 else ""
+
+
+def kpi_voyages(conn, jour=None):
+    """KPI des voyages du jour (UTC, comme created_at) ou de `jour` (AAAA-MM-JJ)."""
+    lignes = conn.execute(
+        "SELECT v.volume_t, o.nom, o.au_teneur, o.minerai, o.destination "
+        "FROM voyages v LEFT JOIN oreblocs o ON o.id = v.orebloc_id "
+        "WHERE date(v.created_at) = COALESCE(?, date('now'))", (jour,)).fetchall()
+    res = {"jour": jour or conn.execute("SELECT date('now')").fetchone()[0],
+           "voyages": len(lignes), "minerais_t": 0.0, "waste_t": 0.0, "onces": 0.0,
+           "grades": {g: {"tonnes": 0.0, "onces": 0.0} for g in ("high", "medium", "low", "marginal")},
+           "sans_bloc": 0}
+    for r in lignes:
+        t = float(r["volume_t"] or 0)
+        if r["nom"] is None:
+            res["sans_bloc"] += 1          # voyage sans orebloc connu : tonnage non classe
+            continue
+        code = code_teneur_bloc(r["nom"])
+        dest = str(r["destination"] or "").strip().upper()
+        sterile = code == "WST" or dest == "W" or not r["minerai"]
+        if sterile and code not in KPI_GRADES:
+            res["waste_t"] += t
+            continue
+        onces = t * float(r["au_teneur"] or 0) / GRAMMES_PAR_ONCE
+        res["minerais_t"] += t
+        res["onces"] += onces
+        g = KPI_GRADES.get(code)
+        if g:
+            res["grades"][g]["tonnes"] += t
+            res["grades"][g]["onces"] += onces
+    arrondir = lambda v: round(v, 1)
+    res["minerais_t"], res["waste_t"], res["onces"] = map(arrondir, (res["minerais_t"], res["waste_t"], res["onces"]))
+    for g in res["grades"].values():
+        g["tonnes"], g["onces"] = arrondir(g["tonnes"]), arrondir(g["onces"])
+    return res
 
 
 # ------------------------------------------------------- descente MQTT --
@@ -3218,28 +3276,147 @@ def office_message(payload):
     return json.dumps(payload, ensure_ascii=True)
 
 
-def notifier_office(conn):
-    """Vide la file office_sync vers le serveur Office : un vrai appel HTTP
-    (action=notification) par entree en attente. Statut 'envoye' seulement
-    si Office a reellement accuse reception (ok:true) ; 'echec' sinon, pour
-    retenter au prochain passage."""
-    pending = [dict(r) for r in conn.execute(
-        "SELECT * FROM office_sync WHERE statut='en_attente' ORDER BY id")]
-    for p in pending:
+# ------------------------------------------- evenements typees vers OT ---
+# Depuis le 16/11, Serveur_OT accepte les evenements TERRAIN (MISSION,
+# MISSION_FIN, ARRIVEE, OFFROAD, RETOUR_PISTE, DEVIATION, RETOUR_TRAJET).
+# Ils partent en ?action=evenement, dans l'onglet `evenements` : exploitable
+# par le bureau (KPI, historique, carte), au lieu d'une phrase en
+# `notification`. Le reste (minage declare...) garde la notification texte.
+OFFICE_TENTATIVES_MAX = 10       # au-dela, l'entree reste en echec (visible)
+OFFICE_REESSAI_S = 30            # delai minimal entre deux essais d'une entree
+OFFICE_FENETRE_REESSAI_H = 24    # on ne rejoue pas d'evenements plus vieux
+OFFICE_LOT_MAX = 20              # entrees traitees par passage
+
+_TYPES_TERRAIN_OT = {
+    "offroad": "OFFROAD", "retour_piste": "RETOUR_PISTE",
+    "deviation": "DEVIATION", "retour_trajet": "RETOUR_TRAJET",
+}
+
+
+def office_evenement(payload):
+    """Traduit un payload de la file en (event_type, payload OT), ou None si
+    l'entree reste une notification texte. Tous portent dt_code."""
+    action = payload.get("action")
+    a = payload.get("alerte")
+    if isinstance(a, dict) and a.get("type") in _TYPES_TERRAIN_OT:
+        return _TYPES_TERRAIN_OT[a["type"]], dict(a)
+    if action == "arrivee":
+        return "ARRIVEE", {k: payload.get(k) for k in ("mission_id", "dt_code", "dumping_area")}
+    if action == "fin_mission":
+        corps = {k: v for k, v in payload.items() if k != "action"}
+        corps["tonnes"] = payload.get("volume_t")
+        return "MISSION_FIN", corps
+    if isinstance(payload.get("mission"), dict) and action in ("affectation", "affectation_auto"):
+        m = dict(payload["mission"])
+        m["origine"] = action
+        return "MISSION", m
+    return None
+
+
+def office_event_id(entree):
+    """UUID stable pour une entree de la file : un renvoi (reseau coupe apres
+    reception) est reconnu en DOUBLON par OT au lieu d'etre ecrit deux fois.
+    created_at entre dans le nom : une base recreee ne reutilise pas d'UUID."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, "senor-geology-passerelle:%s:%s" % (
+        entree["id"], entree.get("created_at") or "")))
+
+
+_office_reveil = threading.Event()
+_office_thread_actif = {"oui": False}
+
+
+def notifier_office(conn=None):
+    """Demande l'envoi de la file vers Serveur_OT, SANS l'attendre (16/11).
+
+    Les routes appellent cette fonction sous LOCK, le verrou global de la
+    passerelle. Avant, les appels HTTP (jusqu'a 10 s chacun) se faisaient ici,
+    sous ce verrou : un OT lent figeait les positions de toute la flotte. Le
+    travail est desormais fait par le thread `boucle_office`, hors verrou.
+    Sans thread demarre (tests, outil en ligne de commande), envoi direct."""
+    if _office_thread_actif["oui"]:
+        _office_reveil.set()
+    elif conn is not None:
+        vider_file_office(conn)
+
+
+def boucle_office():
+    """Thread d'envoi vers Serveur_OT : se reveille a chaque demande, et au
+    plus tard toutes les 30 s pour rejouer les echecs. Connexion SQLite
+    propre (WAL : lectures/ecritures concurrentes sures). Le verrou global
+    n'est JAMAIS pris : seules de courtes ecritures SQLite sont faites."""
+    _office_thread_actif["oui"] = True
+    while True:
+        _office_reveil.wait(timeout=OFFICE_REESSAI_S)
+        _office_reveil.clear()
         try:
-            payload = json.loads(p["payload"])
-            message = office_message(payload)
-            if office_appel("notification", {"profil": "", "message": message}):
-                conn.execute(
-                    "UPDATE office_sync SET statut='envoye', envoie_le=? WHERE id=?",
-                    (now_iso(), p["id"]))
-            else:
-                conn.execute(
-                    "UPDATE office_sync SET statut='echec' WHERE id=?", (p["id"],))
+            conn = get_conn()
+            try:
+                vider_file_office(conn)
+            finally:
+                conn.close()
         except Exception as e:
-            print("OFFICE: erreur traitement office_sync#%s: %s" % (p["id"], e))
-            conn.execute(
-                "UPDATE office_sync SET statut='echec' WHERE id=?", (p["id"],))
+            print("OFFICE: boucle d'envoi en erreur: %s" % e)
+
+
+def vider_file_office(conn):
+    """Vide la file office_sync vers Serveur_OT. Statut 'envoye' seulement
+    si OT a reellement accuse reception (ok:true).
+
+    - evenements terrain -> ?action=evenement (type + UUID stable) ;
+    - le reste -> ?action=notification (texte), comme avant.
+
+    Les entrees en 'echec' de moins de 24 h sont REJOUEES (avant le 16/11,
+    elles etaient abandonnees malgre le commentaire). Grace a l'UUID stable,
+    rejouer un evenement est sans risque. Au premier echec reseau, on arrete
+    le passage : inutile d'enchainer des appels de 10 s vers un OT injoignable.
+    Appelee par le thread `boucle_office`, hors du verrou global."""
+    office_url, _ = office_conf()
+    if not office_url:
+        return
+    maintenant = datetime.now()
+    entrees = [dict(r) for r in conn.execute(
+        "SELECT * FROM office_sync WHERE statut IN ('en_attente', 'echec') "
+        "AND COALESCE(tentatives, 0) < ? "
+        "AND created_at >= datetime('now', ?) ORDER BY id LIMIT ?",
+        (OFFICE_TENTATIVES_MAX, "-%d hours" % OFFICE_FENETRE_REESSAI_H, OFFICE_LOT_MAX))]
+    for e in entrees:
+        if e["statut"] == "echec" and e.get("derniere_tentative"):
+            try:
+                ecoule = (maintenant - datetime.strptime(
+                    e["derniere_tentative"], "%Y-%m-%d %H:%M:%S")).total_seconds()
+            except ValueError:
+                ecoule = OFFICE_REESSAI_S
+            if ecoule < OFFICE_REESSAI_S:
+                continue
+        ok = False
+        try:
+            payload = json.loads(e["payload"])
+            typage = office_evenement(payload)
+            if typage:
+                event_id = e.get("event_id") or office_event_id(e)
+                ok = office_appel("evenement", {
+                    "event_id": event_id,
+                    "event_type": typage[0],
+                    "source_device": "PASSERELLE",
+                    "gateway_id": "SENOR_GEOLOGY",
+                    "timestamp": (e.get("created_at") or now_iso()).replace(" ", "T"),
+                    "payload": typage[1],
+                })
+                if not e.get("event_id"):
+                    conn.execute("UPDATE office_sync SET event_id=? WHERE id=?",
+                                 (event_id, e["id"]))
+            else:
+                ok = office_appel("notification",
+                                  {"profil": "", "message": office_message(payload)})
+        except Exception as ex:
+            print("OFFICE: erreur traitement office_sync#%s: %s" % (e["id"], ex))
+        conn.execute(
+            "UPDATE office_sync SET statut=?, envoie_le=?, derniere_tentative=?, "
+            "tentatives=COALESCE(tentatives, 0) + 1 WHERE id=?",
+            ("envoye" if ok else "echec", now_iso() if ok else "", now_iso(), e["id"]))
+        conn.commit()
+        if not ok:
+            break       # OT injoignable ou refus : on reessaiera au prochain passage
     conn.commit()
 
 
@@ -4734,6 +4911,12 @@ class Handler(BaseHTTPRequestHandler):
                             "message": "%s toujours devie (%d m du trajet)." % (dt_code, int(m["ecart_m"]))})
                     return self._send_json(200, {"statut": "ok", "message": "pas de deviation"})
 
+                if path == "/api/kpi" and method == "GET":
+                    jour = (self._qs().get("jour") or [None])[0]
+                    if jour and not re.match(r"^\d{4}-\d{2}-\d{2}$", jour):
+                        return self._send_json(400, {"error": "jour attendu au format AAAA-MM-JJ"})
+                    return self._send_json(200, kpi_voyages(conn, jour))
+
                 if path == "/api/offroad" and method == "GET":
                     return self._send_json(200, etat_offroad(conn))
 
@@ -4889,6 +5072,14 @@ def main():
             conn.execute("ALTER TABLE blasts ADD COLUMN %s %s" % (colonne, definition))
             conn.commit()
 
+    # office_sync : rejeu des echecs + UUID des evenements envoyes a OT
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(office_sync)")]
+    for nom, decl in (("tentatives", "INTEGER DEFAULT 0"),
+                      ("derniere_tentative", "TEXT DEFAULT ''"),
+                      ("event_id", "TEXT DEFAULT ''")):
+        if nom not in cols:
+            conn.execute("ALTER TABLE office_sync ADD COLUMN %s %s" % (nom, decl))
+    conn.commit()
     # engins : etat de sortie de route (detection offroad)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(engins)")]
     for nom, decl in (("offroad", "INTEGER DEFAULT 0"),
@@ -5024,6 +5215,8 @@ def main():
     conn.close()
 
     threading.Thread(target=ecouteur_xbee, daemon=True).start()
+    # envoi vers Serveur_OT hors du verrou global (16/11)
+    threading.Thread(target=boucle_office, daemon=True).start()
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Server_Senor_Geology demarre sur http://%s:%d" % (HOST, PORT))

@@ -7,11 +7,14 @@ document.addEventListener('DOMContentLoaded', () => {
         proj4.defs('EPSG:32630', '+proj=utm +zone=30 +datum=WGS84 +units=m +no_defs');
     }
 
-    // ===== SIMULATED DATA =====
+    // ===== DONNEES =====
+    // KPI : valeurs REELLES (/api/kpi de la passerelle, voyages du jour) ;
+    // objectifs (planned) et seuils d'alerte (%) saisis sur la page Live.
+    // null = pas encore de mesure : on affiche "--", jamais une valeur inventee.
     const data = {
-        minerais: { current: 53500, planned: 55000, target: 58000 },
-        ore: { current: 1500, planned: 1600, target: 1800 },
-        waste: { current: 26000, planned: 25000, target: 24000 },
+        minerais: { current: null, planned: null, alerte: 10 },
+        ore: { current: null, planned: null, alerte: 10 },
+        waste: { current: null, planned: null, alerte: 10 },
         offroad: { count: 0, max: 8 },
         fuel: {
             DT01: { tank: 300, level: 72, consumption: 25 },
@@ -23,10 +26,10 @@ document.addEventListener('DOMContentLoaded', () => {
         env: { temperature: 34, humidity: 62, rainfall: 0, noise: 72 },
         envThresholds: { tempHigh: 40, tempWarn: 36, humidityHigh: 80, humidityWarn: 70, rainWarn: 5, rainDanger: 15, noiseHigh: 85, noiseWarn: 75 },
         grades: {
-            high: { actuel: 4200, planned: 4500 },
-            medium: { actuel: 3100, planned: 3000 },
-            low: { actuel: 2800, planned: 2600 },
-            marginal: { actuel: 900, planned: 1000 }
+            high: { actuel: null, planned: null },
+            medium: { actuel: null, planned: null },
+            low: { actuel: null, planned: null },
+            marginal: { actuel: null, planned: null }
         }
     };
 
@@ -94,41 +97,74 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(update);
     }
 
-    // ===== INIT KPI VALUES =====
-    function initKPIs() {
-        animateValue(document.getElementById('kpiMinerais'), 0, data.minerais.current, 2000);
-        animateValue(document.getElementById('kpiOre'), 0, data.ore.current, 2000);
-        animateValue(document.getElementById('kpiWaste'), 0, data.waste.current, 2000);
-        // offroadCount : pas d'animation, la valeur reelle arrive par refreshOffroad()
+    // ===== KPI : AFFICHAGE =====
+    const fmtNombre = (v) => (v === null || v === undefined || isNaN(v))
+        ? '--'
+        : ((typeof PREFS !== 'undefined' && PREFS.formatNumber)
+            ? PREFS.formatNumber(v, 0) : Math.round(v).toLocaleString('fr-FR'));
 
-        setTimeout(() => {
-            setGrade('hg', data.grades.high.actuel, data.grades.high.planned);
-            setGrade('mg', data.grades.medium.actuel, data.grades.medium.planned);
-            setGrade('lg', data.grades.low.actuel, data.grades.low.planned);
-            setGrade('mo', data.grades.marginal.actuel, data.grades.marginal.planned);
-        }, 500);
+    function initKPIs() {
+        ['kpiMinerais', 'kpiOre', 'kpiWaste'].forEach((id) => {
+            const el = document.getElementById(id); if (el) el.textContent = '--';
+        });
+        appliquerObjectifs();
+        renderKpis();
+    }
+
+    // Objectifs de la page Live (localStorage.oreTrackingKpiPlan)
+    function appliquerObjectifs() {
+        let plan = {};
+        try { plan = JSON.parse(localStorage.getItem('oreTrackingKpiPlan')) || {}; } catch (e) {}
+        const lire = (k) => plan[k] || {};
+        ['minerais', 'ore', 'waste'].forEach((k) => {
+            data[k].planned = lire(k).planned ?? null;
+            if (lire(k).alerte !== undefined) data[k].alerte = lire(k).alerte;
+        });
+        [['hg', 'high'], ['mg', 'medium'], ['lg', 'low'], ['mo', 'marginal']].forEach(([k, g]) => {
+            data.grades[g].planned = lire(k).planned ?? null;
+        });
+    }
+
+    function renderKpis() {
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtNombre(v); };
+        set('kpiMinerais', data.minerais.current);
+        set('kpiOre', data.ore.current);
+        set('kpiWaste', data.waste.current);
+        setGrade('hg', data.grades.high.actuel, data.grades.high.planned);
+        setGrade('mg', data.grades.medium.actuel, data.grades.medium.planned);
+        setGrade('lg', data.grades.low.actuel, data.grades.low.planned);
+        setGrade('mo', data.grades.marginal.actuel, data.grades.marginal.planned);
+        updateVoyants();
+        updateKpiCardStates();
     }
 
     function setGrade(prefix, actuel, planned) {
-        document.getElementById(`${prefix}Actuel`).textContent = actuel.toLocaleString('fr-FR');
-        document.getElementById(`${prefix}Planned`).textContent = planned.toLocaleString('fr-FR');
-        const diff = actuel - planned;
+        document.getElementById(`${prefix}Actuel`).textContent = fmtNombre(actuel);
+        document.getElementById(`${prefix}Planned`).textContent = fmtNombre(planned);
         const varEl = document.getElementById(`${prefix}Var`);
-        varEl.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString('fr-FR');
+        if (actuel === null || planned === null) {
+            varEl.textContent = '--';
+            varEl.className = 'gc-val var neutral';
+            return;
+        }
+        const diff = actuel - planned;
+        varEl.textContent = (diff >= 0 ? '+' : '') + fmtNombre(diff);
         varEl.className = 'gc-val var ' + (diff > 0 ? 'positive' : diff < 0 ? 'negative' : 'neutral');
     }
 
     // ===== VOYANT STATUS =====
+    // Ecart relatif a l'objectif : au-dela du seuil "Alerte %" de la page
+    // Live -> danger ; au-dela de la moitie -> warning. Sans objectif ou sans
+    // mesure : voyant neutre (on ne juge pas ce qu'on ne connait pas).
+    function ecartRelatif(actuel, planned) {
+        if (actuel === null || planned === null || !planned) return null;
+        return Math.abs(actuel - planned) / planned * 100;
+    }
+
     function updateVoyants() {
-        // KPI voyants
-        const minVar = data.minerais.current - data.minerais.planned;
-        setVoyant('voyantMinerais', minVar, 0.1);
-
-        const oreVar = data.ore.current - data.ore.planned;
-        setVoyant('voyantOre', oreVar, 0.1);
-
-        const wasteVar = data.waste.planned - data.waste.current;
-        setVoyant('voyantWaste', wasteVar, 0.1);
+        setVoyant('voyantMinerais', data.minerais);
+        setVoyant('voyantOre', data.ore);
+        setVoyant('voyantWaste', data.waste);
 
         // Offroad voyant
         const offroadEl = document.getElementById('offroadCount');
@@ -139,29 +175,52 @@ document.addEventListener('DOMContentLoaded', () => {
             offroadVoyant.className = 'voyant-bar ' + (data.offroad.count >= thresholds.offroadAlert ? 'danger' : '');
         }
 
-        // Grade voyants
+        // Grade voyants (seuil : parametre serveur seuil_grade, 10 % par defaut)
         setVoyantBar('voyantHG', data.grades.high.actuel, data.grades.high.planned);
         setVoyantBar('voyantMG', data.grades.medium.actuel, data.grades.medium.planned);
         setVoyantBar('voyantLG', data.grades.low.actuel, data.grades.low.planned);
         setVoyantBar('voyantMO', data.grades.marginal.actuel, data.grades.marginal.planned);
 
-        // Signal icon status
         const signalIcon = document.getElementById('signalIcon');
-        signalIcon.classList.remove('offline');
+        signalIcon.classList.toggle('offline', !!data.passerelleHorsLigne);
     }
 
-    function setVoyant(id, diff, threshold) {
+    function setVoyant(id, kpi) {
         const el = document.getElementById(id);
-        const ratio = Math.abs(diff) / (data.minerais.planned * threshold);
-        el.className = 'kpi-voyant ' + (ratio > 1.5 ? 'danger' : ratio > 0.8 ? 'warning' : '');
+        if (!el) return;
+        const e = ecartRelatif(kpi.current, kpi.planned);
+        const seuil = kpi.alerte || 10;
+        el.className = 'kpi-voyant ' + (e === null ? '' : e > seuil ? 'danger' : e > seuil / 2 ? 'warning' : '');
     }
 
     function setVoyantBar(id, actuel, planned) {
         const el = document.getElementById(id);
-        const diff = actuel - planned;
-        const ratio = Math.abs(diff) / planned;
-        el.className = 'voyant-bar ' + (ratio > 0.15 ? 'danger' : ratio > 0.08 ? 'warning' : '');
+        if (!el) return;
+        const e = ecartRelatif(actuel, planned);
+        const seuil = thresholds.gradeVariance || 10;
+        el.className = 'voyant-bar ' + (e === null ? '' : e > seuil ? 'danger' : e > seuil / 2 ? 'warning' : '');
     }
+
+    // ===== KPI REELS : passerelle /api/kpi (voyages du jour) =====
+    function refreshKpi() {
+        const host = window.location.hostname || 'localhost';
+        fetch('http://' + host + ':8101/api/kpi', { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((k) => {
+                data.passerelleHorsLigne = false;
+                data.minerais.current = k.minerais_t;
+                data.ore.current = k.onces;
+                data.waste.current = k.waste_t;
+                data.grades.high.actuel = k.grades.high.tonnes;
+                data.grades.medium.actuel = k.grades.medium.tonnes;
+                data.grades.low.actuel = k.grades.low.tonnes;
+                data.grades.marginal.actuel = k.grades.marginal.tonnes;
+                renderKpis();
+            })
+            .catch(() => { data.passerelleHorsLigne = true; updateVoyants(); });
+    }
+    refreshKpi();
+    setInterval(refreshKpi, 10000);
 
     // ===== ENVIRONNEMENT =====
     function renderEnvironment() {
@@ -204,16 +263,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== KPI CARD ALERT STATE =====
     function updateKpiCardStates() {
-        const cards = {
-            kpiMineraisCard: data.minerais,
-            kpiOreCard: data.ore,
-            kpiWasteCard: data.waste
-        };
-
+        const cards = { kpiMineraisCard: data.minerais, kpiOreCard: data.ore, kpiWasteCard: data.waste };
         Object.entries(cards).forEach(([id, d]) => {
             const el = document.getElementById(id);
-            const diff = Math.abs(d.current - d.planned) / d.planned;
-            el.classList.toggle('alert-state', diff > 0.1);
+            const e = ecartRelatif(d.current, d.planned);
+            if (el) el.classList.toggle('alert-state', e !== null && e > (d.alerte || 10));
         });
     }
 
@@ -394,6 +448,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('storage', (e) => {
         if (e.key === 'oreTrackingKpi') {
             appliquerAffichageKpi();        // en direct, sans recharger
+            return;
+        }
+        if (e.key === 'oreTrackingKpiPlan') {
+            appliquerObjectifs();           // objectifs / seuils modifies sur Live
+            renderKpis();
             return;
         }
         if (e.key === 'oreTrackingConfig' || e.key === 'oreTrackingTrails') {
@@ -777,31 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(cycleAlert, 2000);
 });
 
-// ===== SYNC SERVEUR (OreTracking) =====
-// Si le serveur repond, les KPI/grades sont pilotes par la base de donnees
-// (/api/stats). Sinon, fallback simulation locale.
-(function () {
-  function startServerSync() {
-    if (typeof API === 'undefined') return;
-    async function syncFromServer() {
-      try {
-        const s = await API.stats();
-        // format selon Preferences (nombre)
-        const fmt = (typeof PREFS !== 'undefined')
-          ? (v => PREFS.formatNumber(v, 0))
-          : (v => (v || 0).toLocaleString('fr-FR'));
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmt(v || 0); };
-        set('kpiMinerais', (s.minerais_t || 0) + (s.waste_t || 0));
-        set('kpiOre', s.minerais_t || 0);
-        set('kpiWaste', s.waste_t || 0);
-      } catch (e) { /* serveur hors ligne : simulation locale */ }
-    }
-    setInterval(syncFromServer, 5000);
-    setTimeout(syncFromServer, 500);
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startServerSync);
-  } else {
-    startServerSync();
-  }
-})();
+// ===== KPI =====
+// L'ancienne synchro /api/stats (SaaS) est retiree le 16/11 : elle lisait une
+// table de voyages vide, affichait minerai + sterile sous "Minerais" et des
+// TONNES sous "Ore (onces)". Les KPI viennent de /api/kpi (voir refreshKpi).

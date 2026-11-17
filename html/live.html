@@ -310,15 +310,15 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="53500" />
+                                                    <input type="number" class="form-input-sm" data-actuel="minerais" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="55000" />
+                                                    <input type="number" class="form-input-sm" data-planned="minerais" value="55000" min="0" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Alerte %</label>
-                                                    <input type="number" class="form-input-sm" value="10" min="0" max="100" />
+                                                    <input type="number" class="form-input-sm" data-alerte="minerais" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
@@ -333,15 +333,15 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="1500" />
+                                                    <input type="number" class="form-input-sm" data-actuel="ore" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="1600" />
+                                                    <input type="number" class="form-input-sm" data-planned="ore" value="1600" min="0" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Alerte %</label>
-                                                    <input type="number" class="form-input-sm" value="10" min="0" max="100" />
+                                                    <input type="number" class="form-input-sm" data-alerte="ore" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
@@ -356,15 +356,15 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="26000" />
+                                                    <input type="number" class="form-input-sm" data-actuel="waste" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="25000" />
+                                                    <input type="number" class="form-input-sm" data-planned="waste" value="25000" min="0" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Alerte %</label>
-                                                    <input type="number" class="form-input-sm" value="10" min="0" max="100" />
+                                                    <input type="number" class="form-input-sm" data-alerte="waste" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
@@ -409,11 +409,11 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="4200" />
+                                                    <input type="number" class="form-input-sm" data-actuel="hg" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="4500" />
+                                                    <input type="number" class="form-input-sm" data-planned="hg" value="4500" min="0" />
                                                 </div>
                                             </div>
                                         </div>
@@ -428,11 +428,11 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="3100" />
+                                                    <input type="number" class="form-input-sm" data-actuel="mg" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="3000" />
+                                                    <input type="number" class="form-input-sm" data-planned="mg" value="3000" min="0" />
                                                 </div>
                                             </div>
                                         </div>
@@ -447,11 +447,11 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="2800" />
+                                                    <input type="number" class="form-input-sm" data-actuel="lg" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="2600" />
+                                                    <input type="number" class="form-input-sm" data-planned="lg" value="2600" min="0" />
                                                 </div>
                                             </div>
                                         </div>
@@ -466,11 +466,11 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" value="900" />
+                                                    <input type="number" class="form-input-sm" data-actuel="mo" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" value="1000" />
+                                                    <input type="number" class="form-input-sm" data-planned="mo" value="1000" min="0" />
                                                 </div>
                                             </div>
                                         </div>
