@@ -150,6 +150,45 @@ def sg_conf():
     return (param_lire("SG_URL", "").rstrip("/"), param_lire("SG_TOKEN", ""),
             max(5, intervalle))
 
+def empreinte_jeton(jeton):
+    """6 caracteres derives du jeton (SHA-256) : permet de comparer deux
+    jetons a l'ecran sans jamais afficher leur valeur."""
+    j = str(jeton or "").strip()
+    return hashlib.sha256(j.encode("utf-8")).hexdigest()[:6] if j else ""
+
+
+def relais_tester():
+    """Teste les deux liaisons sortantes AVEC les reglages enregistres :
+    ?action=sante sur Serveur_OT et sur Serveur_SG. Les jetons restent sur
+    ce poste : seul le verdict (ok / erreur / version) remonte a la page."""
+    def sante(url, jeton):
+        if not url:
+            return {"configure": False, "ok": False, "erreur": "URL non renseignee"}
+        if not jeton:
+            return {"configure": False, "ok": False, "erreur": "jeton non renseigne"}
+        adresse = "%s?action=sante&token=%s" % (url, quote(jeton))
+        debut = time.time()
+        try:
+            with urllib.request.urlopen(adresse, timeout=30) as rep:
+                d = json.loads(rep.read().decode("utf-8", "replace"))
+        except Exception as e:
+            return {"configure": True, "ok": False,
+                    "erreur": "%s: %s" % (type(e).__name__, str(e)[:160])}
+        res = {"configure": True, "ok": d.get("ok") is not False,
+               "duree_ms": int((time.time() - debut) * 1000),
+               "version": d.get("version") or ""}
+        if d.get("ok") is False:
+            res["erreur"] = str(d.get("erreur") or "refus du serveur")
+        elif not d.get("version"):
+            res["avertissement"] = ("aucune version renvoyee : ce deploiement execute "
+                                    "un ancien script")
+        return res
+
+    office_url, office_token = office_conf()
+    sg_url, sg_token, _ = sg_conf()
+    return {"office": sante(office_url, office_token), "sg": sante(sg_url, sg_token)}
+
+
 # Relais des positions vers Serveur_SG (Apps Script, cerveau d'affectation).
 # Vide = desactive, comme OFFICE_URL : le poste de dev n'envoie rien.
 # Les positions sont groupees puis envoyees par lot toutes les
@@ -3533,6 +3572,9 @@ class Handler(BaseHTTPRequestHandler):
             if diff is None:
                 return self._send_json(502, {"error": err})
             return self._send_json(200, diff)
+        # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
+        if path == "/api/relais/tester" and method == "POST":
+            return self._send_json(200, relais_tester())
         conn = get_conn()
         try:
             LOCK.route("%s %s" % (method, path))
@@ -4289,6 +4331,8 @@ class Handler(BaseHTTPRequestHandler):
                         "sg_intervalle_s": sg_intervalle,
                         "office_actif": bool(office_url and office_token),
                         "sg_actif": bool(sg_url and sg_token),
+                        "office_token_empreinte": empreinte_jeton(office_token),
+                        "sg_token_empreinte": empreinte_jeton(sg_token),
                         "alerte_rouge_min": alerte_rouge_minutes(),
                         "surcharge_env": [c for c in _PARAMS_RELAIS
                                           if os.environ.get(c, "")],

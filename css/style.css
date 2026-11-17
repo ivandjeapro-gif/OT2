@@ -5394,6 +5394,19 @@ body {
 
 /* Boutons du panneau Serveur_OT. Classe dediee : .btn-add-account est un
    bouton ICONE de 26x26 px, des libelles texte y sont ecrases. */
+/* Parametres > Liaisons de la passerelle */
+.relais-aide { margin: 0 0 8px; font-size: 12px; color: #94a3b8; }
+.relais-titre { margin: 12px 0 4px; font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: .5px; }
+.relais-empreinte { font-weight: 400; font-size: 11px; color: #22c55e; margin-left: 6px; }
+.relais-empreinte.vide { color: #f59e0b; }
+.relais-env { margin: 6px 0; padding: 6px 10px; border-radius: 4px; font-size: 12px;
+              background: rgba(245, 158, 11, .12); border: 1px solid rgba(245, 158, 11, .4); color: #fbbf24; }
+.relais-resultats { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.relais-ligne { padding: 6px 10px; border-radius: 4px; border-left: 3px solid; background: rgba(0, 0, 0, .2); color: #e2e8f0; word-break: break-word; }
+.relais-ligne.ok { border-color: #22c55e; }
+.relais-ligne.warn { border-color: #f59e0b; }
+.relais-ligne.err { border-color: #ef4444; }
+
 .ot-actions {
     display: flex;
     flex-wrap: wrap;
