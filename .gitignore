@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.env
 *.mbtiles
 *.mbtiles-shm
 *.mbtiles-wal
@@ -7,3 +8,42 @@ __pycache__/
 .DS_Store
 Thumbs.db
 docs/
+
+# Sources Apps Script. Les secrets sont desormais dans les Script Properties,
+# mais on garde l'exclusion par precaution (historique + deploiement manuel).
+server_OT
+server_SG
+
+# --- Depot PUBLIC : rien d'exploitation ni de secret (16/11) ---
+# Donnees locales de la passerelle et du SaaS (bases, sauvegardes, journaux)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.bak
+data/*.log
+data/server_config.json
+# Mots de passe des comptes crees au premier demarrage (server.py)
+data/comptes_initiaux.txt
+# Certificat TLS auto-signe et sa cle privee
+data/tls/
+# Plans deposes depuis Dig Plan et fichiers de test : donnees, pas du code
+data/plans/
+data/roads/
+# Binaires construits par build_exe.py
+dist/
+build/
+*.exe
+*.spec
+# Outils et reglages personnels
+.claude/
+.kilo/
+.vscode/
+# Espace d'echange avec les autres equipes : contient des versions de
+# scripts Apps Script et des notes avec URL de deploiement
+ELEMENTS CONJOINTS/
+# Documents et scripts avec URL de deploiement ou identifiants de test
+DEPLOIEMENT_SENOR_GEOLOGY.md
+PLAN_DEPLOIEMENT.md
+test_ot_api.ps1
+# Ancien emplacement reserve, remplace par Server_Senor_Geology.py
+Server_Senor_Geology

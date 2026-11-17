@@ -1,0 +1,402 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Senor Geology - OreTracking V2</title>
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+    <!-- LOGIN OVERLAY -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-box">
+            <div class="login-logo">
+                <i class="fas fa-hard-hat"></i>
+            </div>
+            <h1>OreTracking V2</h1>
+            <p class="login-sub" data-i18n>Connexion a votre compte</p>
+            <form id="loginForm" autocomplete="off">
+                <div class="login-field">
+                    <label for="loginIdentifiant" data-i18n>Email ou nom</label>
+                    <input type="text" id="loginIdentifiant" class="form-input" placeholder="gaston.albert@oresys.com" required />
+                </div>
+                <div class="login-field">
+                    <label for="loginPassword" data-i18n>Mot de passe</label>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required />
+                </div>
+                <div class="login-status" id="loginStatus"></div>
+                <button type="submit" class="btn-login" id="btnLogin" data-i18n>Se connecter</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="app">
+        <header class="menu-bar">
+            <div class="menu-left">
+                <span class="app-name">OreTracking</span>
+            </div>
+            <div class="menu-right">
+                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
+                <span class="app-version">Senor Geology</span>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+            <aside class="sidebar" id="sidebar">
+                <nav class="sidebar-nav">
+                    <div class="nav-top">
+                        <a class="sidebar-link" data-page="home" href="home.html">
+                            <i class="fas fa-home"></i>
+                            <span>Home</span>
+                        </a>
+                        <a class="sidebar-link" data-page="live" href="live.html">
+                            <i class="fas fa-satellite-dish"></i>
+                            <span>Live</span>
+                        </a>
+                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
+                            <i class="fas fa-bell"></i>
+                            <span>Alerts</span>
+                        </a>
+                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
+                            <i class="fas fa-inbox"></i>
+                            <span>Inbox</span>
+                        </a>
+                    </div>
+                    <div class="nav-bottom">
+                        <a class="sidebar-link" data-page="settings" href="settings.html">
+                            <i class="fas fa-cog"></i>
+                            <span data-i18n>Settings</span>
+                        </a>
+                        <a class="sidebar-link" data-page="sync" href="sync.html">
+                            <i class="fas fa-sync-alt"></i>
+                            <span data-i18n>Sync</span>
+                        </a>
+                        <a class="sidebar-link active" data-page="senor" href="senor.html">
+                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
+                            <span data-i18n>Senor</span>
+                        </a>
+                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
+                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
+                            <span data-i18n>Dig Plan</span>
+                        </a>
+                    </div>
+                </nav>
+
+                <div class="sidebar-user">
+                    <div class="user-avatar">
+                        <i class="fas fa-user-circle"></i>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">Gaston Albert</span>
+                        <span class="user-email">gaston.albert@oresys.com</span>
+                    </div>
+                    <button class="btn-logout" title="Deconnexion">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </aside>
+
+            <main class="content">
+<!-- PAGE: SENOR GEOLOGY - plans de minage, mockup a l'identique -->
+                <section class="page active" id="page-senor">
+                    <div class="sg2-grid">
+
+                        <!-- CARTE : DESTINATION -->
+                        <div class="panel sg2-area-dest">
+                            <div class="panel-label">Destination</div>
+                            <div class="panel-content">
+                                <div class="sg2-gray-bar sg2-source-bar">
+                                    <button type="button" class="sg2-source-nav" id="sgSrcPrev" title="Source precedente"><i class="fas fa-chevron-left"></i></button>
+                                    <span class="sg2-source-text"><span>Source :</span> <span id="sgSourceLabel"></span></span>
+                                    <button type="button" class="sg2-source-nav" id="sgSrcNext" title="Source suivante"><i class="fas fa-chevron-right"></i></button>
+                                    <button class="sg2-x" id="sgSrcDel" title="Supprimer la source"><i class="fas fa-trash"></i></button>
+                                </div>
+                                <!-- Codes de source admis dans le nom des blasts
+                                     (garde-fou : 275_OM_LMP2_... -> LMP2 doit
+                                     appartenir a la source Main Pit) -->
+                                <form class="sg2-inline" id="sgSrcCodesForm" style="margin:6px 0 2px">
+                                    <span class="sg2-note" style="white-space:nowrap">Codes admis :</span>
+                                    <input type="text" id="sgSrcCodes" class="sg2-input" placeholder="LMP2, LMP3..."
+                                           title="Codes de source admis dans le 3e segment du nom d'un blast (275_OM_LMP2_... -> LMP2). Separes par des virgules. Vide = verification desactivee." />
+                                    <button type="submit" class="sg2-outline sg2-ok" title="Enregistrer les codes de cette source">Enregistrer</button>
+                                    <span class="sg2-status" id="sgSrcCodesStatus"></span>
+                                </form>
+                                <div class="sg2-row sg2-row-equal" id="sgTeneursRow"></div>
+                                <div class="sg2-band">
+                                    <button class="sg2-gray-bar" id="sgBtnSrcAdd">Ajouter une source</button>
+                                    <form class="sg2-inline" id="sgSrcAddForm" style="display:none">
+                                        <input type="text" id="sgNewSource" class="sg2-input" placeholder="Nom de la source" required />
+                                        <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
+                                        <button type="button" class="sg2-x" id="sgSrcAddCancel" title="Annuler">x</button>
+                                    </form>
+                                    <form class="sg2-inline" id="sgTeneurForm" style="display:none" data-edit="">
+                                        <input type="text" id="sgNewTeneur" class="sg2-input" placeholder="Famille de teneur" required />
+                                        <input type="text" inputmode="decimal" id="sgNewTeneurMin" class="sg2-input sg2-short" placeholder="min %" />
+                                        <input type="text" inputmode="decimal" id="sgNewTeneurMax" class="sg2-input sg2-short" placeholder="max %" />
+                                        <input type="text" id="sgNewTeneurCodes" class="sg2-input" placeholder="Codes du nom de bloc (ex : HG, MO)"
+                                               title="Codes lus dans le nom d'un bloc DXF, par exemple HG dans 230_LWP2_106_HG_FR_008_OP. Separes par des virgules." />
+                                        <button type="submit" class="sg2-outline sg2-ok" id="sgTeneurSubmit">Enregistrer</button>
+                                        <button type="button" class="sg2-x" id="sgTeneurCancel" title="Annuler">x</button>
+                                    </form>
+                                    <div class="sg2-status" id="sgDestStatus"></div>
+                                </div>
+                                <div class="sg2-detail" id="sgDestDetail"></div>
+                            </div>
+                        </div>
+
+                        <!-- CARTE : DUMPING AREA -->
+                        <div class="panel sg2-area-dump">
+                            <div class="panel-label">Dumping Area</div>
+                            <div class="panel-content">
+                                <div class="sg2-cols">
+                                    <div class="sg2-left">
+                                        <div class="sg2-row" id="sgDaRow"></div>
+                                        <div class="sg2-detail" id="sgDaDetail"></div>
+                                    </div>
+                                    <div class="sg2-note">Une Dumping Area est une aire (m2), pas un point : CSV avec
+                                        les sommets du polygone, meme nom repete par sommet (nom, x, y).</div>
+                                </div>
+                                <div class="sg2-status" id="sgDaStatus"></div>
+                                <form class="sg2-inline" id="sgDaForm" style="display:none">
+                                    <input type="text" id="sgDaNom" class="sg2-input" placeholder="Nom" required />
+                                    <input type="text" id="sgDaX" class="sg2-input sg2-short" placeholder="x" />
+                                    <input type="text" id="sgDaY" class="sg2-input sg2-short" placeholder="y" />
+                                    <select id="sgDaColor" class="sg2-input sg2-short">
+                                        <option value="blue">Bleu</option>
+                                        <option value="green">Vert</option>
+                                        <option value="yellow">Jaune</option>
+                                        <option value="orange">Orange</option>
+                                    </select>
+                                    <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
+                                    <button type="button" class="sg2-outline" id="btnSgImportZones">Importer CSV</button>
+                                    <input type="file" id="sgZoneFileInput" accept=".csv" style="display:none" />
+                                    <button type="button" class="sg2-x" id="sgDaDelete" title="Supprimer"><i class="fas fa-trash"></i></button>
+                                    <button type="button" class="sg2-x" id="sgDaCancel" title="Fermer">x</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- CARTE (colonne 3) : TRAILS (CHEMIN) -->
+                        <div class="panel sg2-area-trails">
+                            <div class="panel-label">Trails (Chemin)</div>
+                            <div class="panel-content">
+                                <div class="sg2-center">
+                                    <button class="sg2-outline" id="sgBtnRoadUpload">Importer un fichier</button>
+                                    <input type="file" id="sgRoadInput" accept=".tif,.tiff,.json,.geojson" style="display:none" />
+                                </div>
+                                <div class="sg2-cols">
+                                    <div class="sg2-left">
+                                        <div class="sg2-roads" id="sgRoadsList"></div>
+                                        <div class="sg2-status" id="sgRoadStatus"></div>
+                                    </div>
+                                    <div class="sg2-note">Fichier GeoTiff / GeoJSON des routes.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CARTE (rang 2, colonne 3) : GEOGRAPHIC SYSTEM -->
+                        <div class="panel sg2-area-geo">
+                            <div class="panel-label">Geographic System</div>
+                            <div class="panel-content">
+                                <div class="sg2-center">
+                                    <button class="sg2-outline" id="sgBtnGeoSys">Systeme de coordonnees</button>
+                                </div>
+                                <div class="sg2-detail" id="sgGeoDetail"></div>
+                                <div class="sg2-note">Systeme de coordonnees : WGS84 / UTM.</div>
+                                <div class="sg2-status" id="sgGeoStatus"></div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="sg2-grid sg2-grid-second">
+                        <!-- CARTE : DUMPING INSTRUCTION -->
+                        <div class="panel sg2-area-blast">
+                            <div class="panel-label">Dumping Instruction</div>
+                            <div class="panel-content">
+                                <div class="sg2-gray-bar sg2-source-bar">
+                                    <button type="button" class="sg2-source-nav" id="sgDiSrcPrev" title="Source precedente"><i class="fas fa-chevron-left"></i></button>
+                                    <span class="sg2-source-text"><span>Source :</span> <span id="sgDiSourceLabel"></span></span>
+                                    <button type="button" class="sg2-source-nav" id="sgDiSrcNext" title="Source suivante"><i class="fas fa-chevron-right"></i></button>
+                                </div>
+                                <div class="sg2-row sg2-row-equal" id="sgDiTeneursRow"></div>
+                                <div class="sg2-note">En cliquant sur une teneur, affectez-lui (ou modifiez) sa Dumping
+                                    Area. Chaque teneur doit obligatoirement avoir une Dumping Area assignee (en rouge
+                                    sinon).</div>
+                                <div class="sg2-status" id="sgDiStatus"></div>
+                                <div class="sg2-di-summary-head">
+                                    <span>Resume des consignes</span>
+                                    <span id="sgDiSummaryCount" class="sg2-note"></span>
+                                </div>
+                                <div class="sg2-di-summary" id="sgDiSummary"></div>
+                            </div>
+                        </div>
+                        <!-- CARTE : SUIVI DES MISSIONS -->
+                        <div class="panel sg2-area-suivi">
+                            <div class="panel-label">Suivi des missions</div>
+                            <div class="panel-content">
+                                <div class="sg2-note" id="sgSuiviFraicheur">Connexion a la passerelle...</div>
+                                <div class="suivi-cartes" id="sgSuiviMissions">
+                                    <div class="member-empty">Chargement...</div>
+                                </div>
+                                <div class="suivi-soustitre">Minage en cours (declare par le spotter)</div>
+                                <div class="suivi-minage" id="sgSuiviMinage">
+                                    <select class="form-select-sm" id="sgMinageExca">
+                                        <option value="">Choisir une pelle...</option>
+                                    </select>
+                                    <select class="form-select-sm" id="sgMinageBloc">
+                                        <option value="">Choisir un bloc...</option>
+                                    </select>
+                                    <button type="button" class="team-btn" id="sgMinageValider">
+                                        <i class="fas fa-play"></i> Declare
+                                    </button>
+                                    <span class="suivi-minage-etat" id="sgMinageEtat"></span>
+                                </div>
+
+                                <div class="suivi-soustitre">Dernieres alertes</div>
+                                <div id="sgSuiviAlertes" class="suivi-alertes"></div>
+                                <div class="suivi-soustitre">Cumuls du jour</div>
+                                <div id="sgSuiviCumuls" class="suivi-cumuls"></div>
+                            </div>
+                        </div>
+
+                        <!-- SPOTTER : gestion des equipes (pleine largeur) -->
+                        <div class="panel sg2-area-spotter">
+                            <div class="panel-label">
+                                <i class="fas fa-users"></i> Spotter
+                            </div>
+                            <div class="panel-content">
+                                <div class="team-section">
+                                    <div class="team-intro">
+                                        Chaque equipe de spotters travaille independamment sur le terrain :
+                                        son chef est responsable de ses membres. Une equipe <b>inactive</b> reste
+                                        enregistree mais n'apparait plus dans les affectations.
+                                    </div>
+
+                                    <!-- Liste des equipes -->
+                                    <div id="teamContainer">
+                                        <div class="account-item muted">Chargement...</div>
+                                    </div>
+
+                                    <!-- Creation : nouvelle equipe (exige un chef d'equipe) -->
+                                    <div class="team-create">
+                                        <div class="team-create-title">
+                                            <i class="fas fa-plus-circle"></i> Nouvelle equipe
+                                        </div>
+                                        <div class="team-create-note">
+                                            Donnez un code (ex. SP-002) et le nom de son chef : l'equipe nait avec lui.
+                                        </div>
+                                        <form class="team-add-form" id="teamAddForm">
+                                            <div class="team-form-row">
+                                                <input type="text" class="form-input-sm" id="newTeamName" placeholder="Code de l'equipe (ex. SP-002)" required />
+                                                <input type="text" class="form-input-sm" id="newTeamChef" placeholder="Nom du chef d'equipe" required />
+                                                <input type="color" class="form-color-sm" id="newTeamColor" value="#3b82f6" title="Couleur de l'equipe" />
+                                                <button type="submit" class="btn-add-sm">
+                                                    <i class="fas fa-plus"></i> Creer
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                    <div class="account-status" id="teamStatus"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- /grille blast+suivi -->
+
+                    <!-- popup d'affectation d'une Dumping Area a une teneur (Dumping Instruction) -->
+                    <div class="sg2-modal-overlay" id="sgAssignOverlay" hidden>
+                        <div class="sg2-modal">
+                            <h3>Affecter une Dumping Area</h3>
+                            <p id="sgAssignMessage"></p>
+                            <select id="sgAssignDaSelect" class="sg2-input" style="width:100%;margin-bottom:12px;"></select>
+                            <div class="sg2-modal-actions">
+                                <button type="button" class="sg2-outline" id="sgAssignCancel">Annuler</button>
+                                <button type="button" class="sg2-outline sg2-ok" id="sgAssignOk">Affecter</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- popup de confirmation de suppression (reutilisee pour source/teneur/DA/chemin) -->
+                    <div class="sg2-modal-overlay" id="sgConfirmOverlay" hidden>
+                        <div class="sg2-modal">
+                            <h3>Confirmer la suppression</h3>
+                            <p id="sgConfirmMessage"></p>
+                            <div class="sg2-modal-actions">
+                                <button type="button" class="sg2-outline" id="sgConfirmCancel">Annuler</button>
+                                <button type="button" class="sg2-outline sg2-danger" id="sgConfirmOk">Supprimer</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- popup de choix du systeme de coordonnees geographiques (WGS84 / UTM) -->
+                    <div class="sg2-modal-overlay" id="sgGeoOverlay" hidden>
+                        <div class="sg2-modal">
+                            <h3>Systeme de coordonnees</h3>
+                            <p>Systeme geographique utilise par la mine.</p>
+                            <form id="sgGeoForm">
+                                <div class="sg2-geo-choices">
+                                    <label class="sg2-geo-opt">
+                                        <input type="radio" name="sgGeoSys" value="WGS84" />
+                                        <span class="sg2-geo-box">
+                                            <b>WGS84</b>
+                                            <small>Latitude / Longitude (degres decimaux)</small>
+                                        </span>
+                                    </label>
+                                    <label class="sg2-geo-opt">
+                                        <input type="radio" name="sgGeoSys" value="UTM" />
+                                        <span class="sg2-geo-box">
+                                            <b>UTM</b>
+                                            <small>Fuseau + hemisphere (metres)</small>
+                                        </span>
+                                    </label>
+                                </div>
+                                <div class="sg2-geo-utm" id="sgGeoUtmRow" style="display:none">
+                                    <label>Fuseau UTM
+                                        <input type="text" inputmode="numeric" id="sgGeoZone" class="sg2-input sg2-short" placeholder="1-60" />
+                                    </label>
+                                    <label>Hemisphere
+                                        <select id="sgGeoHemi" class="sg2-input sg2-short">
+                                            <option value="N">Nord (N)</option>
+                                            <option value="S">Sud (S)</option>
+                                        </select>
+                                    </label>
+                                    <label>Datum
+                                        <select id="sgGeoDatum" class="sg2-input">
+                                            <option value="WGS 84">WGS 84</option>
+                                            <option value="NAD83">NAD83</option>
+                                            <option value="ETRS89">ETRS89</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <div class="sg2-status" id="sgGeoFormStatus"></div>
+                                <div class="sg2-modal-actions">
+                                    <button type="button" class="sg2-outline" id="sgGeoCancel">Annuler</button>
+                                    <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="../js/prefs.js"></script>
+    <script src="../js/splash.js"></script>
+    <script src="../js/sync-pill.js"></script>
+    <script src="../js/api.js"></script>
+    <script type="module" src="../js/auth.js"></script>
+    <script src="../js/server-ui.js"></script>
+    <script src="../js/missions-ui.js"></script>
+    <script src="../js/gnss-serial.js"></script>
+    <script src="../js/senor.js"></script>
+    <script src="../js/app.js"></script>
+</body>
+</html>

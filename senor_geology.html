@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server_Senor_Geology - Missions DT</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Segoe UI, system-ui, -apple-system, sans-serif; background: #0b1120; color: #e2e8f0; padding: 16px; }
+  h1 { font-size: 18px; margin-bottom: 12px; color: #3b82f6; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: #12192e; border: 1px solid #1c2d4a; border-radius: 8px; padding: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; color: #94a3b8; margin-bottom: 8px; letter-spacing: 0.5px; }
+  .stat { font-size: 20px; font-weight: 700; color: #22c55e; }
+  .stat.warn { color: #f59e0b; }
+  .stat.err { color: #ef4444; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1c2d4a; }
+  th { color: #94a3b8; font-size: 11px; text-transform: uppercase; }
+  tr:hover { background: #16213a; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+  .badge.omex { background: #22c55e; color: #000; }
+  .badge.wex { background: #64748b; color: #fff; }
+  .badge.odt { background: #3b82f6; color: #fff; }
+  .badge.wdt { background: #64748b; color: #fff; }
+  .badge.sbdt { background: #f59e0b; color: #000; }
+  .badge.devoie { background: #ef4444; color: #fff; }
+  .btn { background: #1c2d4a; border: 1px solid #3b82f6; color: #3b82f6; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .btn:hover { background: #3b82f6; color: #fff; }
+  .btn.danger { border-color: #ef4444; color: #ef4444; }
+  .btn.danger:hover { background: #ef4444; color: #fff; }
+  input { background: #0b1120; border: 1px solid #1c2d4a; color: #e2e8f0; padding: 6px 8px; border-radius: 4px; font-size: 12px; width: 100%; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .col { flex: 1; min-width: 140px; }
+  .alert { color: #ef4444; font-size: 12px; margin-top: 6px; }
+  .ok { color: #22c55e; font-size: 12px; margin-top: 6px; }
+  .muted { color: #64748b; font-size: 11px; }
+  #status { margin-top: 10px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Server_Senor_Geology - Gestion des missions DT</h1>
+<div id="status">Chargement...</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Engins</h2>
+    <table id="tabEngins">
+      <thead><tr><th>Code</th><th>Type</th><th>Statut</th><th>X</th><th>Y</th><th>Maj</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Missions actives</h2>
+    <table id="tabMissions">
+      <thead><tr><th>DT</th><th>Orebloc</th><th>Dest X</th><th>Dest Y</th><th>DA</th><th>Statut</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col">
+    <label>Code engin</label>
+    <input id="inpCode" placeholder="ex: DT-01">
+  </div>
+  <div class="col">
+    <label>Type (DT/EXCA)</label>
+    <input id="inpType" value="DT">
+  </div>
+  <div class="col">
+    <label>X</label>
+    <input id="inpX" value="0">
+  </div>
+  <div class="col">
+    <label>Y</label>
+    <input id="inpY" value="0">
+  </div>
+  <div class="col" style="align-self:end;">
+    <button class="btn" onclick="majPosition()">Mettre à jour position</button>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col" style="min-width:220px;">
+    <label>DT à affecter</label>
+    <input id="inpAffecter" placeholder="ex: DT-01">
+  </div>
+  <div class="col" style="align-self:end;">
+    <button class="btn" onclick="affecterDT()">Affecter mission</button>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col" style="min-width:220px;">
+    <label>DT à vérifier (déviation)</label>
+    <input id="inpVerifier" placeholder="ex: DT-01">
+  </div>
+  <div class="col" style="align-self:end;">
+    <button class="btn" onclick="verifierDeviation()">Vérifier trajectoire</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Calibration GPS -> repere local</h2>
+  <div id="calStatus" class="muted">Chargement...</div>
+  <table id="tabCalibration">
+    <thead><tr><th>Label</th><th>Lat</th><th>Lon</th><th>X</th><th>Y</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="row" style="margin-top:8px;">
+    <div class="col"><label>Label</label><input id="calLabel" placeholder="REF-01"></div>
+    <div class="col"><label>Lat</label><input id="calLat" placeholder="6.1200"></div>
+    <div class="col"><label>Lon</label><input id="calLon" placeholder="-1.5200"></div>
+    <div class="col"><label>X (plan)</label><input id="calX" placeholder="500000"></div>
+    <div class="col"><label>Y (plan)</label><input id="calY" placeholder="680000"></div>
+    <div class="col" style="align-self:end;">
+      <button class="btn" onclick="ajouterPointCalibration()">Ajouter point</button>
+    </div>
+  </div>
+  <div class="muted" style="margin-top:4px;">
+    Releve le meme point physique au RTK (lat/lon) et sur le plan mine (x/y).
+    Au moins 3 points non alignes sont necessaires pour calculer la transformation.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Cles HMAC par DT (authentification radio XBee)</h2>
+  <table id="tabClesDt">
+    <thead><tr><th>DT</th><th>Cle (hex)</th><th>Enregistree le</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="row" style="margin-top:8px;">
+    <div class="col"><label>Code DT</label><input id="cleDtCode" placeholder="DT-01"></div>
+    <div class="col" style="align-self:end;">
+      <button class="btn" onclick="genererCleDt()">Generer / regenerer la cle</button>
+    </div>
+  </div>
+  <div class="muted" style="margin-top:4px;">
+    Copier la cle generee dans le provisionnement de la tablette du DT concerne
+    (Settings > Radio XBee > Cle HMAC). Regenerer revoque l'ancienne cle.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Alertes</h2>
+  <table id="tabAlertes">
+    <thead><tr><th>Heure</th><th>Type</th><th>DT</th><th>Message</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+const API = "http://localhost:8101/api";
+
+async function fetchJson(path, opts={}) {
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    const [engins, missions, alertes, calPoints, cal, clesDt] = await Promise.all([
+      fetchJson("/engins"),
+      fetchJson("/missions"),
+      fetchJson("/alertes"),
+      fetchJson("/calibration_points"),
+      fetchJson("/calibration"),
+      fetchJson("/cles_dt")
+    ]);
+
+    document.getElementById("status").textContent = "Serveur OK - " + new Date().toLocaleTimeString();
+
+    const tb = document.querySelector("#tabEngins tbody");
+    tb.innerHTML = "";
+    (engins.engins || []).forEach(e => {
+      let cls = e.statut === "OMEX" ? "omex" : e.statut === "ODT" ? "odt" : e.statut === "SBDT" ? "sbdt" : "wex";
+      if (e.type === "DT" && e.statut === "WDT") cls = "wdt";
+      tb.innerHTML += `<tr><td>${e.code}</td><td>${e.type}</td><td><span class="badge ${cls}">${e.statut}</span></td><td>${e.x}</td><td>${e.y}</td><td class="muted">${e.derniere_maj}</td></tr>`;
+    });
+
+    const tm = document.querySelector("#tabMissions tbody");
+    tm.innerHTML = "";
+    (missions.missions || []).forEach(m => {
+      tm.innerHTML += `<tr><td>${m.dt_code}</td><td>${m.orebloc_id || '-'}</td><td>${m.destination_x}</td><td>${m.destination_y}</td><td>${m.dumping_area_id || '-'}</td><td><span class="badge ${m.statut === 'devoie' ? 'devoie' : 'odt'}">${m.statut}</span></td></tr>`;
+    });
+
+    const tk = document.querySelector("#tabClesDt tbody");
+    tk.innerHTML = "";
+    (clesDt.cles_dt || []).forEach(k => {
+      tk.innerHTML += `<tr><td>${k.dt_code}</td><td style="font-family:monospace;font-size:10px;">${k.cle_hex}</td><td class="muted">${k.created_at}</td><td><button class="btn danger" onclick="revoquerCleDt('${k.dt_code}')">x</button></td></tr>`;
+    });
+
+    const ta = document.querySelector("#tabAlertes tbody");
+    ta.innerHTML = "";
+    (alertes.alertes || []).slice().reverse().forEach(a => {
+      ta.innerHTML += `<tr><td>${a.created_at}</td><td>${a.type}</td><td>${a.dt_code}</td><td>${a.message}</td></tr>`;
+    });
+
+    const tc = document.querySelector("#tabCalibration tbody");
+    tc.innerHTML = "";
+    (calPoints.calibration_points || []).forEach(p => {
+      tc.innerHTML += `<tr><td>${p.label || '-'}</td><td>${p.lat}</td><td>${p.lon}</td><td>${p.x}</td><td>${p.y}</td><td><button class="btn danger" onclick="supprimerPointCalibration(${p.id})">x</button></td></tr>`;
+    });
+    const calEl = document.getElementById("calStatus");
+    if (cal.calibre) {
+      calEl.innerHTML = `<span class="ok">Calibre</span> - ${cal.nb_points} points, erreur moyenne ${cal.rmse_m.toFixed(2)} m, max ${cal.emax_m.toFixed(2)} m`;
+    } else {
+      calEl.innerHTML = `<span class="alert">Non calibre</span> - ajoutez au moins 3 points de reference (sinon repli approximatif utilise)`;
+    }
+  } catch (err) {
+    document.getElementById("status").textContent = "Erreur: " + err.message;
+  }
+}
+
+async function majPosition() {
+  const code = document.getElementById("inpCode").value.trim();
+  const type = document.getElementById("inpType").value.trim();
+  const x = parseFloat(document.getElementById("inpX").value || 0);
+  const y = parseFloat(document.getElementById("inpY").value || 0);
+  await fetchJson("/engins", { method: "POST", body: JSON.stringify({ code, type, x, y }) });
+  refresh();
+}
+
+async function affecterDT() {
+  const dt = document.getElementById("inpAffecter").value.trim();
+  await fetchJson("/affecter", { method: "POST", body: JSON.stringify({ dt_code: dt }) });
+  refresh();
+}
+
+async function verifierDeviation() {
+  const dt = document.getElementById("inpVerifier").value.trim();
+  await fetchJson("/verifier_deviation", { method: "POST", body: JSON.stringify({ dt_code: dt }) });
+  refresh();
+}
+
+async function ajouterPointCalibration() {
+  const label = document.getElementById("calLabel").value.trim();
+  const lat = parseFloat(document.getElementById("calLat").value);
+  const lon = parseFloat(document.getElementById("calLon").value);
+  const x = parseFloat(document.getElementById("calX").value);
+  const y = parseFloat(document.getElementById("calY").value);
+  if ([lat, lon, x, y].some(v => isNaN(v))) {
+    alert("lat, lon, x et y sont requis (nombres)");
+    return;
+  }
+  await fetchJson("/calibration_points", { method: "POST", body: JSON.stringify({ label, lat, lon, x, y }) });
+  ["calLabel", "calLat", "calLon", "calX", "calY"].forEach(id => document.getElementById(id).value = "");
+  refresh();
+}
+
+async function supprimerPointCalibration(id) {
+  await fetchJson("/calibration_points?id=" + id, { method: "DELETE" });
+  refresh();
+}
+
+async function genererCleDt() {
+  const dtCode = document.getElementById("cleDtCode").value.trim();
+  if (!dtCode) { alert("Code DT requis"); return; }
+  const r = await fetchJson("/cles_dt", { method: "POST", body: JSON.stringify({ dt_code: dtCode }) });
+  document.getElementById("cleDtCode").value = "";
+  refresh();
+  alert(`Cle generee pour ${dtCode} :\n\n${r.cle_hex}\n\nCopiez-la dans le provisionnement de la tablette (Settings > Radio XBee).`);
+}
+
+async function revoquerCleDt(dtCode) {
+  await fetchJson("/cles_dt?dt_code=" + encodeURIComponent(dtCode), { method: "DELETE" });
+  refresh();
+}
+
+setInterval(refresh, 5000);
+refresh();
+</script>
+</body>
+</html>
