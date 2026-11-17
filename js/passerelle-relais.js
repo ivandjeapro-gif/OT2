@@ -51,6 +51,16 @@
       $('#relaisSgUrl').value = d.sg_url || '';
       $('#relaisSgIntervalle').value = d.sg_intervalle_s || 60;
       $('#relaisAlerteRouge').value = d.alerte_rouge_min || 10;
+      $('#relaisRemonteesIntervalle').value = d.remontees_intervalle_s || 10;
+      const r = d.remontees || {};
+      $('#relaisRemonteesEtat').textContent = !r.actif
+        ? 'Lecture des remontees : arretee (passerelle a redemarrer).'
+        : 'Lecture des remontees : ' + (r.derniere_erreur ? 'ERREUR — ' + r.derniere_erreur
+          : 'OK') + (r.derniere_lecture ? ' — derniere lecture ' + r.derniere_lecture : '') +
+          ' — ' + (r.lignes_traitees || 0) + ' position(s) traitee(s) depuis le demarrage' +
+          (r.derniere_position ? ' — derniere : ' + r.derniere_position : '') +
+          (r.derniere_ligne ? ' — ligne Remontees ' + r.derniere_ligne : '') +
+          (r.derniere_ligne_trajet ? ' / trajet ' + r.derniere_ligne_trajet : '');
       $('#relaisOfficeToken').value = '';
       $('#relaisSgToken').value = '';
       empreinte($('#relaisOfficeEmpreinte'), d.office_token_empreinte);
@@ -75,6 +85,7 @@
       sg_url: $('#relaisSgUrl').value.trim(),
       sg_intervalle_s: $('#relaisSgIntervalle').value.trim(),
       alerte_rouge_min: $('#relaisAlerteRouge').value.trim(),
+      remontees_intervalle_s: $('#relaisRemonteesIntervalle').value.trim(),
     };
     // URL : uniquement l'adresse /exec, jamais un jeton colle par erreur
     for (const [champ, v] of [['office_url', corps.office_url], ['sg_url', corps.sg_url]]) {

@@ -1921,40 +1921,45 @@ def gps_vers_local(conn, lat, lon):
     return x, y
 
 
-def appliquer_position_engin(conn, code, typ, x, y):
+def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=True):
     """Met a jour (ou cree) un engin a la position (x, y) et gere le chrono
-    d'immobilisation (seuil SEUIL_IMMOBILISATION_M). Utilise aussi bien par
-    la route HTTP /api/engins que par l'ecouteur radio XBee."""
+    d'immobilisation (seuil SEUIL_IMMOBILISATION_M). Utilise par la route
+    HTTP /api/engins, l'ecouteur radio XBee et la lecture des remontees.
+
+    `horodatage` : heure de l'observation (remontees) ; par defaut maintenant.
+    `relayer=False` : ne pas renvoyer la position a Serveur_SG (elle en vient)."""
+    instant = horodatage or now_iso()
     existe = conn.execute("SELECT * FROM engins WHERE code=?", (code,)).fetchone()
     if existe:
         deplacement = distance(x, y, existe["x"], existe["y"])
         if deplacement <= SEUIL_IMMOBILISATION_M:
-            immobilise_depuis = existe["immobilise_depuis"] or now_iso()
+            immobilise_depuis = existe["immobilise_depuis"] or instant
         else:
             immobilise_depuis = ""
         conn.execute(
             "UPDATE engins SET x=?, y=?, immobilise_depuis=?, derniere_maj=? WHERE code=?",
-            (x, y, immobilise_depuis, now_iso(), code))
+            (x, y, immobilise_depuis, instant, code))
     else:
         conn.execute(
             "INSERT INTO engins (code, type, x, y, derniere_maj) VALUES (?, ?, ?, ?, ?)",
-            (code, typ, x, y, now_iso()))
+            (code, typ, x, y, instant))
     conn.commit()
     # Relais vers Serveur_SG : point d'entree UNIQUE des positions (HTTP et
     # radio XBee passent tous deux ici), donc rien ne peut etre oublie.
-    sg_relayer_position(code, typ or "DT", x, y)
-    sg_vider_file()
+    if relayer:
+        sg_relayer_position(code, typ or "DT", x, y)
+        sg_vider_file()
     # geofencing dumping area : le DT est-il entre dans la zone de sa mission ?
     if (typ or "DT") == "DT":
         verifier_arrivee_da(conn, code)
         # sortie de route : hors de toute piste (hors zones autorisees)
         try:
-            verifier_offroad(conn, code)
+            verifier_offroad(conn, code, instant)
         except Exception as e:      # ne jamais perdre une position pour ca
             print("OFFROAD: verification impossible pour %s: %s" % (code, e))
         # apres l'offroad : un DT hors piste n'est pas aussi signale devie
         try:
-            verifier_deviation(conn, code)
+            verifier_deviation(conn, code, instant)
         except Exception as e:
             print("DEVIATION: verification impossible pour %s: %s" % (code, e))
 
@@ -2329,7 +2334,7 @@ def distance_au_chemin(chemin, x, y):
     return dmin
 
 
-def verifier_deviation(conn, dt_code):
+def verifier_deviation(conn, dt_code, instant=None):
     """Met a jour l'etat de deviation de la mission en cours du DT apres une
     nouvelle position. Retourne l'evenement {"type": "deviation" |
     "retour_trajet", ...} lors d'un changement d'etat, sinon None."""
@@ -2359,7 +2364,7 @@ def verifier_deviation(conn, dt_code):
     # manoeuvre au chargement / au dechargement : jamais une deviation
     zone = zone_hors_piste_autorisee(conn, x, y, offroad_reglages())
     deja_offroad = bool(dt["offroad"]) if "offroad" in dt.keys() else False
-    maintenant = now_iso()
+    maintenant = instant or now_iso()
     evenement = None
 
     if mission["devie"]:
@@ -2378,7 +2383,7 @@ def verifier_deviation(conn, dt_code):
             conn.commit()
     elif not zone and not deja_offroad and ecart > reglages["seuil_m"]:
         candidat = mission["devie_candidat_depuis"] or maintenant
-        if _secondes_depuis(candidat) >= reglages["duree_s"]:
+        if _secondes_depuis(candidat, maintenant) >= reglages["duree_s"]:
             message = "DEVIATION : %s a %d m du trajet de sa mission." % (dt_code, int(ecart))
             conn.execute(
                 "UPDATE missions SET devie=1, devie_depuis=?, devie_candidat_depuis='', "
@@ -2507,15 +2512,25 @@ def zone_hors_piste_autorisee(conn, x, y, reglages):
     return None
 
 
-def _secondes_depuis(horodatage):
+def _secondes_depuis(horodatage, reference=None):
+    """Secondes ecoulees entre `horodatage` et `reference` (par defaut :
+    maintenant). `reference` = l'heure de l'OBSERVATION quand les positions
+    arrivent par lots (remontees de Serveur_SG) : le delai de confirmation
+    se mesure sur le terrain, pas a l'heure de lecture du lot."""
     try:
         t = datetime.strptime(horodatage, "%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError):
         return 0.0
-    return (datetime.now() - t).total_seconds()
+    ref = datetime.now()
+    if reference:
+        try:
+            ref = datetime.strptime(reference, "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            pass
+    return (ref - t).total_seconds()
 
 
-def verifier_offroad(conn, dt_code):
+def verifier_offroad(conn, dt_code, instant=None):
     """Met a jour l'etat offroad du DT apres une nouvelle position.
     Retourne l'evenement {"type": "offroad"|"retour_piste", ...} lors d'un
     changement d'etat, sinon None."""
@@ -2534,12 +2549,12 @@ def verifier_offroad(conn, dt_code):
     x, y = dt["x"], dt["y"]
     dist = distance_piste_la_plus_proche(aretes, x, y)
     zone = zone_hors_piste_autorisee(conn, x, y, reglages)
-    maintenant = now_iso()
+    maintenant = instant or now_iso()
     evenement = None
 
     if dt["offroad"]:
         if zone or dist <= reglages["retour_m"]:
-            duree = int(_secondes_depuis(dt["offroad_depuis"]))
+            duree = int(_secondes_depuis(dt["offroad_depuis"], maintenant))
             message = "%s de retour sur piste (%s apres %d s hors piste)." % (
                 dt_code, zone or "%d m de la piste" % int(dist), duree)
             conn.execute(
@@ -2556,7 +2571,7 @@ def verifier_offroad(conn, dt_code):
             conn.commit()
     elif not zone and dist > reglages["seuil_m"]:
         candidat = dt["offroad_candidat_depuis"] or maintenant
-        if _secondes_depuis(candidat) >= reglages["duree_s"]:
+        if _secondes_depuis(candidat, maintenant) >= reglages["duree_s"]:
             message = "SORTIE DE ROUTE : %s a %d m de la piste la plus proche." % (
                 dt_code, int(dist))
             conn.execute(
@@ -3395,6 +3410,131 @@ def boucle_office():
                 conn.close()
         except Exception as e:
             print("OFFICE: boucle d'envoi en erreur: %s" % e)
+
+
+# ------------------------------------------------ remontees de Serveur_SG ---
+# Les tablettes du terrain envoient leurs positions en 4G a Serveur_SG
+# (onglet `remontees`) : elles ne passent PAS par la passerelle. Ce thread
+# lit les lignes nouvelles toutes les REMONTEES_INTERVALLE_S secondes et les
+# rejoue dans appliquer_position_engin (detection offroad / deviation /
+# arrivee, carte du dashboard), avec l'heure de chaque observation.
+# Au premier demarrage on part de la fin : l'historique ne declenche rien.
+REMONTEES_INTERVALLE_DEFAUT = 10
+_remontees_etat = {"actif": False, "derniere_lecture": "", "derniere_erreur": "",
+                   "lignes_traitees": 0, "derniere_position": ""}
+
+
+def remontees_intervalle():
+    try:
+        v = int(float(param_lire("REMONTEES_INTERVALLE_S", str(REMONTEES_INTERVALLE_DEFAUT))))
+    except (TypeError, ValueError):
+        v = REMONTEES_INTERVALLE_DEFAUT
+    return max(5, min(v, 600))
+
+
+def sg_lire_remontees(depuis=None, action="remontees"):
+    """GET ?action=remontees (chargement) ou ?action=trajet (hors chargement)
+    chez Serveur_SG. (ok, donnees, erreur)."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return False, {}, "Serveur_SG non configure"
+    url = "%s?action=%s&token=%s" % (sg_url, action, quote(sg_token))
+    if depuis is not None:
+        url += "&depuis=%d" % int(depuis)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as rep_:
+            d = json.loads(rep_.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return False, {}, "%s: %s" % (type(e).__name__, str(e)[:160])
+    if d.get("ok") is False:
+        return False, d, str(d.get("erreur") or "refus de Serveur_SG")
+    return True, d, ""
+
+
+def traiter_remontees(conn, lignes):
+    """Rejoue des lignes de remontees (dans l'ordre). Rend le nombre de DT traites."""
+    n = 0
+    for r in lignes:
+        dt = str(r.get("dt") or "").strip()
+        try:
+            x, y = float(r["x"]), float(r["y"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not dt:
+            continue
+        instant = str(r.get("horodatage") or "").strip()[:19].replace("T", " ") or None
+        # l'excavatrice d'abord : la zone de chargement autour d'elle evite
+        # de signaler le DT hors piste pendant qu'il est charge
+        exca = str(r.get("exca") or "").strip()
+        if exca and r.get("exca_x") is not None and r.get("exca_y") is not None:
+            try:
+                appliquer_position_engin(conn, exca, "EXCA", float(r["exca_x"]), float(r["exca_y"]),
+                                         horodatage=instant, relayer=False)
+            except (TypeError, ValueError):
+                pass
+        appliquer_position_engin(conn, dt, "DT", x, y, horodatage=instant, relayer=False)
+        n += 1
+        _remontees_etat["derniere_position"] = "%s %s" % (dt, instant or "")
+    return n
+
+
+# Deux onglets chez Serveur_SG (17/11) : `Remontees` (points au chargement,
+# avec l'excavatrice) et `remontée_trajet` (points hors chargement). Chacun a
+# son pointeur de ligne ; les points des deux sont rejoues dans l'ORDRE DES
+# HEURES, sinon un chargement et le trajet qui le suit seraient melanges.
+SOURCES_REMONTEES = (("remontees", "REMONTEES_DERNIERE_LIGNE"),
+                     ("trajet", "TRAJET_DERNIERE_LIGNE"))
+
+
+def remontees_un_passage():
+    """Une lecture des deux onglets. Rend (ok, positions traitees, erreur)."""
+    conn = get_conn()
+    try:
+        lots, pointeurs, erreurs = [], {}, []
+        for action, cle in SOURCES_REMONTEES:
+            brut = param_lire(cle, "")
+            if not brut:
+                ok, d, err = sg_lire_remontees(None, action)      # point de depart = fin
+                if ok:
+                    param_ecrire(conn, cle, str(int(d.get("derniere_ligne") or 1)))
+                elif "introuvable" not in err:   # onglet pas encore cree : rien a lire
+                    erreurs.append("%s: %s" % (action, err))
+                continue
+            ok, d, err = sg_lire_remontees(int(brut), action)
+            if not ok:
+                if "introuvable" not in err:
+                    erreurs.append("%s: %s" % (action, err))
+                continue
+            lots.extend(d.get("lignes") or [])
+            pointeurs[cle] = str(int(d.get("derniere_ligne") or brut))
+        # ordre chronologique (stable : a heure egale, l'ordre des onglets est garde)
+        lots.sort(key=lambda r: str(r.get("horodatage") or ""))
+        n = 0
+        if lots:
+            LOCK.route("remontees (%d ligne(s))" % len(lots))
+            with LOCK:
+                n = traiter_remontees(conn, lots)
+        for cle, valeur in pointeurs.items():
+            param_ecrire(conn, cle, valeur)
+        if n:
+            notifier_office(conn)       # evenements offroad / deviation vers OT
+        return (not erreurs), n, "; ".join(erreurs)
+    finally:
+        conn.close()
+
+
+def boucle_remontees():
+    _remontees_etat["actif"] = True
+    while True:
+        try:
+            ok, n, err = remontees_un_passage()
+            _remontees_etat["derniere_lecture"] = now_iso()
+            _remontees_etat["derniere_erreur"] = "" if ok else err
+            _remontees_etat["lignes_traitees"] += n
+        except Exception as e:
+            _remontees_etat["derniere_erreur"] = "%s: %s" % (type(e).__name__, e)
+            print("REMONTEES: erreur %s" % e)
+        time.sleep(remontees_intervalle())
 
 
 def vider_file_office(conn):
@@ -4333,6 +4473,10 @@ class Handler(BaseHTTPRequestHandler):
                         "sg_actif": bool(sg_url and sg_token),
                         "office_token_empreinte": empreinte_jeton(office_token),
                         "sg_token_empreinte": empreinte_jeton(sg_token),
+                        "remontees_intervalle_s": remontees_intervalle(),
+                        "remontees": dict(_remontees_etat,
+                                          derniere_ligne=param_lire("REMONTEES_DERNIERE_LIGNE", ""),
+                                          derniere_ligne_trajet=param_lire("TRAJET_DERNIERE_LIGNE", "")),
                         "alerte_rouge_min": alerte_rouge_minutes(),
                         "surcharge_env": [c for c in _PARAMS_RELAIS
                                           if os.environ.get(c, "")],
@@ -4345,7 +4489,8 @@ class Handler(BaseHTTPRequestHandler):
                               "sg_url": "SG_URL",
                               "sg_token": "SG_TOKEN",
                               "sg_intervalle_s": "SG_INTERVALLE_S",
-                              "alerte_rouge_min": "ALERTE_ROUGE_MIN"}
+                              "alerte_rouge_min": "ALERTE_ROUGE_MIN",
+                              "remontees_intervalle_s": "REMONTEES_INTERVALLE_S"}
                     ecrits = []
                     for champ, cle in connus.items():
                         if champ not in body:
@@ -5261,6 +5406,8 @@ def main():
     threading.Thread(target=ecouteur_xbee, daemon=True).start()
     # envoi vers Serveur_OT hors du verrou global (16/11)
     threading.Thread(target=boucle_office, daemon=True).start()
+    # positions reelles des DT : remontees de Serveur_SG (17/11)
+    threading.Thread(target=boucle_remontees, daemon=True).start()
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Server_Senor_Geology demarre sur http://%s:%d" % (HOST, PORT))
