@@ -137,6 +137,16 @@
         return { nom: z.nom, x: z.x, y: z.y, sommets: sommets };
       });
 
+      // Checkpoints (17/11) : lignes de passage, deux extremites en UTM.
+      let checkpoints = [];
+      try {
+        const rc = await fetch(base + '/api/checkpoints');
+        const dc = await rc.json();
+        checkpoints = (dc.checkpoints || []).map(function (c) {
+          return { nom: c.nom, points: [[c.x1, c.y1], [c.x2, c.y2]] };
+        });
+      } catch (e) { checkpoints = null; }   // passerelle ancienne : onglet garde
+
       const sources = brutes.map(function (s) { return { nom: s.nom }; });
       const teneurs = [];
       for (const s of brutes) {
@@ -165,7 +175,7 @@
 
       return OTCFG.appelOt('POST', 'dig_referentiel', null, {
         sources: sources, teneurs: teneurs, dumping_areas: dumpingAreas,
-        geo: geo,
+        geo: geo, checkpoints: checkpoints || undefined,
       });
     },
 

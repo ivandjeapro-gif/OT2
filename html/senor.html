@@ -182,6 +182,29 @@
                             </div>
                         </div>
 
+                        <!-- CARTE : CHECKPOINTS (17/11) - lignes de passage, deux
+                             extremites par checkpoint, import CSV "Y, X, id, Nom" -->
+                        <div class="panel sg2-area-chk">
+                            <div class="panel-label">Checkpoints</div>
+                            <div class="panel-content">
+                                <div class="sg2-center">
+                                    <button type="button" class="sg2-outline" id="btnSgImportChk">Importer CSV</button>
+                                    <input type="file" id="sgChkFileInput" accept=".csv,.txt" style="display:none" />
+                                    <button type="button" class="sg2-x" id="btnSgChkToutSuppr" title="Supprimer tous les checkpoints"><i class="fas fa-trash"></i></button>
+                                </div>
+                                <div class="sg2-cols">
+                                    <div class="sg2-left">
+                                        <div class="sg2-roads" id="sgChkList"></div>
+                                        <div class="sg2-status" id="sgChkStatus"></div>
+                                        <div class="sg2-detail" id="sgChkDetail"></div>
+                                    </div>
+                                    <div class="sg2-note">Un checkpoint est une ligne de passage : CSV avec les
+                                        colonnes Y, X, id, Nom et DEUX lignes par Nom (les deux extremites).
+                                        Degres convertis en UTM. Un Nom deja present est mis a jour.</div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- CARTE (colonne 3) : TRAILS (CHEMIN) -->
                         <div class="panel sg2-area-trails">
                             <div class="panel-label">Trails (Chemin)</div>

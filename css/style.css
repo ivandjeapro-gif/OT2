@@ -365,7 +365,7 @@ body {
     grid-template-rows: auto auto;
     grid-template-areas:
         "dest dump trails"
-        "dest dump geo";
+        "dest chk geo";
     gap: 12px;
 }
 
@@ -388,6 +388,7 @@ body {
 
 .sg2-area-dest { grid-area: dest; }
 .sg2-area-dump { grid-area: dump; }
+.sg2-area-chk { grid-area: chk; }
 .sg2-area-trails { grid-area: trails; }
 .sg2-area-geo { grid-area: geo; }
 .sg2-area-manager { grid-area: manager; }
@@ -966,6 +967,7 @@ button.sg2-gray-bar:hover {
         grid-template-areas:
             "dest"
             "dump"
+            "chk"
             "trails"
             "geo";
     }
@@ -5835,3 +5837,10 @@ body {
   background: rgba(239, 68, 68, .16);
   color: #fca5a5;
 }
+
+/* Parametres > Flotte : tonnes par voyage par famille (17/11) */
+.truck-factors { margin-top: 14px; }
+.truck-factor-row { display: flex; align-items: center; gap: 8px; }
+.truck-factor-row .truck-factor-fam { flex: 1; }
+.truck-factor-row input { width: 90px; }
+#btnTruckFactors { margin-top: 8px; }

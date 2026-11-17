@@ -34,6 +34,7 @@ La base est un fichier SQLite unique : data/oretracking.db (cree au premier
 lancement, pre-remplie avec les donnees de demarrage).
 """
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -1475,10 +1476,35 @@ def _flotte_detail(conn, remote_flotte):
     return lignes
 
 
+def facteurs_familles(conn):
+    """Tonnes par voyage, par famille de DT (Parametres > Flotte, 17/11).
+    Stocke en JSON dans params.truck_factor_familles : {"1500": 30, ...}.
+    Seules les valeurs > 0 sont gardees ; famille en majuscules."""
+    ligne = conn.execute(
+        "SELECT valeur FROM params WHERE cle='truck_factor_familles'").fetchone()
+    try:
+        brut = json.loads(ligne["valeur"]) if ligne and ligne["valeur"] else {}
+    except (ValueError, TypeError):
+        brut = {}
+    out = {}
+    for fam, val in (brut.items() if isinstance(brut, dict) else []):
+        try:
+            v = float(str(val).replace(",", "."))
+        except (ValueError, TypeError):
+            continue
+        if v > 0 and math.isfinite(v):
+            out[_txt(fam).upper()] = int(v) if v == int(v) else round(v, 2)
+    return out
+
+
 def gas_push_rows(dataset, conn):
     """Lignes a envoyer en ligne pour un dataset (source : etat local)."""
     if dataset == "flotte":
         rows = []
+        # truck_factor_t (17/11) : tonnes par voyage de la famille, colonne
+        # facultative de l'onglet flotte de Serveur_OT. Vide = repli sur le
+        # facteur global cote serveurs. Excavatrices : toujours vide.
+        facteurs = facteurs_familles(conn)
         # source : engins (liste operationnelle) UNION sync_flotte (machines
         # ajoutees via Settings, presentes ici meme avant le prochain pull).
         # Dedup par famille+numero : engins gagne (il porte le statut live).
@@ -1501,9 +1527,12 @@ def gas_push_rows(dataset, conn):
                 vues.add(cle)
                 statut = r["statut"] if src == "engins" else None
                 actif = bool(_bool(r["actif"]) and (statut is None or _txt(statut) != "inactif"))
-                rows.append({"role": role_famille(famille),
+                role = role_famille(famille)
+                rows.append({"role": role,
                              "famille": famille, "numero": int(numero),
-                             "actif": actif})
+                             "actif": actif,
+                             "truck_factor_t": (facteurs.get(famille.upper(), "")
+                                                if role == "DT" else "")})
         rows.sort(key=lambda x: x["numero"])
         return rows
     if dataset == "profils":

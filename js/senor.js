@@ -666,6 +666,98 @@
     }
   }
 
+  /* ======================= CARTE : CHECKPOINTS ========================== */
+  // Une ligne de passage = deux extremites. Le CSV (Y, X, id, Nom ; deux
+  // lignes par Nom) est lu et converti en UTM par la passerelle
+  // (/api/checkpoints_import), meme regle que les dumping areas.
+
+  function renderCheckpoints(rows) {
+    const b = $('#sgChkList');
+    if (!b) return;
+    if (!rows || !rows.length) {
+      b.innerHTML = '<div class="sg2-note">Aucun checkpoint</div>';
+      return;
+    }
+    b.innerHTML = rows.map((r) =>
+      '<div class="sg2-road-item">' +
+        '<i class="fas fa-flag-checkered"></i>' +
+        '<span class="sg2-road-nom" title="' + esc(r.nom) + '">' + esc(r.nom) + '</span>' +
+        '<span class="sg2-road-meta" title="(' + coord(r.x1) + ', ' + coord(r.y1) + ') - (' +
+          coord(r.x2) + ', ' + coord(r.y2) + ')">' + esc(String(r.longueur_m)) + ' m</span>' +
+        '<button type="button" class="sg2-x" data-chk-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+      '</div>').join('');
+  }
+
+  async function chargerCheckpoints() {
+    try {
+      const d = await jsend('/api/checkpoints', 'GET');
+      renderCheckpoints(d.checkpoints || []);
+    } catch (e) {
+      const b = $('#sgChkList');
+      if (b) b.innerHTML = '<div class="sg2-note">Passerelle injoignable</div>';
+    }
+  }
+
+  // Le detail (rejets) reste affiche : setStatus s'efface en 4 s, trop court
+  // pour lire la liste des checkpoints refuses.
+  function detailCheckpoints(texte, ok) {
+    const el = $('#sgChkDetail');
+    if (!el) return;
+    el.textContent = texte || '';
+    el.className = 'sg2-detail' + (texte ? (ok ? ' ok' : ' err') : '');
+  }
+
+  function importCheckpointsCSV(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      detailCheckpoints('', true);
+      try {
+        const r = await fetch(base() + '/api/checkpoints_import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contenu: String(e.target.result) }),
+        });
+        const d = await r.json().catch(() => ({}));
+        const rejets = (d.rejets || []).map((x) => x.nom + ' (' + x.motif + ')');
+        if (!r.ok) {
+          setStatus('#sgChkStatus', 'Import refuse : ' + (d.error || ('HTTP ' + r.status)), false);
+          if (rejets.length) detailCheckpoints('Refuses : ' + rejets.join(', '), false);
+          return;
+        }
+        const n = (d.crees || []).length, m = (d.mis_a_jour || []).length;
+        setStatus('#sgChkStatus', n + ' checkpoint(s) ajoute(s), ' + m + ' mis a jour' +
+          (d.convertis_utm ? ' (degres convertis en UTM)' : ''), true);
+        detailCheckpoints(rejets.length ? 'Refuses : ' + rejets.join(', ') : '', !rejets.length);
+        await chargerCheckpoints();
+      } catch (err) {
+        setStatus('#sgChkStatus', 'Erreur CSV : ' + err.message, false);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function supprimerCheckpoint(id) {
+    if (!await confirmerPopup('Supprimer ce checkpoint ?')) return;
+    try {
+      await jsend('/api/checkpoints?id=' + encodeURIComponent(id), 'DELETE');
+      setStatus('#sgChkStatus', 'Checkpoint supprime', true);
+      await chargerCheckpoints();
+    } catch (e) {
+      setStatus('#sgChkStatus', 'Suppression impossible : ' + (e.message || 'erreur'), false);
+    }
+  }
+
+  async function supprimerTousCheckpoints() {
+    if (!await confirmerPopup('Supprimer TOUS les checkpoints ?')) return;
+    try {
+      const d = await jsend('/api/checkpoints?tous=1', 'DELETE');
+      setStatus('#sgChkStatus', d.supprimes + ' checkpoint(s) supprime(s)', true);
+      detailCheckpoints('', true);
+      await chargerCheckpoints();
+    } catch (e) {
+      setStatus('#sgChkStatus', 'Suppression impossible : ' + (e.message || 'erreur'), false);
+    }
+  }
+
   /* =================== CARTE 4 : GEOGRAPHIC SYSTEM ==================== */
 
   let geoActuel = null; // { systeme, zone, hemisphere, datum }
@@ -855,6 +947,24 @@
       });
     }
 
+    // checkpoints
+    const btnChk = $('#btnSgImportChk');
+    const chkInput = $('#sgChkFileInput');
+    if (btnChk && chkInput) {
+      btnChk.addEventListener('click', () => chkInput.click());
+      chkInput.addEventListener('change', () => {
+        if (chkInput.files[0]) importCheckpointsCSV(chkInput.files[0]);
+        chkInput.value = '';
+      });
+    }
+    const chkTout = $('#btnSgChkToutSuppr');
+    if (chkTout) chkTout.addEventListener('click', supprimerTousCheckpoints);
+    const chkList = $('#sgChkList');
+    if (chkList) chkList.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-chk-del]');
+      if (b) supprimerCheckpoint(b.getAttribute('data-chk-del'));
+    });
+
     // trails / geotiff
     const btnRoad = $('#sgBtnRoadUpload');
     const roadInput = $('#sgRoadInput');
@@ -883,6 +993,7 @@
 
     chargerSources();
     chargerZones();
+    chargerCheckpoints();
     chargerRoads();
     chargerGeo();
     demarrerSuivi();

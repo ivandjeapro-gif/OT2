@@ -366,6 +366,8 @@
     forms.forEach((f) => {
       f.style.display = authenticated ? '' : 'none';
     });
+    const btnF = document.getElementById('btnTruckFactors');
+    if (btnF) btnF.style.display = authenticated ? '' : 'none';
   }
 
   // ============ TEAMS (Spotter) ============
@@ -653,14 +655,80 @@
     }).join('');
   }
 
+  // ---- truck factor par famille de DT (17/11) ----
+  // Stocke dans params.truck_factor_familles (JSON) ; envoye avec la flotte
+  // (colonne truck_factor_t de l'onglet flotte de Serveur_OT).
+  let facteursFamilles = {};
+  function lireFacteur(v) {
+    const n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+    return isFinite(n) && n > 0 ? n : null;
+  }
+  async function renderTruckFactors(rows) {
+    const box = $('#truckFactorList');
+    if (!box) return;
+    try {
+      const { params } = await API.getConfig();
+      facteursFamilles = JSON.parse((params && params.truck_factor_familles) || '{}') || {};
+    } catch (e) { /* hors ligne : on garde ce qu'on a */ }
+    const presentes = new Set(FAMILLES_DT);
+    (rows || []).forEach((r) => {
+      const f = String(r.famille || '').toUpperCase();
+      if (FAMILLES_DT.indexOf(f) >= 0) presentes.add(f);
+    });
+    box.innerHTML = Array.from(presentes).map((f) => {
+      const nb = (rows || []).filter((r) => String(r.famille || '').toUpperCase() === f).length;
+      const v = facteursFamilles[f] != null ? facteursFamilles[f] : '';
+      return '<div class="account-item truck-factor-row">' +
+        '<span class="truck-factor-fam">' + eqEscape(f) + ' <small>(' + nb + ' DT)</small></span>' +
+        '<input type="number" class="form-input-sm" min="0.5" max="500" step="0.5" placeholder="global"' +
+        ' data-famille="' + eqEscape(f) + '" value="' + eqEscape(String(v)) + '" /> <span>t</span></div>';
+    }).join('');
+  }
+  async function saveTruckFactors() {
+    const btn = $('#btnTruckFactors');
+    const nouveaux = {};
+    let invalide = '';
+    document.querySelectorAll('#truckFactorList input[data-famille]').forEach((inp) => {
+      if (String(inp.value).trim() === '') return;
+      const n = lireFacteur(inp.value);
+      if (n === null || n > 500) invalide = invalide || inp.dataset.famille;
+      else nouveaux[inp.dataset.famille] = n;
+    });
+    if (invalide) { equipStatus('truckFactorStatus', 'Valeur invalide pour ' + invalide + ' (0.5 a 500 t)', false); return; }
+    if (btn) btn.disabled = true;
+    try {
+      await API.saveConfig({ truck_factor_familles: JSON.stringify(nouveaux) });
+      facteursFamilles = nouveaux;
+      let msg = 'Enregistre';
+      try {
+        const rep = await API.pushGas(['flotte']);
+        const r = rep && rep.resultats && rep.resultats.flotte;
+        msg = (rep && rep.ok && r && !r.erreur)
+          ? 'Enregistre et envoye a Serveur_OT (' + r.ecrites + ' engins)'
+          : 'Enregistre ; envoi a Serveur_OT en echec : ' + ((r && r.erreur) || (rep && (rep.errors || []).join(', ')) || '?');
+        equipStatus('truckFactorStatus', msg, !!(rep && rep.ok));
+      } catch (eP) {
+        equipStatus('truckFactorStatus', 'Enregistre ; envoi a Serveur_OT impossible : ' + (eP.message || eP), false);
+      }
+    } catch (e) {
+      equipStatus('truckFactorStatus', 'Echec : ' + (e.message || e), false);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   async function loadEquipList(type) {
     const cfg = EQUIP_TYPES[type];
     try {
-      renderEquipList(type, await loadFlotteSync());
+      const lignes = await loadFlotteSync();
+      renderEquipList(type, lignes);
+      if (type === 'truck') renderTruckFactors(lignes);
       setEquipAuthUi(true);
     } catch (e) {
       const box = $('#' + cfg.container);
       if (box) box.innerHTML = '<div class="account-item muted">' + equipListError(e) + '</div>';
+      const boxF = type === 'truck' ? $('#truckFactorList') : null;
+      if (boxF) boxF.innerHTML = '<div class="account-item muted">' + equipListError(e) + '</div>';
       if (e && e.status === 401) setEquipAuthUi(false);
     }
   }
@@ -1764,6 +1832,8 @@
     if (btnTest) btnTest.addEventListener('click', testConnection);
     const btnSave = $('#btnSaveConfig');
     if (btnSave) btnSave.addEventListener('click', saveConfig);
+    const btnFacteurs = $('#btnTruckFactors');
+    if (btnFacteurs) btnFacteurs.addEventListener('click', saveTruckFactors);
     const selBackend = $('#cfgBackend');
     if (selBackend) selBackend.addEventListener('change', toggleBackend);
     const btnPull = $('#btnPullGas');
@@ -1900,6 +1970,6 @@
     loadEquipList, loadEquipLists: async () => {
       for (const t of Object.keys(EQUIP_TYPES)) await loadEquipList(t);
     },
-    refreshAssignments, renderGnssRegistry, loadGnssRegistry, renderFleet,
+    refreshAssignments, renderGnssRegistry, loadGnssRegistry, renderFleet, renderTruckFactors,
   };
 })();

@@ -32,6 +32,7 @@ import sqlite3
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -155,6 +156,26 @@ def empreinte_jeton(jeton):
     jetons a l'ecran sans jamais afficher leur valeur."""
     j = str(jeton or "").strip()
     return hashlib.sha256(j.encode("utf-8")).hexdigest()[:6] if j else ""
+
+
+def sg_sync_ref():
+    """Lance ?action=sync_ref sur Serveur_SG : il recopie depuis Serveur_OT
+    les oreblocs, zones de deversement, teneurs et pistes (onglets ref_*).
+    Appele par la page Parametres juste apres « Pousser le referentiel » :
+    sans cela SG gardait l'ancien referentiel jusqu'a une synchro manuelle.
+    Le jeton SG reste sur ce poste. Rend (ok, reponse de SG ou {}, erreur)."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return False, {}, "Serveur_SG non configure (Parametres -> Liaisons)"
+    url = "%s?action=sync_ref&token=%s" % (sg_url, quote(sg_token))
+    try:
+        with urllib.request.urlopen(url, timeout=240) as rep_:
+            d = json.loads(rep_.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return False, {}, "%s: %s" % (type(e).__name__, str(e)[:160])
+    if d.get("ok") is False:
+        return False, d, str(d.get("erreur") or "refus de Serveur_SG")
+    return True, d, ""
 
 
 def relais_tester():
@@ -322,6 +343,17 @@ CREATE TABLE IF NOT EXISTS dumping_areas (
     rayon_m REAL DEFAULT 50,        -- ancien rayon (legacy), le perimetre reel est sommets
     sommets TEXT DEFAULT '[]',      -- JSON liste de [x, y] : contour de la zone (obligatoire)
     couleur TEXT DEFAULT 'blue',    -- bleu/vert/jaune/orange (comme zones live)
+    actif INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Checkpoints (17/11) : une LIGNE de passage (deux extremites), en UTM.
+-- Import CSV "Y, X, id, Nom" : deux lignes par checkpoint.
+CREATE TABLE IF NOT EXISTS checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL,
+    x1 REAL NOT NULL, y1 REAL NOT NULL,     -- premiere extremite (Est, Nord)
+    x2 REAL NOT NULL, y2 REAL NOT NULL,     -- seconde extremite
     actif INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
 );
@@ -823,6 +855,61 @@ def itineraire(conn, x1, y1, x2, y2, accroche_max=ROUTE_ACCROCHE_MAX_M):
         "accroche_depart_m": round(d_depart, 1),
         "accroche_arrivee_m": round(d_arrivee, 1),
     }
+
+
+def points_en_utm(conn, points):
+    """[[x, y], ...] -> (points en UTM, converti ?). Des points en degres
+    (X = longitude, Y = latitude, comme un CSV exporte d'un SIG) sont
+    projetes dans le fuseau declare dans Geographic System (a defaut, celui
+    de la longitude). Tout le systeme raisonne en UTM 30N : des degres
+    stockes tels quels ne tombent sur aucune piste ni aucune position.
+    Meme regle pour les dumping areas et les checkpoints (17/11)."""
+    if not points or not semble_degres(points):
+        return points, False
+    zone, hemi = repere_site(conn)
+    if not zone:
+        zone = utm_zone_pour(points[0][0])
+        hemi = "N" if points[0][1] >= 0 else "S"
+    sortie = []
+    for x, y in points:
+        est, nord = wgs84_vers_utm(y, x, zone, hemi)
+        sortie.append([round(est, 3), round(nord, 3)])
+    return sortie, True
+
+
+def extraire_checkpoints_csv(texte):
+    """CSV de checkpoints -> (checkpoints [(nom, [[x, y], [x, y]])], rejets).
+
+    En-tete obligatoire, colonnes lues par NOM (ordre libre) : Y / X (ou
+    nord / est, lat / lon...) et Nom ; les autres (id...) sont ignorees.
+    Un checkpoint = les lignes de meme Nom : EXACTEMENT deux (les deux
+    extremites de la ligne de passage), sinon il est rejete avec le motif."""
+    lignes = lire_csv_lignes(texte)
+    cols, groupes, ordre = None, {}, []
+    for brutes in lignes:
+        if cols is None:
+            cols = _csv_colonnes(brutes)
+            if cols is None or cols[0] is None:
+                return [], [("(en-tete)", "colonnes Y, X et Nom attendues en premiere ligne")]
+            continue
+        inom, ix, iy = cols
+        if len(brutes) <= max(inom, ix, iy):
+            continue
+        nom = brutes[inom].strip()
+        x, y = _num(brutes[ix]), _num(brutes[iy])
+        if not nom or x is None or y is None:
+            continue
+        if nom not in groupes:
+            groupes[nom] = []
+            ordre.append(nom)
+        groupes[nom].append([x, y])
+    ok, rejets = [], []
+    for nom in ordre:
+        if len(groupes[nom]) == 2:
+            ok.append((nom, groupes[nom]))
+        else:
+            rejets.append((nom, "%d point(s) au lieu de 2" % len(groupes[nom])))
+    return ok, rejets
 
 
 def repere_site(conn):
@@ -2404,7 +2491,7 @@ def verifier_deviation(conn, dt_code, instant=None):
         conn.commit()
 
     if evenement:
-        enregistrer_pour_office(conn, {"alerte": evenement, "action": evenement["type"]})
+        enregistrer_alerte_office(conn, evenement)
     return evenement
 
 
@@ -2594,7 +2681,7 @@ def verifier_offroad(conn, dt_code, instant=None):
         conn.commit()
 
     if evenement:
-        enregistrer_pour_office(conn, {"alerte": evenement, "action": evenement["type"]})
+        enregistrer_alerte_office(conn, evenement)
     return evenement
 
 
@@ -3584,6 +3671,10 @@ def vider_file_office(conn):
                 if not e.get("event_id"):
                     conn.execute("UPDATE office_sync SET event_id=? WHERE id=?",
                                  (event_id, e["id"]))
+            elif isinstance(payload.get("chauffeur"), dict):
+                c = payload["chauffeur"]
+                ok = office_appel("notification",
+                                  {"profil": c.get("profil", ""), "message": c.get("message", "")})
             else:
                 ok = office_appel("notification",
                                   {"profil": "", "message": office_message(payload)})
@@ -3605,6 +3696,45 @@ def enregistrer_pour_office(conn, payload_dict):
         "INSERT INTO office_sync (payload, statut) VALUES (?, 'en_attente')",
         (json.dumps(payload_dict, ensure_ascii=True),))
     conn.commit()
+
+
+# ------------------------------------------ alerte vers la tablette du DT ---
+# Contrat convenu avec la Zone 2 le 17/11 (REPONSE_ZONE1_A_ZONE2_2026-11-17) :
+# en plus de l'evenement type (KPI, historique), chaque changement d'etat
+# offroad / deviation / retour_* est depose dans l'onglet `notifications` de
+# Serveur_OT, `profil` = code du DT, `message` = "[type] TEXTE ASCII". L'app
+# DT lit ?action=notifications, garde les lignes de son code et les dit a
+# voix haute. Pas d'accuse de lecture. Desactivable : ALERTES_CHAUFFEUR=0.
+TYPES_ALERTE_CHAUFFEUR = ("offroad", "deviation", "retour_piste", "retour_trajet")
+
+
+def alertes_chauffeur_actives():
+    return param_lire("ALERTES_CHAUFFEUR", "1").strip().lower() not in ("0", "non", "false", "off")
+
+
+def texte_ascii(texte):
+    """Sans accents ni caracteres speciaux : lu tel quel par la synthese
+    vocale de la tablette, quelle que soit sa langue."""
+    t = unicodedata.normalize("NFKD", str(texte or "")).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def message_chauffeur(evenement):
+    """[type] message, ou None si ce n'est pas une alerte pour le chauffeur."""
+    typ = (evenement or {}).get("type")
+    if typ not in TYPES_ALERTE_CHAUFFEUR or not evenement.get("dt_code"):
+        return None
+    return "[%s] %s" % (typ, texte_ascii(evenement.get("message")))
+
+
+def enregistrer_alerte_office(conn, evenement):
+    """Enfile l'evenement type pour OT, puis la notification au chauffeur
+    (entree separee : un echec de l'une ne bloque ni ne rejoue l'autre)."""
+    enregistrer_pour_office(conn, {"alerte": evenement, "action": evenement["type"]})
+    message = message_chauffeur(evenement)
+    if message and alertes_chauffeur_actives():
+        enregistrer_pour_office(conn, {"chauffeur": {
+            "profil": evenement["dt_code"], "message": message, "type": evenement["type"]}})
 
 
 # --------------------------------------------------------------- handler HTTP ---
@@ -3715,6 +3845,15 @@ class Handler(BaseHTTPRequestHandler):
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())
+        # Synchro du referentiel de Serveur_SG (apres une poussee vers OT) :
+        # appel au cloud (jusqu'a 1-2 min), donc HORS verrou.
+        if path == "/api/sg/sync_ref" and method == "POST":
+            ok, d, err = sg_sync_ref()
+            if not ok:
+                return self._send_json(502, {"ok": False, "error": err})
+            return self._send_json(200, {k: d.get(k) for k in (
+                "ok", "oreblocs", "dumping_areas", "teneurs", "pistes",
+                "checkpoints", "teneurs_sans_consigne", "note")})
         conn = get_conn()
         try:
             LOCK.route("%s %s" % (method, path))
@@ -4172,6 +4311,62 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                     return self._send_json(201, {"id": cur.lastrowid, "ok": True})
 
+                # ------------------------------------------- checkpoints --
+                # Ligne de passage (deux extremites), importee par CSV
+                # "Y, X, id, Nom" (deux lignes par checkpoint). Le nom est
+                # l'identifiant : un nom deja present est MIS A JOUR (on
+                # recharge le fichier corrige sans tout supprimer).
+                if path == "/api/checkpoints" and method == "GET":
+                    rows = [dict(r) for r in conn.execute(
+                        "SELECT id, nom, x1, y1, x2, y2, created_at FROM checkpoints "
+                        "WHERE actif=1 ORDER BY id")]
+                    for r in rows:
+                        r["longueur_m"] = round(distance(r["x1"], r["y1"], r["x2"], r["y2"]), 1)
+                    return self._send_json(200, {"checkpoints": rows})
+
+                if path == "/api/checkpoints_import" and method == "POST":
+                    body = json.loads(self._read_body() or b"{}")
+                    contenu = body.get("contenu") or ""
+                    if not contenu:
+                        return self._send_json(400, {"error": "contenu du fichier requis"})
+                    extraits, rejets = extraire_checkpoints_csv(contenu)
+                    if not extraits:
+                        return self._send_json(422, {
+                            "error": "aucun checkpoint exploitable (2 lignes par Nom, colonnes Y, X, Nom)",
+                            "rejets": [{"nom": n, "motif": m} for n, m in rejets]})
+                    crees, maj, convertis = [], [], 0
+                    for nom, pts in extraits:
+                        (a, b), conv = points_en_utm(conn, pts)
+                        convertis += 1 if conv else 0
+                        r = conn.execute("SELECT id FROM checkpoints WHERE LOWER(nom)=LOWER(?) AND actif=1",
+                                         (nom,)).fetchone()
+                        if r:
+                            conn.execute("UPDATE checkpoints SET x1=?, y1=?, x2=?, y2=? WHERE id=?",
+                                         (a[0], a[1], b[0], b[1], r["id"]))
+                            maj.append(nom)
+                        else:
+                            conn.execute("INSERT INTO checkpoints (nom, x1, y1, x2, y2) VALUES (?, ?, ?, ?, ?)",
+                                         (nom, a[0], a[1], b[0], b[1]))
+                            crees.append(nom)
+                    conn.commit()
+                    return self._send_json(201, {
+                        "ok": True, "crees": crees, "mis_a_jour": maj,
+                        "rejets": [{"nom": n, "motif": m} for n, m in rejets],
+                        "convertis_utm": convertis})
+
+                if path == "/api/checkpoints" and method == "DELETE":
+                    qs = self._qs()
+                    if qs.get("tous", ["0"])[0] == "1":
+                        n = conn.execute("UPDATE checkpoints SET actif=0 WHERE actif=1").rowcount
+                        conn.commit()
+                        return self._send_json(200, {"ok": True, "supprimes": n})
+                    cid = int(qs.get("id", ["0"])[0])
+                    if not cid:
+                        return self._send_json(400, {"error": "id requis"})
+                    conn.execute("UPDATE checkpoints SET actif=0 WHERE id=?", (cid,))
+                    conn.commit()
+                    return self._send_json(200, {"ok": True, "id": cid})
+
                 if path == "/api/dumping_areas" and method == "GET":
                     rows = [dict(r) for r in conn.execute("SELECT * FROM dumping_areas WHERE actif=1")]
                     return self._send_json(200, {"dumping_areas": rows})
@@ -4183,6 +4378,8 @@ class Handler(BaseHTTPRequestHandler):
                                      (nom,)).fetchone():
                         return self._send_json(409, {"error": "une dumping area nommee \"%s\" existe deja" % nom})
                     poly, err = sommets_depuis_body(body)
+                    if poly is not None:
+                        poly, _ = points_en_utm(conn, poly)
                     if poly is None:
                         # compat legacy : un point (x, y, rayon_m) seul
                         # -> carre de cote 2*rayon
@@ -4223,6 +4420,7 @@ class Handler(BaseHTTPRequestHandler):
                         poly, err = sommets_depuis_body(body)
                         if poly is None:
                             return self._send_json(400, {"error": err})
+                        poly, _ = points_en_utm(conn, poly)
                         cx, cy = centroide_polygone(poly)
                         conn.execute(
                             "UPDATE dumping_areas SET sommets=?, x=?, y=?, rayon_m=? WHERE id=?",
@@ -4261,11 +4459,16 @@ class Handler(BaseHTTPRequestHandler):
                     # deja existante (active) est ignoree, pas renommee/dupliquee.
                     crees = []
                     doublons = []
+                    convertis = 0
                     for nom, sommets in extraits:
                         if conn.execute("SELECT id FROM dumping_areas WHERE LOWER(nom)=LOWER(?) AND actif=1",
                                         (nom,)).fetchone():
                             doublons.append(nom)
                             continue
+                        # 17/11 : un CSV en degres (Y = lat, X = lon) etait
+                        # stocke tel quel ; il est maintenant projete en UTM.
+                        sommets, conv = points_en_utm(conn, sommets)
+                        convertis += 1 if conv else 0
                         cx, cy = centroide_polygone(sommets)
                         cur = conn.execute(
                             "INSERT INTO dumping_areas (nom, x, y, rayon_m, sommets, couleur) "
@@ -4277,7 +4480,7 @@ class Handler(BaseHTTPRequestHandler):
                                       "aire_m2": aire_polygone(sommets)})
                     conn.commit()
                     return self._send_json(201, {"ok": True, "nb": len(crees), "dumping_areas": crees,
-                                                 "doublons": doublons})
+                                                 "doublons": doublons, "convertis_utm": convertis})
 
                 if path == "/api/travels_roads" and method == "POST":
                     body = json.loads(self._read_body() or b"{}")
