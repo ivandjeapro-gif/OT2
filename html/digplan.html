@@ -1,0 +1,319 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dig Plan - OreTracking V2</title>
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+    <!-- LOGIN OVERLAY -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-box">
+            <div class="login-logo">
+                <i class="fas fa-hard-hat"></i>
+            </div>
+            <h1>OreTracking V2</h1>
+            <p class="login-sub" data-i18n>Connexion a votre compte</p>
+            <form id="loginForm" autocomplete="off">
+                <div class="login-field">
+                    <label for="loginIdentifiant" data-i18n>Email ou nom</label>
+                    <input type="text" id="loginIdentifiant" class="form-input" placeholder="gaston.albert@oresys.com" required />
+                </div>
+                <div class="login-field">
+                    <label for="loginPassword" data-i18n>Mot de passe</label>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required />
+                </div>
+                <div class="login-status" id="loginStatus"></div>
+                <button type="submit" class="btn-login" id="btnLogin" data-i18n>Se connecter</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="app">
+        <header class="menu-bar">
+            <div class="menu-left">
+                <span class="app-name">OreTracking</span>
+            </div>
+            <div class="menu-right">
+                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
+                <span class="app-version">Dig Plan</span>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+            <aside class="sidebar" id="sidebar">
+                <nav class="sidebar-nav">
+                    <div class="nav-top">
+                        <a class="sidebar-link" data-page="home" href="home.html">
+                            <i class="fas fa-home"></i>
+                            <span>Home</span>
+                        </a>
+                        <a class="sidebar-link" data-page="live" href="live.html">
+                            <i class="fas fa-satellite-dish"></i>
+                            <span>Live</span>
+                        </a>
+                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
+                            <i class="fas fa-bell"></i>
+                            <span>Alerts</span>
+                        </a>
+                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
+                            <i class="fas fa-inbox"></i>
+                            <span>Inbox</span>
+                        </a>
+                    </div>
+                    <div class="nav-bottom">
+                        <a class="sidebar-link" data-page="settings" href="settings.html">
+                            <i class="fas fa-cog"></i>
+                            <span data-i18n>Settings</span>
+                        </a>
+                        <a class="sidebar-link" data-page="sync" href="sync.html">
+                            <i class="fas fa-sync-alt"></i>
+                            <span data-i18n>Sync</span>
+                        </a>
+                        <a class="sidebar-link" data-page="senor" href="senor.html">
+                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
+                            <span data-i18n>Senor</span>
+                        </a>
+                        <a class="sidebar-link active" data-page="digplan" href="digplan.html">
+                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
+                            <span data-i18n>Dig Plan</span>
+                        </a>
+                    </div>
+                </nav>
+
+                <div class="sidebar-user">
+                    <div class="user-avatar">
+                        <i class="fas fa-user-circle"></i>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">Gaston Albert</span>
+                        <span class="user-email">gaston.albert@oresys.com</span>
+                    </div>
+                    <button class="btn-logout" title="Deconnexion">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </aside>
+
+            <main class="content">
+<!-- PAGE: DIG PLAN - gestion des blasts/oreblocs (donnees simulees CSV/DXF) -->
+                <section class="page active" id="page-digplan">
+                    <div class="dp-grid">
+
+                        <!-- COLONNE GAUCHE : selection + CRUD blast + statut -->
+                        <div class="dp-left">
+                            <div class="panel dp-panel-top">
+                                <div class="panel-content">
+                                    <div class="sg2-gray-bar sg2-source-bar">
+                                        <button type="button" class="sg2-source-nav" id="dpSrcPrev" title="Source precedente"><i class="fas fa-chevron-left"></i></button>
+                                        <span class="sg2-source-text"><span data-i18n>Source :</span> <span id="dpSourceLabel"></span></span>
+                                        <button type="button" class="sg2-source-nav" id="dpSrcNext" title="Source suivante"><i class="fas fa-chevron-right"></i></button>
+                                    </div>
+                                    <div class="dp-dest-row">
+                                        <span class="dp-dest-label" data-i18n>Destination :</span>
+                                        <div class="sg2-row sg2-row-equal" id="dpTeneursRow"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="panel dp-panel-blast">
+                                <div class="panel-content">
+                                    <div class="dp-blast-actions">
+                                        <button type="button" class="sg2-outline" id="dpBtnSelect" data-i18n>Select Blast</button>
+                                        <button type="button" class="sg2-outline sg2-ok" id="dpBtnNew" data-i18n>Nouveau Blast</button>
+                                        <button type="button" class="sg2-outline" id="dpBtnEdit" disabled data-i18n>Modifier un blast</button>
+                                        <button type="button" class="sg2-outline sg2-danger" id="dpBtnDelete" disabled data-i18n>Supprimer un blast</button>
+                                    </div>
+
+                                    <form class="dp-form" id="dpForm">
+                                        <label class="dp-field">
+                                            <span data-i18n>Name</span>
+                                            <input type="text" id="dpName" class="sg2-input" placeholder="...." />
+                                        </label>
+                                        <!-- Les libelles ci-dessous ne sont pas statiques : leur prefixe
+                                             reprend le champ "Name" ci-dessus (convention de nommage des
+                                             fichiers du blast), mis a jour par majLabelsFichier(). -->
+                                        <!-- BASE DE DONNEES : CSV des polygones. Son contenu part
+                                             dans l'onglet Sheet "dig_bloc" (1 ligne par sommet :
+                                             option label | polygon | hole | id | x | y) — c'est ce
+                                             que lit la tablette pour avoir les blocs precis. -->
+                                        <label class="dp-field">
+                                            <span class="dp-field-name" id="dpFieldLabelBase">Name_base</span>
+                                            <button type="button" class="sg2-input dp-file-trigger" id="dpNameBaseTrigger">
+                                                <span id="dpNameBaseLabel">....</span><i class="fas fa-database"></i>
+                                            </button>
+                                            <input type="file" id="dpNameBaseInput" accept=".csv" style="display:none" />
+                                        </label>
+                                        <label class="dp-field">
+                                            <span class="dp-field-name" id="dpFieldLabelDxf">Name_dxf</span>
+                                            <button type="button" class="sg2-input dp-file-trigger" id="dpNameDxfTrigger">
+                                                <span id="dpNameDxfLabel">....</span><i class="fas fa-paperclip"></i>
+                                            </button>
+                                            <input type="file" id="dpNameDxfInput" accept=".dxf,.csv" style="display:none" />
+                                        </label>
+                                        <label class="dp-field">
+                                            <span class="dp-field-name" id="dpFieldLabelGeosum">Name_Geosum</span>
+                                            <button type="button" class="sg2-input dp-file-trigger" id="dpNameGeosumTrigger">
+                                                <span id="dpNameGeosumLabel">....</span><i class="fas fa-paperclip"></i>
+                                            </button>
+                                            <input type="file" id="dpNameGeosumInput" style="display:none" />
+                                        </label>
+                                        <label class="dp-field">
+                                            <span class="dp-field-name" id="dpFieldLabelSurvey">Name_servey</span>
+                                            <button type="button" class="sg2-input dp-file-trigger" id="dpNameSurveyTrigger">
+                                                <span id="dpNameSurveyLabel">....</span><i class="fas fa-paperclip"></i>
+                                            </button>
+                                            <input type="file" id="dpNameSurveyInput" style="display:none" />
+                                        </label>
+                                        <label class="dp-field">
+                                            <span class="dp-field-name" id="dpFieldLabelMap">Name_Map</span>
+                                            <button type="button" class="sg2-input dp-file-trigger" id="dpNameMapTrigger">
+                                                <span id="dpNameMapLabel">....</span><i class="fas fa-paperclip"></i>
+                                            </button>
+                                            <input type="file" id="dpNameMapInput" accept=".jpg,.jpeg,.png,.pdf" style="display:none" />
+                                        </label>
+                                        <!-- affiches uniquement en mode creation/edition
+                                             (voir rendreBoutons) : rien a enregistrer en consultation -->
+                                        <div class="dp-form-actions" id="dpFormActions" hidden>
+                                            <button type="submit" class="sg2-outline sg2-ok" data-i18n>Enregistrer</button>
+                                            <button type="button" class="sg2-outline" id="dpBtnCancel">Annuler modif</button>
+                                        </div>
+                                        <div class="sg2-status" id="dpStatus"></div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <div class="panel dp-panel-statut">
+                                <div class="panel-label" data-i18n>Statut de blast</div>
+                                <div class="panel-content">
+                                    <div class="dp-diagram" id="dpDiagram"></div>
+                                </div>
+                            </div>
+
+                            <div class="panel dp-panel-overmine">
+                                <div class="panel-label">Overmine</div>
+                                <div class="panel-content">
+                                    <div class="dp-note" id="dpOvermineNote" style="margin-bottom:4px">
+                                        Blocs dont le tonnage mine depasse le tonnage theorique du plan.
+                                    </div>
+                                    <div class="dp-overmine-liste" id="dpOvermineListe">
+                                        <div class="dp-note">Aucun blast selectionne.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- COLONNE DROITE : plan OREPro 3D (Map/Progress) -->
+                        <div class="dp-right">
+                            <div class="panel dp-panel-plan">
+                                <div class="panel-content">
+
+                                    <!-- planche unique au format A4 : les deux onglets basculent le
+                                         contenu de la zone centrale, le reste (entete, tableau) est commun -->
+                                    <div class="dp-page">
+                                        <div class="dp-tabs">
+                                            <button type="button" class="dp-tab active" id="dpTabMap" data-i18n>Map</button>
+                                            <button type="button" class="dp-tab" id="dpTabProgress" data-i18n>Progress</button>
+                                        </div>
+
+                                        <div class="dp-map-head">
+                                            <div class="dp-map-head-left">
+                                                <div class="dp-plan-title" id="dpPlanTitle">-</div>
+                                                <!-- Rempli par rendreMeta() : on ne montre que ce qu'on
+                                                     sait reellement, l'essentiel etant decode du nom
+                                                     du blast (flitch, plage de minage, pattern). -->
+                                                <div class="dp-meta-grid" id="dpMetaGrid"></div>
+                                            </div>
+                                            <div class="dp-map-head-right">
+                                                <div class="dp-orepro">OREPro 3D</div>
+                                                <div class="dp-author" id="dpAuthor"></div>
+                                                <div class="dp-compass" title="Nord"><i class="fas fa-location-arrow"></i><span>N</span></div>
+                                            </div>
+                                        </div>
+
+                                        <div class="dp-page-body">
+                                            <!-- Map : uniquement l'image importee (Name_Map) -->
+                                            <div class="dp-map-view" id="dpMapView">
+                                                <div class="dp-map-image-wrap" id="dpMapImageWrap"></div>
+                                            </div>
+                                            <!-- Progress : contours des blocs + bloc en cours de minage -->
+                                            <div class="dp-progress-view" id="dpProgressView" hidden>
+                                                <div class="dp-progress-legend"><span class="dp-dot-mining"></span> <span data-i18n>Bloc en cours de minage (temps reel)</span></div>
+                                                <div class="dp-svg-wrap" id="dpSvgWrapProgress"></div>
+                                                <div class="dp-progress-summary" id="dpProgressSummary"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Le tableau defile dans sa zone : la carte garde sa
+                                             hauteur, quel que soit le nombre de blocs. -->
+                                        <div class="dp-table-wrap">
+                                        <table class="dp-table">
+                                            <thead>
+                                                <tr>
+                                                    <th data-i18n>Polygon</th>
+                                                    <th data-i18n>Volume</th>
+                                                    <th data-i18n>Tonnes</th>
+                                                    <th>Au_ok</th>
+                                                    <th data-i18n>Density</th>
+                                                    <th data-i18n>Destination</th>
+                                                    <th data-i18n>Litho</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="dpTableBody"></tbody>
+                                        </table>
+                                        </div>
+                                        <div class="dp-page-label" id="dpPageLabel"></div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- popup de selection d'un blast -->
+                    <div class="sg2-modal-overlay" id="dpSelectOverlay" hidden>
+                        <div class="sg2-modal">
+                            <h3 data-i18n>Selectionner un blast</h3>
+                            <div class="dp-blast-list" id="dpBlastList"></div>
+                            <div class="sg2-modal-actions">
+                                <button type="button" class="sg2-outline" id="dpSelectCancel" data-i18n>Fermer</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- popup de confirmation (reutilisee pour suppression de blast) -->
+                    <div class="sg2-modal-overlay" id="dpConfirmOverlay" hidden>
+                        <div class="sg2-modal">
+                            <h3 data-i18n>Confirmer la suppression</h3>
+                            <p id="dpConfirmMessage"></p>
+                            <div class="sg2-modal-actions">
+                                <button type="button" class="sg2-outline" id="dpConfirmCancel" data-i18n>Annuler</button>
+                                <button type="button" class="sg2-outline sg2-danger" id="dpConfirmOk" data-i18n>Supprimer</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="../js/prefs.js"></script>
+    <script src="../js/splash.js"></script>
+    <script src="../js/sync-pill.js"></script>
+    <script src="../js/ot-config.js"></script>
+    <script src="../js/api.js"></script>
+    <script type="module" src="../js/auth.js"></script>
+    <script src="../js/server-ui.js"></script>
+    <script src="../js/digplan.js"></script>
+    <script src="../js/app.js"></script>
+</body>
+</html>

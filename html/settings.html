@@ -1,0 +1,729 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OreTracking V2</title>
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+    <!-- LOGIN OVERLAY -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-box">
+            <div class="login-logo">
+                <i class="fas fa-hard-hat"></i>
+            </div>
+            <h1>OreTracking V2</h1>
+            <p class="login-sub" data-i18n>Connexion a votre compte</p>
+            <form id="loginForm" autocomplete="off">
+                <div class="login-field">
+                    <label for="loginIdentifiant" data-i18n>Email ou nom</label>
+                    <input type="text" id="loginIdentifiant" class="form-input" placeholder="gaston.albert@oresys.com" required />
+                </div>
+                <div class="login-field">
+                    <label for="loginPassword" data-i18n>Mot de passe</label>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required />
+                </div>
+                <div class="login-status" id="loginStatus"></div>
+                <button type="submit" class="btn-login" id="btnLogin" data-i18n>Se connecter</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="app">
+        <!-- TOP MENU BAR -->
+        <header class="menu-bar">
+            <div class="menu-left">
+                <span class="app-name">OreTracking</span>
+            </div>
+            <div class="menu-right">
+                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
+                <span class="app-version">OreTracking V2</span>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <!-- HAMBURGER (mobile) -->
+            <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+            <!-- LEFT SIDEBAR -->
+            <aside class="sidebar" id="sidebar">
+                <nav class="sidebar-nav">
+                    <div class="nav-top">
+                        <a class="sidebar-link" data-page="home" href="home.html">
+                            <i class="fas fa-home"></i>
+                            <span>Home</span>
+                        </a>
+                        <a class="sidebar-link" data-page="live" href="live.html">
+                            <i class="fas fa-satellite-dish"></i>
+                            <span>Live</span>
+                        </a>
+                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
+                            <i class="fas fa-bell"></i>
+                            <span>Alerts</span>
+                        </a>
+                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
+                            <i class="fas fa-inbox"></i>
+                            <span>Inbox</span>
+                        </a>
+                    </div>
+                    <div class="nav-bottom">
+                        <a class="sidebar-link active" data-page="settings" href="settings.html">
+                            <i class="fas fa-cog"></i>
+                            <span data-i18n>Settings</span>
+                        </a>
+                        <a class="sidebar-link" data-page="sync" href="sync.html">
+                            <i class="fas fa-sync-alt"></i>
+                            <span data-i18n>Sync</span>
+                        </a>
+                        <a class="sidebar-link" data-page="senor" href="senor.html">
+                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
+                            <span data-i18n>Senor</span>
+                        </a>
+                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
+                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
+                            <span data-i18n>Dig Plan</span>
+                        </a>
+                    </div>
+                </nav>
+
+                <div class="sidebar-user">
+                    <div class="user-avatar">
+                        <i class="fas fa-user-circle"></i>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">Gaston Albert</span>
+                        <span class="user-email">gaston.albert@oresys.com</span>
+                    </div>
+                    <button class="btn-logout" title="Deconnexion">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- MAIN CONTENT AREA -->
+            <main class="content">
+
+<!-- PAGE: SETTINGS -->
+                <section class="page active" id="page-settings">
+
+                    <!-- Bandeau de synchronisation : etat du lien cloud, toujours visible -->
+                    <div class="sync-bandeau" id="syncBandeau">
+                        <span class="sync-dot" id="syncDot"></span>
+                        <span id="syncTexte">Verification de la synchronisation...</span>
+                        <span class="sync-action">
+                            <button type="button" class="team-btn" id="btnSyncMaintenant" title="Synchroniser maintenant">
+                                <i class="fas fa-sync-alt"></i> Synchroniser maintenant
+                            </button>
+                        </span>
+                    </div>
+
+                    <!-- Onglets de navigation -->
+                    <div class="settings-onglets" id="settingsOnglets">
+                        <button class="onglet actif" data-onglet="connexion"><i class="fas fa-plug"></i> Connexion</button>
+                        <button class="onglet" data-onglet="flotte"><i class="fas fa-truck"></i> Flotte</button>
+                        <button class="onglet" data-onglet="equipes"><i class="fas fa-users"></i> Equipes</button>
+                        <button class="onglet" data-onglet="terrain"><i class="fas fa-tablet-alt"></i> Terrain</button>
+                    </div>
+
+                    <!-- ===== ONGLET CONNEXION ===== -->
+                    <div class="settings-grid-5 onglet-pane actif" data-onglet="connexion">
+                        <!-- PREFERENCES -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Preferences</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <!-- AFFICHAGE -->
+                                    <div class="pref-section">Affichage</div>
+                                    <div class="form-row">
+                                        <label for="cfgTheme" data-i18n>Theme</label>
+                                        <select class="form-select" id="cfgTheme">
+                                            <option value="dark" selected data-i18n>Sombre</option>
+                                            <option value="midnight" data-i18n>Minuit</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label data-i18n>Animations</label>
+                                        <label class="toggle"><input type="checkbox" checked id="cfgAnimations" /><span class="toggle-slider"></span></label>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgFontSize" data-i18n>Taille police (%)</label>
+                                        <input type="number" min="70" max="150" step="5" value="100" class="form-input" id="cfgFontSize" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label data-i18n>Contraste eleve</label>
+                                        <label class="toggle"><input type="checkbox" id="cfgHighContrast" /><span class="toggle-slider"></span></label>
+                                    </div>
+                                    <div class="form-row">
+                                        <label data-i18n>Mouvement reduit</label>
+                                        <label class="toggle"><input type="checkbox" id="cfgReducedMotion" /><span class="toggle-slider"></span></label>
+                                    </div>
+
+                                    <!-- FORMAT -->
+                                    <div class="pref-section">Format</div>
+                                    <div class="form-row">
+                                        <label for="cfgLang" data-i18n>Langue</label>
+                                        <select class="form-select" id="cfgLang">
+                                            <option value="fr" selected>Francais</option>
+                                            <option value="en">English</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgUnits" data-i18n>Unites</label>
+                                        <select class="form-select" id="cfgUnits">
+                                            <option value="metric" selected>Tonnes / °C / Litres</option>
+                                            <option value="imperial">KG / °F / Gallons</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgDateFormat" data-i18n>Format date</label>
+                                        <select class="form-select" id="cfgDateFormat">
+                                            <option value="dd/mm/yyyy" selected>JJ/MM/AAAA</option>
+                                            <option value="mm/dd/yyyy">MM/JJ/AAAA</option>
+                                            <option value="yyyy-mm-dd">AAAA-MM-JJ</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgNumberFormat" data-i18n>Format nombre</label>
+                                        <select class="form-select" id="cfgNumberFormat">
+                                            <option value="comma" selected>Virgule (45,2)</option>
+                                            <option value="dot">Point (45.2)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgTimezone" data-i18n>Fuseau horaire</label>
+                                        <select class="form-select" id="cfgTimezone">
+                                            <option value="UTC">UTC</option>
+                                            <option value="Europe/Paris" selected>Europe/Paris</option>
+                                            <option value="Africa/Lagos">Africa/Lagos (WAT)</option>
+                                            <option value="Africa/Douala">Africa/Douala</option>
+                                            <option value="Africa/Johannesburg">Africa/Johannesburg</option>
+                                            <option value="America/Toronto">America/Toronto</option>
+                                            <option value="Australia/Perth">Australia/Perth</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- COMPORTEMENT -->
+                                    <div class="pref-section">Comportement</div>
+                                    <div class="form-row">
+                                        <label data-i18n>Notifications sonores</label>
+                                        <label class="toggle"><input type="checkbox" id="cfgSound" /><span class="toggle-slider"></span></label>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgHomePage" data-i18n>Page d'accueil</label>
+                                        <select class="form-select" id="cfgHomePage">
+                                            <option value="home" selected>Home</option>
+                                            <option value="live">Live</option>
+                                            <option value="alerts">Alerts</option>
+                                            <option value="inbox">Inbox</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label data-i18n>Mode simulation</label>
+                                        <label class="toggle"><input type="checkbox" checked id="cfgModeSim" /><span class="toggle-slider"></span></label>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgRefresh" data-i18n>Rafraichissement (sec)</label>
+                                        <input type="number" value="5" min="1" max="300" class="form-input" id="cfgRefresh" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SERVEUR_OT (Apps Script) : point unique de configuration -->
+                        <div class="panel">
+                            <div class="panel-label">Serveur_OT (Apps Script)</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <!-- autocomplete/name : sans ca le navigateur injecte l'email du
+                                         compte dans l'ID de dossier et un mot de passe enregistre
+                                         dans le jeton (constate en test). -->
+                                    <div class="form-row form-row-block">
+                                        <label for="otUrl">URL de deploiement (/exec)</label>
+                                        <input type="text" class="form-input form-input-wide" id="otUrl"
+                                               name="ot-deploy-url" placeholder="https://script.google.com/macros/s/XXXX/exec"
+                                               spellcheck="false" autocomplete="off"
+                                               data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <div class="form-row form-row-block">
+                                        <label for="otToken">Jeton partage</label>
+                                        <input type="password" class="form-input form-input-wide" id="otToken"
+                                               name="ot-shared-token" placeholder="jeton partage avec les tablettes"
+                                               spellcheck="false" autocomplete="new-password"
+                                               data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <div class="form-row form-row-block">
+                                        <label for="otRacineId">Dossier Drive racine (ID de OT_Test)</label>
+                                        <input type="text" class="form-input form-input-wide" id="otRacineId"
+                                               name="ot-drive-root" placeholder="ID pris dans le lien de partage du dossier"
+                                               spellcheck="false" autocomplete="off"
+                                               data-lpignore="true" data-1p-ignore />
+                                    </div>
+                                    <!-- Routage, a ne pas confondre avec "Source de donnees" du
+                                         panneau Connection qui choisit la technologie (App Script
+                                         ou Azure). Ici on choisit seulement QUEL serveur la page
+                                         Dig Plan interroge. -->
+                                    <div class="form-row form-row-block">
+                                        <label for="otBackendPage">La page Dig Plan lit et ecrit sur</label>
+                                        <select class="form-select" id="otBackendPage">
+                                            <option value="sg">La passerelle locale (Senor Geology :8101)</option>
+                                            <option value="ot">Serveur_OT (en ligne)</option>
+                                        </select>
+                                    </div>
+                                    <div class="ot-actions">
+                                        <button type="button" class="ot-btn ot-btn-primaire" id="btnOtSave">Enregistrer</button>
+                                        <button type="button" class="ot-btn" id="btnOtTest">Tester la connexion</button>
+                                        <button type="button" class="ot-btn" id="btnOtInitDrive">Creer l'arborescence Drive</button>
+                                        <button type="button" class="ot-btn" id="btnOtPushRef">Pousser le referentiel</button>
+                                        <button type="button" class="ot-btn" id="btnOtPushPistes">Pousser les pistes</button>
+                                    </div>
+                                    <div class="account-status" id="otStatus"></div>
+                                    <pre class="ot-diag" id="otDiag" hidden></pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CONNECTION -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Connection</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="form-row form-row-block">
+                                        <label for="cfgApiUrl">URL API</label>
+                                        <input type="text" class="form-input form-input-wide" id="cfgApiUrl"
+                                               placeholder="http://192.168.1.100:8100" spellcheck="false" autocomplete="off" />
+                                    </div>
+                                    <div class="form-row form-row-block">
+                                        <label for="cfgBackend">Source de donnees</label>
+                                        <select class="form-select" id="cfgBackend">
+                                            <option value="appscript">Google App Script</option>
+                                            <option value="azure">Azure PostgreSQL (bientot)</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Bloc Google App Script -->
+                                    <div id="backendAppScript" class="backend-group">
+                                        <div class="form-row form-row-block">
+                                            <label for="gasUrl">URL de l'application</label>
+                                            <input type="text" class="form-input form-input-wide" id="gasUrl"
+                                                   placeholder="https://script.google.com/macros/s/.../exec"
+                                                   spellcheck="false" autocomplete="off" />
+                                        </div>
+                                        <div class="form-row form-row-block">
+                                            <label for="gasToken">Token d'acces</label>
+                                            <input type="password" class="form-input form-input-wide" id="gasToken"
+                                                   placeholder="Optionnel - colle ton token si ton script GAS en verifie un" autocomplete="off" />
+                                            <small class="field-hint">Le token reste sur le serveur, jamais affiche apres enregistrement. Ton script GAS doit verifier <code>payload.token</code> pour qu'il soit utile.</small>
+                                        </div>
+                                        <div class="form-row form-row-block">
+                                            <button type="button" class="btn-action-label" id="btnPullGas" title="Recuperer les donnees depuis Google Sheets">
+                                                <i class="fas fa-cloud-download-alt"></i> Recuperer depuis Google Sheets
+                                            </button>
+                                        </div>
+                                        <div class="account-status" id="pullGasStatus"></div>
+                                    </div>
+
+                                    <!-- Bloc Azure (futur) -->
+                                    <div id="backendAzure" class="backend-group" hidden>
+                                        <div class="backend-soon-badge">Disponible prochainement</div>
+                                        <div class="form-row">
+                                            <label for="cfgServeur">Serveur</label>
+                                            <input type="text" class="form-input" id="cfgServeur" value="192.168.1.100" disabled />
+                                        </div>
+                                        <div class="form-row">
+                                            <label for="cfgPort">Port</label>
+                                            <input type="number" class="form-input" id="cfgPort" value="5432" disabled />
+                                        </div>
+                                        <div class="form-row">
+                                            <label for="cfgBase">Base</label>
+                                            <input type="text" class="form-input" id="cfgBase" value="oretracking_db" disabled />
+                                        </div>
+                                        <div class="form-row">
+                                            <label for="cfgUser">User</label>
+                                            <input type="text" class="form-input" id="cfgUser" value="admin" disabled />
+                                        </div>
+                                        <div class="form-row">
+                                            <label for="cfgPassword">Mot de passe</label>
+                                            <input type="password" class="form-input" id="cfgPassword" value="" disabled />
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row form-row-block">
+                                        <label for="cfgChargementMoyen">Charge moyenne par voyage (tonnes)</label>
+                                        <input type="number" class="form-input" id="cfgChargementMoyen" min="1" max="500" step="0.5" value="30"
+                                               placeholder="30" />
+                                        <small class="field-hint">Tonnage moyen d'un chargement de camion (truck factor 1). Chaque voyage est comptabilise : charge moyenne x truck factor. A calibrer selon vos bennes (ex : 1500 = 30 t, 785 = 50 t). Defaut : 30 t.</small>
+                                    </div>
+
+                                    <div class="form-row form-row-block">
+                                        <label for="cfgAlerteRouge">Seuil alerte rouge (minutes)</label>
+                                        <input type="number" class="form-input" id="cfgAlerteRouge" min="1" max="120" step="1" value="10"
+                                               placeholder="10" />
+                                        <small class="field-hint">Une alerte non vue apres ce delai passe le voyant du site en rouge (page Home). Defaut : 10 minutes.</small>
+                                    </div>
+
+                                    <!-- ===== COUCHES DE SYNCHRONISATION ===== -->
+                                    <div class="backend-group sync-layers">
+                                        <div class="sync-layers-title">
+                                            <i class="fas fa-layer-group"></i> Synchronisation — couches actives
+                                        </div>
+                                        <small class="field-hint">Chaque couche peut etre activee independamment. Cumulables : 1+2 recommande sur site, ajouter 3 pour l'office hors LAN.</small>
+
+                                        <label class="sync-layer">
+                                            <input type="checkbox" id="syncCouchePull" checked />
+                                            <span class="sync-layer-box">
+                                                <b>1. Synchro cloud toutes les 5 s</b>
+                                                <small>Le poste lit le Google Sheet toutes les 5 s (machines, equipes, blasts crees ailleurs). Coupe = poste isole du cloud.</small>
+                                            </span>
+                                        </label>
+
+                                        <label class="sync-layer">
+                                            <input type="checkbox" id="syncCoucheLan" checked />
+                                            <span class="sync-layer-box">
+                                                <b>2. Synchro LAN temps reel (passerelle :8101)</b>
+                                                <small>Echanges directs entre postes du site via la passerelle : une ecriture chez l'un apparait chez l'autre en quelques secondes, sans passer par Google. (Bientot : notification instantanee.)</small>
+                                            </span>
+                                        </label>
+
+                                        <label class="sync-layer">
+                                            <input type="checkbox" id="syncCoucheOffice" checked disabled />
+                                            <span class="sync-layer-box">
+                                                <b>3. Synchro Office (relais vers la direction)</b>
+                                                <small>Envoi des alertes et billets vers le serveur Office. Toujours active actuellement — la case deviendra cochable quand le relais sera parametrable.</small>
+                                            </span>
+                                        </label>
+
+                                        <label class="sync-layer">
+                                            <input type="checkbox" id="syncBandeauVisible" checked />
+                                            <span class="sync-layer-box">
+                                                <b>Afficher l'etat de connexion sur toutes les pages</b>
+                                                <small>La pastille verte/rouge en haut de chaque page. Dechochez pour la masquer (les pages restent synchronisees).</small>
+                                            </span>
+                                        </label>
+                                    </div>
+
+                                    <div class="cfg-status" id="cfgStatus"></div>
+                                    <div class="cfg-actions">
+                                        <button class="btn-test-db" id="btnTestDb" type="button" data-i18n>Tester</button>
+                                        <button class="btn-save-config" id="btnSaveConfig" type="button" data-i18n>Enregistrer les parametres</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SECURITE -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Securite</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="form-row">
+                                        <label for="cfgAuthMode">Auth</label>
+                                        <select class="form-select" id="cfgAuthMode">
+                                            <option value="password">Mot de passe</option>
+                                            <option value="ldap">LDAP</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cfgAuthTimeout">Timeout (min)</label>
+                                        <input type="number" class="form-input" id="cfgAuthTimeout" value="30" min="5" max="480" />
+                                    </div>
+                                    <div class="accounts-list">
+                                        <h4>Comptes</h4>
+                                        <div id="accountsContainer">
+                                            <div class="account-item muted">Chargement...</div>
+                                        </div>
+                                        <form class="account-add-form" id="accountAddForm">
+                                            <input type="text" class="form-input-sm" id="accNom" placeholder="Nom" required />
+                                            <input type="email" class="form-input-sm" id="accEmail" placeholder="Email" />
+                                            <select class="form-select-sm" id="accRole">
+                                                <option value="viewer">Viewer</option>
+                                                <option value="admin">Admin</option>
+                                            </select>
+                                            <input type="password" class="form-input-sm" id="accPassword" placeholder="Mot de passe" required />
+                                            <button type="submit" class="btn-add-account" title="Ajouter le compte">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="accountStatus"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- /onglet connexion -->
+
+                    <!-- ===== ONGLET FLOTTE : machines, une section par type ===== -->
+                    <div class="settings-grid-5 onglet-pane" data-onglet="flotte" hidden>
+
+                        <!-- DRIVING TRUCK -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Driving Truck</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="equip-list">
+                                        <h4><i class="fas fa-truck"></i> <span id="cptTrucks">Trucks</span></h4>
+                                        <div id="truckContainer">
+                                            <div class="account-item muted">Chargement...</div>
+                                        </div>
+                                        <form class="account-add-form" id="truckAddForm">
+                                            <select class="form-select-sm" id="newTruckFamille">
+                                                <option value="1500">1500</option>
+                                                <option value="785">785</option>
+                                                <option value="ADT">ADT</option>
+                                                <option value="AUTRE">Autre...</option>
+                                            </select>
+                                            <input type="text" class="form-input-sm" id="newTruckFamilleAutre" placeholder="Famille" style="display:none" />
+                                            <input type="number" class="form-input-sm" id="newTruckNumero" placeholder="Numero" required min="1" step="1" />
+                                            <button type="submit" class="btn-add-account" title="Ajouter">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="truckStatus"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- EXCAVATOR -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Excavator</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+                                    <div class="equip-list">
+                                        <h4><i class="fas fa-digging"></i> <span id="cptExcavators">Excavators</span></h4>
+                                        <div id="excavatorContainer">
+                                            <div class="account-item muted">Chargement...</div>
+                                        </div>
+                                        <form class="account-add-form" id="excavatorAddForm">
+                                            <select class="form-select-sm" id="newExcavatorFamille">
+                                                <option value="EXCAVATOR">EXCAVATOR</option>
+                                                <option value="CAT">CAT</option>
+                                                <option value="HITACHI">HITACHI</option>
+                                                <option value="HYUNDAI">HYUNDAI</option>
+                                                <option value="KOMATSU">KOMATSU</option>
+                                                <option value="LIEBHERR">LIEBHERR</option>
+                                                <option value="VOLVO">VOLVO</option>
+                                                <option value="DOOSAN">DOOSAN</option>
+                                                <option value="AUTRE">Autre...</option>
+                                            </select>
+                                            <input type="text" class="form-input-sm" id="newExcavatorFamilleAutre" placeholder="Famille" style="display:none" />
+                                            <input type="number" class="form-input-sm" id="newExcavatorNumero" placeholder="Numero" required min="1" step="1" />
+                                            <button type="submit" class="btn-add-account" title="Ajouter">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="excavatorStatus"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div><!-- /onglet flotte -->
+
+                    <!-- ===== ONGLET EQUIPES : gestion des teams Spotter ===== -->
+                    <div class="settings-grid-5 onglet-pane" data-onglet="equipes" hidden>
+                        <!-- SPOTTER : gestion des teams (pleine largeur) -->
+                        <div class="panel panel-full-width">
+                            <div class="panel-label">
+                                <i class="fas fa-users"></i> Spotter
+                            </div>
+                            <div class="panel-content">
+                                <div class="team-section">
+                                    <div class="team-intro">
+                                        Chaque equipe de spotters travaille independamment sur le terrain :
+                                        son chef est responsable de ses membres. Une equipe <b>inactive</b> reste
+                                        enregistree mais n'apparait plus dans les affectations.
+                                    </div>
+
+                                    <!-- Liste des equipes -->
+                                    <div id="teamContainer">
+                                        <div class="account-item muted">Chargement...</div>
+                                    </div>
+
+                                    <!-- Creation : nouvelle equipe (exige un chef d'equipe) -->
+                                    <div class="team-create">
+                                        <div class="team-create-title">
+                                            <i class="fas fa-plus-circle"></i> Nouvelle equipe
+                                        </div>
+                                        <div class="team-create-note">
+                                            Donnez un code (ex. SP-002) et le nom de son chef : l'equipe nait avec lui.
+                                        </div>
+                                        <form class="team-add-form" id="teamAddForm">
+                                            <div class="team-form-row">
+                                                <input type="text" class="form-input-sm" id="newTeamName" placeholder="Code de l'equipe (ex. SP-002)" required />
+                                                <input type="text" class="form-input-sm" id="newTeamChef" placeholder="Nom du chef d'equipe" required />
+                                                <input type="color" class="form-color-sm" id="newTeamColor" value="#3b82f6" title="Couleur de l'equipe" />
+                                                <button type="submit" class="btn-add-sm">
+                                                    <i class="fas fa-plus"></i> Creer
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                    <div class="account-status" id="teamStatus"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- /onglet equipes -->
+
+                    <!-- ===== ONGLET TERRAIN : tablette, GNSS, radio, affectation ===== -->
+                    <div class="settings-grid-5 onglet-pane" data-onglet="terrain" hidden>
+
+                        <!-- TABLETTE ET GNSS : enregistrement (auto par cable ou saisie manuelle) -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Tablette et GNSS</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+
+                                    <!-- Cette tablette : detection auto (locale) ou saisie manuelle -->
+                                    <div class="equip-list" id="thisDevicePanel">
+                                        <h4><i class="fas fa-tablet-alt"></i> <span data-i18n>Cette tablette</span></h4>
+                                        <form class="account-add-form" id="deviceDetectForm">
+                                            <button type="submit" class="btn-action-label" title="Detection automatique de cette tablette (appareil local)">
+                                                <i class="fas fa-magnifying-glass"></i> <span data-i18n>Detecter cette tablette (auto)</span>
+                                            </button>
+                                        </form>
+                                        <div id="thisDeviceBanner"></div>
+                                        <div id="deviceInfoBox"></div>
+                                        <form class="account-add-form" id="tabletAddForm" style="margin-top:10px">
+                                            <input type="text" class="form-input-sm" id="newTabletId" placeholder="ID (TAB-001)" required />
+                                            <button type="submit" class="btn-add-account" title="Ajouter une tablette">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="tabletStatus"></div>
+                                    </div>
+
+                                    <!-- GNSS : detection auto par cable (Web Serial) ou saisie manuelle du catalogue -->
+                                    <div class="equip-list" id="gnssPairPanel">
+                                        <h4><i class="fas fa-satellite-dish"></i> <span data-i18n>GNSS</span></h4>
+                                        <form class="account-add-form" id="wizardForm">
+                                            <button type="submit" class="btn-action-label" id="btnUnlockGnss" title="Detecter un GNSS via le cable (Web Serial)">
+                                                <i class="fas fa-lock-open"></i> <span data-i18n>Detecter un GNSS (cable)</span>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="wizardStatus"></div>
+                                        <div class="gnss-bind-result" id="gnssBindResult"></div>
+                                        <form class="account-add-form" id="gnssAddForm" style="margin-top:10px">
+                                            <input type="text" class="form-input-sm" id="newGnssId" placeholder="ID GNSS (GNSS-04)" required />
+                                            <button type="submit" class="btn-add-account" title="Enregistrer le GNSS au catalogue">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="gnssAddStatus"></div>
+                                        <div id="gnssRegistryContainer">
+                                            <div class="account-item muted">Chargement...</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Radio XBee : montee des positions GNSS vers le serveur central -->
+                                    <div class="equip-list" id="xbeePanel">
+                                        <h4><i class="fas fa-tower-broadcast"></i> <span data-i18n>Radio XBee</span></h4>
+                                        <form class="account-add-form" id="xbeeForm">
+                                            <button type="submit" class="btn-action-label" id="btnConnectXbee" title="Connecter la radio XBee (Web Serial)">
+                                                <i class="fas fa-satellite"></i> <span data-i18n>Connecter la radio XBee (cable)</span>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="xbeeStatus"></div>
+                                        <form class="account-add-form" id="xbeeCleForm" style="margin-top:10px">
+                                            <input type="text" class="form-input-sm" id="xbeeCleHex" placeholder="Cle HMAC (64 car. hex)" />
+                                            <button type="submit" class="btn-add-account" title="Enregistrer la cle HMAC pour le DT affecte a cette tablette">
+                                                <i class="fas fa-key"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="xbeeCleStatus"></div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AFFECTATION : engin <-> GNSS <-> tablette -->
+                        <div class="panel">
+                            <div class="panel-label" data-i18n>Affectation</div>
+                            <div class="panel-content">
+                                <div class="settings-form">
+
+                                    <!-- Engin affecte au GNSS de cette tablette -->
+                                    <div class="equip-list" id="tabEquipPanel">
+                                        <h4><i class="fas fa-digging"></i> <span data-i18n>Engin affecte</span></h4>
+                                        <div id="tabEquipContainer">
+                                            <div class="account-item muted">Chargement...</div>
+                                        </div>
+                                        <form class="account-add-form" id="tabEquipAddForm">
+                                            <select class="form-select-sm" id="tabEquipSelect" required>
+                                                <option value="">Choisir un engin...</option>
+                                            </select>
+                                            <button type="submit" class="btn-add-account" title="Affecter">
+                                                <i class="fas fa-link"></i>
+                                            </button>
+                                        </form>
+                                        <div class="account-status" id="tabEquipStatus"></div>
+                                    </div>
+
+                                    <!-- Flotte : vue unifiee tablette + GNSS + engin -->
+                                    <div class="equip-list" id="fleetPanel">
+                                        <h4><i class="fas fa-list"></i> <span data-i18n>Flotte</span></h4>
+                                        <div id="fleetContainer">
+                                            <div class="account-item muted">Chargement...</div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                    </div><!-- /onglet terrain -->
+                </section>
+
+                </main>
+        </div>
+
+        <!-- BOTTOM STATUS BAR -->
+        <footer class="status-bar">
+            <div class="status-left">
+                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-thermometer-half"></i> Temp. : --</span>
+                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-cloud-rain"></i> Pluie : --</span>
+                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
+            </div>
+            <div class="status-right">
+                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
+                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- MODAL : fallback d'identification GNSS (Web Serial) -->
+    <div class="gnss-modal-overlay" id="gnssModalOverlay" hidden>
+        <div class="gnss-modal" role="dialog" aria-modal="true" aria-labelledby="gnssModalTitle">
+            <h3 id="gnssModalTitle" data-i18n>GNSS Identification Required</h3>
+            <p data-i18n>Automatic detection timed out. Please manually select the hardware ID attached to this terminal.</p>
+            <select class="form-select-sm" id="gnssManualSelect">
+                <option value="GNSS-01">GNSS-01</option>
+                <option value="GNSS-02">GNSS-02</option>
+                <option value="GNSS-03">GNSS-03</option>
+            </select>
+            <div class="gnss-modal-actions">
+                <button type="button" class="btn-add-account" id="gnssModalConfirm" data-i18n>Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="../js/prefs.js"></script>
+    <script src="../js/splash.js"></script>
+    <script src="../js/sync-pill.js"></script>
+    <script src="../js/ot-config.js"></script>
+    <script src="../js/api.js"></script>
+    <script type="module" src="../js/auth.js"></script>
+    <script src="../js/ot-settings.js"></script>
+    <script src="../js/server-ui.js"></script>
+    <script src="../js/gnss-serial.js"></script>
+    <script src="../js/xbee-serial.js"></script>
+    <script src="../js/app.js"></script>
+</body>
+</html>

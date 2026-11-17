@@ -13,25 +13,64 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Les pages de la sidebar sont des fichiers HTML distincts : un element
+    // du panneau Settings peut etre absent de la page courante. `on` attache
+    // l'evenement quand l'element existe, sans interrompre l'initialisation.
+    const on = (id, evt, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener(evt, fn);
+    };
+
+    /**
+     * Substitut inoffensif pour un element absent de la page courante.
+     * Accepte lecture et ecriture de proprietes, appels de methodes et
+     * abonnements d'evenements : l'initialisation continue sans erreur.
+     */
+    function stubElement() {
+        const noop = () => stub;
+        const stub = {
+            style: {}, dataset: {}, checked: false, value: '', files: [],
+            options: [], selectedIndex: 0, innerHTML: '', textContent: '',
+            classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
+            addEventListener: noop, removeEventListener: noop, appendChild: noop,
+            removeChild: noop, setAttribute: noop, removeAttribute: noop,
+            getAttribute: () => null, hasAttribute: () => false,
+            querySelector: () => null, querySelectorAll: () => [],
+            closest: () => null, focus: noop, blur: noop, click: noop,
+            remove: noop, insertBefore: noop, getBoundingClientRect: () =>
+                ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+        };
+        return stub;
+    }
+
     // ===== NAVIGATION =====
     const sidebarLinks = document.querySelectorAll('.sidebar-link');
     const pages = document.querySelectorAll('.page');
 
     sidebarLinks.forEach(link => {
-        link.addEventListener('click', () => {
+        link.addEventListener('click', (e) => {
             const page = link.dataset.page;
-            sidebarLinks.forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
-            pages.forEach(p => p.classList.remove('active'));
-            document.getElementById(`page-${page}`).classList.add('active');
+            const cible = page ? document.getElementById(`page-${page}`) : null;
+            // Chaque page de la sidebar a son propre fichier HTML : le lien
+            // porte un `href`, la navigation est assuree par le navigateur.
+            // La bascule SPA ne concerne que les coquilles qui portent
+            // effectivement la section cible ; sinon on laisse le navigateur
+            // suivre le href (sinon les liens de la navbar meurent ici).
+            if (cible) {
+                e.preventDefault();
+                sidebarLinks.forEach(l => l.classList.remove('active'));
+                link.classList.add('active');
+                pages.forEach(p => p.classList.remove('active'));
+                cible.classList.add('active');
+            }
             closeSidebar();
         });
     });
 
     // ===== HAMBURGER MENU (MOBILE) =====
-    const hamburgerBtn = document.getElementById('hamburgerBtn');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const hamburgerBtn = document.getElementById('hamburgerBtn') || stubElement();
+    const sidebar = document.getElementById('sidebar') || stubElement();
+    const sidebarOverlay = document.getElementById('sidebarOverlay') || stubElement();
 
     function openSidebar() {
         sidebar.classList.add('open');
@@ -55,14 +94,38 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===== STATUS BAR CLOCK =====
     function updateClock() {
         const now = new Date();
-        const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-        const months = ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin',
-                         'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'];
-        document.getElementById('statusDate').textContent = `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]}`;
-        const h = String(now.getHours()).padStart(2, '0');
-        const m = String(now.getMinutes()).padStart(2, '0');
-        const s = String(now.getSeconds()).padStart(2, '0');
-        document.getElementById('statusTime').textContent = `${h} h ${m} m ${s} S`;
+        // fuseau horaire selon Preferences
+        let tz = 'local';
+        if (typeof PREFS !== 'undefined') tz = PREFS.get('timezone') || 'local';
+        let parts;
+        try {
+            const fmt = new Intl.DateTimeFormat('fr-FR', {
+                timeZone: tz, weekday: 'long', day: 'numeric', month: 'long',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            });
+            parts = {};
+            fmt.formatToParts(now).forEach(p => { parts[p.type] = p.value; });
+        } catch (e) {
+            parts = null;
+        }
+        // Pages sans barre d'etat (home, alerts...) : ne rien faire. Sans ce
+        // garde-fou, l'exception arretait TOUTE l'initialisation de app.js.
+        const elDate = document.getElementById('statusDate');
+        const elHeure = document.getElementById('statusTime');
+        if (!elDate || !elHeure) return;
+        if (parts) {
+            elDate.textContent = `${parts.weekday} ${parts.day} ${parts.month}`;
+            elHeure.textContent = `${parts.hour} h ${parts.minute} m ${parts.second} S`;
+        } else {
+            const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+            const months = ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin',
+                             'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'];
+            elDate.textContent = `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]}`;
+            const h = String(now.getHours()).padStart(2, '0');
+            const m = String(now.getMinutes()).padStart(2, '0');
+            const s = String(now.getSeconds()).padStart(2, '0');
+            elHeure.textContent = `${h} h ${m} m ${s} S`;
+        }
     }
     updateClock();
     setInterval(updateClock, 1000);
@@ -203,7 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderLayerList() {
-        const list = document.getElementById('layerList');
+        const list = document.getElementById('layerList') || stubElement();
         if (!list) return;
         list.innerHTML = '';
         layers.forEach((layer, i) => {
@@ -357,7 +420,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reprojette les coordonnees projettees (selon la config EPSG) vers WGS84
     function reprojectGeoJSON(geo) {
         if (!geo || !geo.features) return;
-        const epsg = 'EPSG:' + (document.getElementById('cfgEPSG').value || '32630');
+        const _epsgEl = document.getElementById('cfgEPSG') || stubElement();
+    const epsg = 'EPSG:' + ((_epsgEl && _epsgEl.value) || '32630');
         const def = (typeof proj4 !== 'undefined') ? proj4.defs(epsg) : null;
         if (!def) return;
         const projected = c => (Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90);
@@ -580,7 +644,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Reprojection si UTM (valeurs > 180 ou <-180)
         let finalLat = lat, finalLng = lng;
         if (Math.abs(lng) > 180 || Math.abs(lat) > 90) {
-            const epsg = 'EPSG:' + (document.getElementById('cfgEPSG').value || '32630');
+            const _epsgEl = document.getElementById('cfgEPSG') || stubElement();
+    const epsg = 'EPSG:' + ((_epsgEl && _epsgEl.value) || '32630');
             if (typeof proj4 !== 'undefined' && proj4.defs(epsg)) {
                 try {
                     const ll = proj4(epsg, 'EPSG:4326', [lng, lat]);
@@ -904,22 +969,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===== LOCK / UNLOCK =====
-    const mapConfig = document.getElementById('mapConfig');
-    const btnUnlock = document.getElementById('btnUnlockMap');
-    const btnConfirm = document.getElementById('btnConfirmMap');
-    const btnCancel = document.getElementById('btnCancelMap');
+    const mapConfig = document.getElementById('mapConfig') || stubElement();
+    const btnUnlock = document.getElementById('btnUnlockMap') || stubElement();
+    const btnConfirm = document.getElementById('btnConfirmMap') || stubElement();
+    const btnCancel = document.getElementById('btnCancelMap') || stubElement();
 
     function setMapConfigLocked(locked) {
+        // Le panneau Config carte n'existe que sur la page Settings.
+        if (!mapConfig) return;
         if (locked) {
             mapConfig.classList.add('locked');
-            btnUnlock.style.display = '';
-            btnConfirm.style.display = 'none';
-            btnCancel.style.display = 'none';
+            if (btnUnlock) btnUnlock.style.display = '';
+            if (btnConfirm) btnConfirm.style.display = 'none';
+            if (btnCancel) btnCancel.style.display = 'none';
         } else {
             mapConfig.classList.remove('locked');
-            btnUnlock.style.display = 'none';
-            btnConfirm.style.display = '';
-            btnCancel.style.display = '';
+            if (btnUnlock) btnUnlock.style.display = 'none';
+            if (btnConfirm) btnConfirm.style.display = '';
+            if (btnCancel) btnCancel.style.display = '';
         }
     }
 
@@ -932,7 +999,7 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreLayers();
 
     // ===== TOGGLE ALL LAYERS =====
-    document.getElementById('btnToggleAllLayers').addEventListener('click', () => {
+    on('btnToggleAllLayers', 'click', () => {
         const anyVisible = layers.some(l => l.visible);
         const newState = !anyVisible;
         layers.forEach(l => l.visible = newState);
@@ -943,12 +1010,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ===== ADD LAYER BUTTON =====
-    document.getElementById('btnAddLayer').addEventListener('click', () => {
+    on('btnAddLayer', 'click', () => {
         addLayer();
     });
 
     // ===== DIAG LAYERS BUTTON =====
-    document.getElementById('btnDiagLayers').addEventListener('click', () => {
+    on('btnDiagLayers', 'click', () => {
         const saved = localStorage.getItem('oreTrackingConfig');
         const savedConfig = saved ? JSON.parse(saved) : null;
         const msg = [
@@ -965,13 +1032,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ===== MBTILES PANEL =====
-    const cfgBasemap = document.getElementById('cfgBasemap');
-    const mbtilesPanel = document.getElementById('mbtilesPanel');
-    const mbtilesFileInput = document.getElementById('mbtilesFileInput');
-    const cfgMbtilesFile = document.getElementById('cfgMbtilesFile');
-    const cfgMbtilesUrl = document.getElementById('cfgMbtilesUrl');
-    const mbtilesStatusDot = document.getElementById('mbtilesStatusDot');
-    const mbtilesCmd = document.getElementById('mbtilesCmd');
+    const cfgBasemap = document.getElementById('cfgBasemap') || stubElement();
+    const mbtilesPanel = document.getElementById('mbtilesPanel') || stubElement();
+    const mbtilesFileInput = document.getElementById('mbtilesFileInput') || stubElement();
+    const cfgMbtilesFile = document.getElementById('cfgMbtilesFile') || stubElement();
+    const cfgMbtilesUrl = document.getElementById('cfgMbtilesUrl') || stubElement();
+    const mbtilesStatusDot = document.getElementById('mbtilesStatusDot') || stubElement();
+    const mbtilesCmd = document.getElementById('mbtilesCmd') || stubElement();
     let mbtilesFileName = '';
 
     function toggleMbtilesPanel() {
@@ -981,7 +1048,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleMbtilesPanel();
 
     // File picker
-    document.getElementById('btnPickMbtiles').addEventListener('click', () => mbtilesFileInput.click());
+    on('btnPickMbtiles', 'click', () => mbtilesFileInput.click());
     mbtilesFileInput.addEventListener('change', () => {
         const file = mbtilesFileInput.files[0];
         if (file) {
@@ -993,7 +1060,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Test server connection
-    document.getElementById('btnTestMbtiles').addEventListener('click', async () => {
+    on('btnTestMbtiles', 'click', async () => {
         const url = cfgMbtilesUrl.value.replace(/\/$/, '') + '/list';
         mbtilesStatusDot.className = 'mbtiles-status-dot testing';
         try {
@@ -1005,16 +1072,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Copy command
-    document.getElementById('btnCopyCmd').addEventListener('click', () => {
+    on('btnCopyCmd', 'click', () => {
         navigator.clipboard.writeText(mbtilesCmd.textContent).catch(() => {});
     });
 
     // ===== ZONE MANAGEMENT =====
-    const zoneList = document.getElementById('zoneList');
-    const trailList = document.getElementById('trailList');
-    const cfgCRS = document.getElementById('cfgCRS');
-    const utmGroup = document.getElementById('utmGroup');
-    const cfgEPSG = document.getElementById('cfgEPSG');
+    const zoneList = document.getElementById('zoneList') || stubElement();
+    const trailList = document.getElementById('trailList') || stubElement();
+    const cfgCRS = document.getElementById('cfgCRS') || stubElement();
+    const utmGroup = document.getElementById('utmGroup') || stubElement();
+    const cfgEPSG = document.getElementById('cfgEPSG') || stubElement();
 
     function toFloat(v) {
         const n = parseFloat(String(v).replace(/,/g, '.'));
@@ -1039,8 +1106,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function onCRSChange() {
         const isUTM = cfgCRS.value === 'utm';
         utmGroup.style.display = isUTM ? '' : 'none';
-        document.getElementById('cfgCenterLatLabel').textContent = isUTM ? 'Easting' : 'Latitude';
-        document.getElementById('cfgCenterLngLabel').textContent = isUTM ? 'Northing' : 'Longitude';
+        const _latLbl = document.getElementById('cfgCenterLatLabel') || stubElement();
+    if (_latLbl) _latLbl.textContent = isUTM ? 'Easting' : 'Latitude';
+        const _lngLbl = document.getElementById('cfgCenterLngLabel') || stubElement();
+    if (_lngLbl) _lngLbl.textContent = isUTM ? 'Northing' : 'Longitude';
         const ph = isUTM ? 'Easting' : 'Latitude';
         const ph2 = isUTM ? 'Northing' : 'Longitude';
         document.querySelectorAll('.zone-lat').forEach(el => el.placeholder = ph);
@@ -1135,12 +1204,12 @@ document.addEventListener('DOMContentLoaded', () => {
         trailList.appendChild(div);
     }
 
-    document.getElementById('btnAddZone').addEventListener('click', () => addZone());
-    document.getElementById('btnAddTrail').addEventListener('click', () => addTrail());
+    on('btnAddZone', 'click', () => addZone());
+    on('btnAddTrail', 'click', () => addTrail());
 
     // ===== ZONE CSV IMPORT =====
-    const zoneFileInput = document.getElementById('zoneFileInput');
-    document.getElementById('btnImportZones').addEventListener('click', () => zoneFileInput.click());
+    const zoneFileInput = document.getElementById('zoneFileInput') || stubElement();
+    on('btnImportZones', 'click', () => zoneFileInput.click());
     zoneFileInput.addEventListener('change', () => {
         const file = zoneFileInput.files[0];
         if (file) importZonesCSV(file);
@@ -1241,9 +1310,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ===== TRAIL FILE IMPORT =====
-    const trailDropZone = document.getElementById('trailDropZone');
-    const trailFileInput = document.getElementById('trailFileInput');
-    const trailImportList = document.getElementById('trailImportList');
+    const trailDropZone = document.getElementById('trailDropZone') || stubElement();
+    const trailFileInput = document.getElementById('trailFileInput') || stubElement();
+    const trailImportList = document.getElementById('trailImportList') || stubElement();
 
     trailDropZone.addEventListener('click', () => trailFileInput.click());
     trailDropZone.addEventListener('dragover', (e) => { e.preventDefault(); trailDropZone.classList.add('dragover'); });
@@ -1445,7 +1514,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function autoLoadDefaultData() {
         // 1. Charger les zones depuis Mining Areas.csv
         try {
-            const resp = await fetch('data/Mining Areas.csv');
+            const resp = await fetch('../data/Mining Areas.csv');
             if (resp.ok) {
                 const text = await resp.text();
                 const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim().split('\n');
@@ -1493,7 +1562,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 2. Charger les trails depuis Trails.geojson.geojson
         try {
-            const resp = await fetch('data/Trails.geojson.geojson');
+            const resp = await fetch('../data/Trails.geojson.geojson');
             if (resp.ok) {
                 const geo = await resp.json();
                 if (geo) {
@@ -1542,9 +1611,199 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     autoLoadDefaultData();
 
+    // ===== AFFICHAGE DES KPI SUR LE DASHBOARD =====
+    // Chaque interrupteur [data-kpi] de la page Live montre / masque le KPI
+    // correspondant sur le dashboard. Etat dans localStorage
+    // (oreTrackingKpi) : le dashboard deja ouvert l'applique en direct via
+    // l'evenement `storage`, sans recharger ni repasser par PRESENTER.
+    (function initAffichageKpi() {
+        const CLE = 'oreTrackingKpi';
+        const toggles = document.querySelectorAll('input[data-kpi]');
+        if (!toggles.length) return;
+        let etat = {};
+        try { etat = JSON.parse(localStorage.getItem(CLE)) || {}; } catch (e) { etat = {}; }
+        const info = document.getElementById('kpiAppliqueInfo');
+
+        function refleter(input) {
+            const bloc = input.closest('.kpi-block');
+            if (bloc) bloc.classList.toggle('kpi-off', !input.checked);
+        }
+        toggles.forEach((input) => {
+            const cle = input.dataset.kpi;
+            if (etat[cle] !== undefined) input.checked = etat[cle] !== false;
+            refleter(input);
+            input.addEventListener('change', () => {
+                etat[cle] = input.checked;
+                try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch (e) {}
+                refleter(input);
+                if (info) {
+                    info.textContent = (input.checked ? 'Affiche' : 'Masque') + ' sur le dashboard';
+                    info.classList.add('ok');
+                    clearTimeout(info._t);
+                    info._t = setTimeout(() => {
+                        info.textContent = 'Applique en direct au dashboard';
+                        info.classList.remove('ok');
+                    }, 2500);
+                }
+            });
+        });
+    })();
+
+    // ===== OBJECTIFS ET VALEURS REELLES DES KPI =====
+    // Planned / Alerte % : saisis ici, enregistres dans
+    // localStorage.oreTrackingKpiPlan, lus par le dashboard (en direct).
+    // Actuel : LECTURE SEULE, calcule par la passerelle sur les voyages du
+    // jour (/api/kpi) - plus aucune valeur saisie a la main ni simulee.
+    (function initObjectifsKpi() {
+        const CLE = 'oreTrackingKpiPlan';
+        const champs = document.querySelectorAll('input[data-planned], input[data-alerte]');
+        if (!champs.length) return;
+        let plan = {};
+        try { plan = JSON.parse(localStorage.getItem(CLE)) || {}; } catch (e) { plan = {}; }
+
+        function lire() {
+            const p = {};
+            document.querySelectorAll('input[data-planned]').forEach((el) => {
+                const k = el.dataset.planned;
+                p[k] = p[k] || {};
+                const v = parseFloat(el.value);
+                if (!isNaN(v)) p[k].planned = v;
+            });
+            document.querySelectorAll('input[data-alerte]').forEach((el) => {
+                const k = el.dataset.alerte;
+                p[k] = p[k] || {};
+                const v = parseFloat(el.value);
+                if (!isNaN(v)) p[k].alerte = v;
+            });
+            return p;
+        }
+        // restaurer, puis enregistrer l'etat complet (valeurs par defaut comprises)
+        champs.forEach((el) => {
+            const k = el.dataset.planned || el.dataset.alerte;
+            const prop = el.dataset.planned ? 'planned' : 'alerte';
+            if (plan[k] && plan[k][prop] !== undefined) el.value = plan[k][prop];
+            el.addEventListener('change', () => {
+                try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
+            });
+        });
+        try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
+
+        const base = () => (window.OTCFG && OTCFG.passerelle)
+            ? OTCFG.passerelle()
+            : 'http://' + (location.hostname || 'localhost') + ':8101';
+        const fmt = (v) => (Math.round((v || 0) * 10) / 10);
+        async function actualiser() {
+            try {
+                const k = await fetch(base() + '/api/kpi', { cache: 'no-store' }).then((r) => r.json());
+                const valeurs = {
+                    minerais: k.minerais_t, ore: k.onces, waste: k.waste_t,
+                    hg: k.grades.high.tonnes, mg: k.grades.medium.tonnes,
+                    lg: k.grades.low.tonnes, mo: k.grades.marginal.tonnes,
+                };
+                document.querySelectorAll('input[data-actuel]').forEach((el) => {
+                    el.value = fmt(valeurs[el.dataset.actuel]);
+                    el.title = 'Voyages du ' + k.jour + ' (' + k.voyages + ' voyage(s))';
+                });
+            } catch (e) {
+                document.querySelectorAll('input[data-actuel]').forEach((el) => {
+                    el.value = ''; el.title = 'Passerelle :8101 injoignable';
+                });
+            }
+        }
+        actualiser();
+        setInterval(actualiser, 10000);
+    })();
+
+    // ===== OFFROAD : detection reelle par la passerelle (:8101) =====
+    // Lecture : /api/offroad toutes les 5 s (compteur + etat de connexion).
+    // Ecriture : /api/offroad/reglages des qu'un reglage change ; le
+    // dashboard lit le meme compteur, donc tout reste aligne.
+    (function initOffroad() {
+        const elActif = document.getElementById('cfgOffroadActif');
+        const elSeuil = document.getElementById('cfgOffroadSeuil');
+        const elDuree = document.getElementById('cfgOffroadDuree');
+        const elActuel = document.getElementById('offroadActuel');
+        const elStatus = document.getElementById('offroadStatus');
+        const elDot = document.getElementById('offroadDot');
+        const block = document.getElementById('kpiOffroadBlock');
+        if (!elActif || !elSeuil || !elDuree || !elActuel) return;
+
+        const base = () => (window.OTCFG && OTCFG.passerelle)
+            ? OTCFG.passerelle()
+            : 'http://' + (location.hostname || 'localhost') + ':8101';
+        let enEdition = false;   // ne pas ecraser une saisie en cours
+
+        function statut(txt, cls, dot) {
+            if (elStatus) { elStatus.textContent = txt; elStatus.className = 'kpi-offroad-status ' + (cls || ''); elStatus.title = txt; }
+            if (elDot) elDot.style.background = dot;
+        }
+
+        async function rafraichir() {
+            try {
+                const r = await fetch(base() + '/api/offroad', { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                elActuel.value = d.count || 0;
+                if (block) block.classList.toggle('alert', (d.count || 0) > 0);
+                if (!enEdition && d.reglages) {
+                    elActif.checked = !!d.reglages.actif;
+                    elSeuil.value = Math.round(d.reglages.seuil_m);
+                    elDuree.value = Math.round(d.reglages.duree_s);
+                }
+                if (!d.actif) {
+                    statut('Inactive : ' + (d.motif || 'raison inconnue'), 'warn', '#f59e0b');
+                } else if (d.count > 0) {
+                    statut('Hors piste : ' + d.dts.map(x => x.code + ' (' + Math.round(x.distance_m) + ' m)').join(', '), 'err', '#ef4444');
+                } else {
+                    statut('Passerelle connectee · ' + d.aretes + ' segments de piste surveilles', 'ok', '#22c55e');
+                }
+            } catch (e) {
+                elActuel.value = '';
+                if (block) block.classList.remove('alert');
+                statut('Passerelle :8101 injoignable', 'err', '#64748b');
+            }
+        }
+
+        async function enregistrer() {
+            const seuil = parseFloat(elSeuil.value);
+            const duree = parseFloat(elDuree.value);
+            if (!(seuil > 0) || !(duree >= 0)) {
+                showToast('Offroad : seuil > 0 m et delai >= 0 s requis');
+                return;
+            }
+            try {
+                const r = await fetch(base() + '/api/offroad/reglages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // le seuil de retour (hysteresis) suit le seuil d'entree : 2/3
+                    body: JSON.stringify({ actif: elActif.checked, seuil_m: seuil,
+                        retour_m: Math.max(1, Math.round(seuil * 2 / 3)), duree_s: duree })
+                });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+                showToast('Offroad : reglages enregistres sur la passerelle');
+            } catch (e) {
+                showToast('Offroad : enregistrement impossible (' + e.message + ')');
+            } finally {
+                enEdition = false;
+                rafraichir();
+            }
+        }
+
+        [elSeuil, elDuree].forEach(el => {
+            el.addEventListener('focus', () => { enEdition = true; });
+            el.addEventListener('change', enregistrer);
+            el.addEventListener('blur', () => { setTimeout(() => { enEdition = false; }, 300); });
+        });
+        elActif.addEventListener('change', enregistrer);
+
+        rafraichir();
+        setInterval(rafraichir, 5000);
+    })();
+
     // ===== PRESENT BUTTON =====
-    const btnPresent = document.getElementById('btnPresent');
-    btnPresent.addEventListener('click', () => {
+    const btnPresent = document.getElementById('btnPresent') || stubElement();
+    if (btnPresent) btnPresent.addEventListener('click', () => {
         const centerCRS = convertCRS(
             toFloat(document.getElementById('cfgCenterLat').value),
             toFloat(document.getElementById('cfgCenterLng').value)
@@ -1564,6 +1823,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showZones: document.getElementById('cfgShowZones').checked,
             showTrails: document.getElementById('cfgShowTrails').checked,
             showLabels: document.getElementById('cfgShowLabels').checked,
+            showAlerts: (document.getElementById('cfgShowAlerts') || { checked: true }).checked,
             basemap: basemapVal,
             mbtilesUrl: document.getElementById('cfgMbtilesUrl').value,
             layers: layers
@@ -1599,43 +1859,59 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===== SYNC BUTTON =====
     const btnSyncNow = document.querySelector('.btn-sync-now');
     if (btnSyncNow) {
-        btnSyncNow.addEventListener('click', () => {
+        btnSyncNow.addEventListener('click', async () => {
             btnSyncNow.textContent = 'Synchronisation...';
             btnSyncNow.disabled = true;
-            setTimeout(() => {
+            const s = JSON.parse(localStorage.getItem('otSettings') || '{}');
+            const url = 'http://' + (s.cfgServer || '192.168.1.100') + ':' + (s.cfgPort || '5432') + '/ping';
+            let ok = false;
+            try { const r = await fetch(url, { mode: 'cors' }); ok = r.ok; } catch (e) { ok = false; }
+            const cards = document.querySelectorAll('.sync-card span');
+            if (ok) {
+                const now = new Date().toLocaleTimeString('fr-FR');
+                if (cards[0]) cards[0].textContent = 'Derniere sync: ' + now;
+                if (cards[1]) cards[1].textContent = 'Serveur: Connecte';
+                if (cards[2]) cards[2].textContent = 'Base de donnees: OK';
                 btnSyncNow.textContent = 'Synchronise !';
-                setTimeout(() => {
-                    btnSyncNow.textContent = 'Synchroniser maintenant';
-                    btnSyncNow.disabled = false;
-                }, 2000);
-            }, 1500);
-        });
-    }
-
-    // ===== TEST DB BUTTON =====
-    const btnTestDb = document.querySelector('.btn-test-db');
-    if (btnTestDb) {
-        btnTestDb.addEventListener('click', () => {
-            btnTestDb.textContent = 'Test en cours...';
-            btnTestDb.disabled = true;
+            } else {
+                if (cards[1]) cards[1].textContent = 'Serveur: Injoignable';
+                if (cards[2]) cards[2].textContent = 'Base de donnees: Erreur';
+                btnSyncNow.textContent = 'Echec sync';
+            }
             setTimeout(() => {
-                const ok = Math.random() > 0.3;
-                btnTestDb.textContent = ok ? 'Connecte !' : 'Echec';
-                btnTestDb.style.background = ok ? '#22c55e' : '#ef4444';
-                setTimeout(() => {
-                    btnTestDb.textContent = 'Tester la connexion';
-                    btnTestDb.style.background = '';
-                    btnTestDb.disabled = false;
-                }, 2000);
-            }, 1200);
+                btnSyncNow.textContent = 'Synchroniser maintenant';
+                btnSyncNow.disabled = false;
+            }, 2000);
         });
     }
 
-    // ===== MENU ITEMS =====
-    document.querySelectorAll('.menu-item').forEach(item => {
-        item.addEventListener('click', () => {
-            item.style.background = 'rgba(255,255,255,0.1)';
-            setTimeout(() => item.style.background = '', 200);
-        });
+    // ===== TEST DB BUTTON : gere par server-ui.js (#btnTestDb -> /api/health)
+
+    // ===== PARAMETRES : SAUVEGARDE / CHARGEMENT =====
+    function loadSettings() {
+        try {
+            const s = JSON.parse(localStorage.getItem('otSettings') || '{}');
+            const map = {
+                cfgModeSim: v => { const el = document.getElementById('cfgModeSim') || stubElement(); if (el) el.checked = !!v; },
+                cfgRefresh: v => { const el = document.getElementById('cfgRefresh') || stubElement(); if (el) el.value = v; }
+            };
+            Object.keys(map).forEach(k => { if (s[k] !== undefined) map[k](s[k]); });
+            // URL API prioritaire : celle du localStorage re-definit la base cible
+            if (s.cfgApiUrl && typeof API !== 'undefined') API.setApiBase(s.cfgApiUrl);
+        } catch (e) { console.warn('loadSettings', e); }
+    }
+    function saveSettings() {
+        try {
+            const s = {};
+            const m = document.getElementById('cfgModeSim') || stubElement(); if (m) s.cfgModeSim = m.checked;
+            const r = document.getElementById('cfgRefresh') || stubElement(); if (r) s.cfgRefresh = r.value;
+            const url = document.getElementById('cfgApiUrl') || stubElement(); if (url && url.value) s.cfgApiUrl = url.value.trim();
+            localStorage.setItem('otSettings', JSON.stringify(s));
+        } catch (e) { console.warn('saveSettings', e); }
+    }
+    ['cfgModeSim','cfgRefresh','cfgApiUrl'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', saveSettings);
     });
+    loadSettings();
 });
