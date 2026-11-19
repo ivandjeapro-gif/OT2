@@ -294,6 +294,10 @@
     async supprimer(blast) {
       await jsend('/api/blasts?id=' + encodeURIComponent(blast.id), 'DELETE');
     },
+    // 18/11 : etat CLOS. La passerelle le transmet a Serveur_OT.
+    async clore(blast) {
+      return jsend('/api/blasts_clore', 'POST', { id: Number(blast.id) });
+    },
     async engins() {
       const d = await jsend('/api/engins', 'GET');
       return d.engins || [];
@@ -341,7 +345,12 @@
       return String(d.numero);
     },
     async supprimer(blast) {
+      // Supprimer = clore puis retirer (18/11) : signal explicite aux tablettes.
+      await otSend('POST', 'blast_clore', null, { numero: blast.numero || blast.id, origine: 'saas' });
       await otSend('GET', 'dig_plan_suppr', { numero: blast.numero || blast.id });
+    },
+    async clore(blast) {
+      return otSend('POST', 'blast_clore', null, { numero: blast.numero || blast.id, origine: 'saas' });
     },
     async engins() {
       return []; // les positions vivent sur la passerelle, pas sur Serveur_OT
@@ -495,8 +504,15 @@
     const saisie = estEnSaisie();
 
     // pendant une saisie, on doit d'abord Enregistrer ou Annuler
-    $('#dpBtnEdit').disabled = !has || saisie;
+    const courant = has ? blastCourant() : null;
+    const clos = !!(courant && courant.clos_le);
+    $('#dpBtnEdit').disabled = !has || saisie || clos;   // un blast clos ne se modifie plus
     $('#dpBtnDelete').disabled = !has || saisie;
+    const btnClore = $('#dpBtnClore');
+    if (btnClore) {
+      btnClore.disabled = !has || saisie || clos;
+      btnClore.textContent = clos ? 'Blast clos' : 'Clore le blast';
+    }
 
     // Enregistrer / Annuler : visibles uniquement quand on les a appeles
     const actions = $('#dpFormActions');
@@ -526,7 +542,9 @@
     list.innerHTML = blasts.map((b) =>
       '<button type="button" class="dp-blast-item' + (b.id === blastSelectionne ? ' sel' : '') +
       '" data-blast="' + b.id + '">' + esc(b.nom || b.numero) +
-      '<small>' + esc(b.numero) + ' - ' + (b.nb_blocs || 0) + ' bloc(s)</small></button>').join('');
+      '<small>' + esc(b.numero) + ' - ' + (b.nb_blocs || 0) + ' bloc(s)' +
+      (b.clos_le ? ' - CLOS le ' + esc(String(b.clos_le).slice(0, 10)) : '') +
+      '</small></button>').join('');
   }
 
   // reinitialise les champs fichier a partir du blast courant (nom deja enregistre,
@@ -695,6 +713,35 @@
     $('#dpName').focus();
     $('#dpName').select();
     setStatus('Modifiez les champs de "' + (b.nom || b.numero) + '" puis cliquez Enregistrer', true);
+  }
+
+  /**
+   * Clore un blast (18/11, demande client) : le blast est termine. Il reste
+   * consultable ici, ne se modifie plus, et les tablettes purgent leurs
+   * donnees locales des que leurs envois sont recus par le serveur.
+   */
+  async function cloreBlast() {
+    const b = blastCourant();
+    if (!b || b.clos_le) return;
+    if (!await confirmerPopup('Clore le blast "' + (b.nom || b.numero) + '" ? ' +
+        'Il ne sera plus modifiable et les tablettes effaceront ses donnees ' +
+        'locales une fois leurs envois recus.')) return;
+    const sp = Splash.bloquer('Cloture du blast...', (b.nom || b.numero));
+    try {
+      const d = await API().clore(b);
+      await chargerBlasts();
+      if (d && d.ot_sync === false) {
+        Splash.succes('Blast clos (envoi au cloud en attente)', d.ot_erreur || '');
+        setStatus('Blast clos - cloud injoignable, nouvel essai automatique', false);
+      } else {
+        Splash.succes('Blast clos', b.nom || b.numero);
+        setStatus('Blast clos', true);
+      }
+      rendreBoutons();
+    } catch (err) {
+      Splash.erreur('Cloture impossible', err.message);
+      setStatus(err.message, false);
+    }
   }
 
   async function supprimerBlast() {
@@ -1410,6 +1457,8 @@
     $('#dpBtnNew').addEventListener('click', nouveauBlast);
     $('#dpBtnEdit').addEventListener('click', modifierBlast);
     $('#dpBtnDelete').addEventListener('click', supprimerBlast);
+    const btnClore = $('#dpBtnClore');
+    if (btnClore) btnClore.addEventListener('click', cloreBlast);
     $('#dpForm').addEventListener('submit', sauverBlast);
     $('#dpBtnCancel').addEventListener('click', annulerForm);
     $('#dpName').addEventListener('input', majLabelsFichier);

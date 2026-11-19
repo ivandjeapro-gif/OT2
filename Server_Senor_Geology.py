@@ -1268,6 +1268,48 @@ def extraire_geosum(contenu):
     return out
 
 
+# --- Pit d'une teneur et d'une source (18/11, regle utilisateur) ---------
+# La teneur du Geosum porte le pit : F5M = Main Pit, F5W = West Pit. Un blast
+# enregistre sous une source ne doit contenir AUCUN bloc de minerai de l'autre
+# pit (ex. bloc F5W dans un blast LMP2 de Main Pit) : creation refusee.
+TENEUR_PIT_RE = re.compile(r"^[A-Z]*\d+([MW])$")
+
+
+def pit_de_source(codes, source_nom=""):
+    """'M' (Main Pit) ou 'W' (West Pit) d'apres les codes de la source (LMP* /
+    LWP*), a defaut d'apres son nom ; '' si indeterminable (pas de controle)."""
+    cs = [str(c).strip().upper() for c in (codes or [])]
+    main = any(c.startswith("LMP") for c in cs)
+    west = any(c.startswith("LWP") for c in cs)
+    if main != west:
+        return "M" if main else "W"
+    n = str(source_nom or "").upper()
+    if "MAIN" in n and "WEST" not in n:
+        return "M"
+    if "WEST" in n and "MAIN" not in n:
+        return "W"
+    return ""
+
+
+def blocs_autre_pit(contenus, pit):
+    """Blocs de MINERAI dont la teneur (Destination du Geosum / de la base)
+    appartient a l'autre pit que `pit`. Rend [(bloc, teneur)], trie."""
+    if pit not in ("M", "W"):
+        return []
+    intrus = set()
+    for contenu in contenus:
+        if not contenu:
+            continue
+        for cle, bloc in extraire_geosum(contenu).items():
+            if not bloc.get("_minerai"):
+                continue
+            teneur = str(bloc.get("destination") or "").strip().upper()
+            m = TENEUR_PIT_RE.match(teneur)
+            if m and m.group(1) != pit:
+                intrus.add((cle, teneur))
+    return sorted(intrus)
+
+
 def cle_bloc(nom):
     """Cle d'appariement d'un nom de bloc entre DXF et Geosum.
 
@@ -3096,8 +3138,24 @@ def blast_corps_ot(conn, blast_id):
         contenu = carte_en_data_url(url)
         if contenu:
             corps["map_contenu"] = contenu
-            corps.setdefault("name_map", os.path.basename(unquote(url.split("?")[0])))
+            # NOM SUR LE DRIVE = NUMERO DU BLAST (18/11). Le code de carte
+            # que lisent Serveur_OT et les tablettes est le nom du fichier
+            # sans extension : `275_..._119v3_rogne.jpg` n'etait pas un code
+            # de carte valide, et le RL partait sans carte. Le nom local
+            # (name_map en base) n'est pas modifie.
+            ext = os.path.splitext(unquote(url.split("?")[0]))[1].lower() or ".jpg"
+            corps["name_map"] = corps["numero"] + ext
     return corps
+
+
+def blast_a_une_carte(corps):
+    """Vrai si le blast porte une carte joignable par le cloud : binaire
+    joint (map_contenu) ou URL deja publiee (Drive, http distant)."""
+    if corps.get("map_contenu"):
+        return True
+    url = str(corps.get("map_url") or "").strip()
+    return bool(url) and not ("localhost" in url or "127.0.0.1" in url
+                              or url.startswith("/"))
 
 
 def ot_marquer_blast(conn, blast_id, ok, erreur=""):
@@ -3115,6 +3173,10 @@ def ot_pousser_blast(conn, blast_id):
     if not corps["numero"]:
         ot_marquer_blast(conn, blast_id, False, "blast sans numero")
         return False, "blast sans numero"
+    # Jamais de blast sans carte dans le classeur (18/11, regle client).
+    if not blast_a_une_carte(corps):
+        ot_marquer_blast(conn, blast_id, False, "carte absente : blast non envoye")
+        return False, "carte absente : blast non envoye"
     ok, reponse, erreur = ot_appel("blast_upload", payload=corps)
     # Serveur_OT rend l'URL Drive de la carte qu'il vient de deposer : on la
     # reprend en local, sinon on renverrait le binaire a chaque poussee.
@@ -3175,6 +3237,31 @@ def ot_supprimer_blast_onglets(numero):
         if not ok:
             erreurs.append("%s: %s" % (onglet, err))
     return (not erreurs), " ; ".join(erreurs)
+
+
+def ot_clore_blast(conn, blast_id):
+    """Envoie l'etat CLOS d'un blast a Serveur_OT (action blast_clore).
+    Retourne (ok, erreur). Marque clos_ot=1 au succes ; un echec est rejoue
+    par rattraper_blasts_ot()."""
+    ligne = conn.execute("SELECT numero, clos_le FROM blasts WHERE id=?",
+                         (blast_id,)).fetchone()
+    if not ligne or not (ligne["clos_le"] or "").strip():
+        return False, "blast non clos"
+    numero = (ligne["numero"] or "").strip()
+    ok, _, err = ot_appel("blast_clore", payload={"numero": numero, "origine": "saas"})
+    conn.execute("UPDATE blasts SET clos_ot=?, ot_erreur=? WHERE id=?",
+                 (1 if ok else 0, "" if ok else ("cloture : %s" % err)[:300], blast_id))
+    conn.commit()
+    if not ok:
+        print("OT: cloture du blast %s non transmise (%s)" % (numero, err))
+    return ok, err
+
+
+def clore_blast_local(conn, blast_id):
+    """Pose l'etat CLOS (une seule fois : la date d'origine est gardee)."""
+    conn.execute("UPDATE blasts SET clos_le=? WHERE id=? AND "
+                 "(clos_le IS NULL OR clos_le='')", (now_iso(), blast_id))
+    conn.commit()
 
 
 def ot_supprimer_blast(numero):
@@ -3493,10 +3580,46 @@ def boucle_office():
             conn = get_conn()
             try:
                 vider_file_office(conn)
+                rattraper_blasts_ot(conn)
             finally:
                 conn.close()
         except Exception as e:
             print("OFFICE: boucle d'envoi en erreur: %s" % e)
+
+
+# Rattrapage AUTOMATIQUE des blasts non recopies dans Serveur_OT (18/11).
+# Constat : 4 des 5 RL du blast 119 etaient restes en `ot_sync=0` depuis un
+# refus du serveur (« action POST inconnue : blast_upload », serveur deploye
+# sans le pont) ; rien ne les renvoyait, sauf un POST manuel /api/ot_blasts.
+# dig_plan restait donc incomplet et ces RL n'avaient pas de carte au Drive.
+# Chaque envoi transporte l'image : cadence bornee a un passage / 5 min.
+BLASTS_RATTRAPAGE_S = 300
+_blasts_rattrapage = {"dernier": 0.0}
+
+
+def rattraper_blasts_ot(conn):
+    maintenant = time.time()
+    if maintenant - _blasts_rattrapage["dernier"] < BLASTS_RATTRAPAGE_S:
+        return
+    _blasts_rattrapage["dernier"] = maintenant
+    office_url, office_token = office_conf()
+    if not office_url or not office_token:
+        return
+    # Un blast CLOS n'est plus repousse (18/11) : seule sa cloture l'est.
+    cibles = conn.execute(
+        "SELECT id, numero FROM blasts WHERE actif=1 "
+        "AND (clos_le IS NULL OR clos_le='') "
+        "AND (ot_sync IS NULL OR ot_sync=0) ORDER BY id").fetchall()
+    for c in cibles:
+        ok, err = ot_pousser_blast(conn, c["id"])
+        print("OT: rattrapage blast %s -> %s" % (c["numero"], "ok" if ok else err))
+    # Clotures non encore enregistrees par Serveur_OT (y compris celles des
+    # blasts supprimes ensuite : actif=0).
+    for c in conn.execute(
+            "SELECT id, numero FROM blasts WHERE clos_le<>'' "
+            "AND (clos_ot IS NULL OR clos_ot=0) ORDER BY id").fetchall():
+        ok, err = ot_clore_blast(conn, c["id"])
+        print("OT: rattrapage cloture %s -> %s" % (c["numero"], "ok" if ok else err))
 
 
 # ------------------------------------------------ remontees de Serveur_SG ---
@@ -3957,6 +4080,39 @@ class Handler(BaseHTTPRequestHandler):
                                 "error": "Blast refuse : le code '%s' n'appartient pas a la source '%s' "
                                          "(codes admis : %s). Verifiez le nom ou la source." % (
                                              code, body.get("source_nom") or "?", ", ".join(codes_admis))})
+                    # --- Garde-fou source / TENEUR des blocs (18/11) ---------
+                    # Le nom peut etre de la bonne source (LMP2) et les blocs
+                    # de l'autre pit (F5W) : constate sur 260_OM_LMP2_280_270_201,
+                    # accepte dans Main Pit. Un seul bloc de minerai de l'autre
+                    # pit suffit a refuser le blast (avant toute ecriture).
+                    pit_src = pit_de_source(codes_admis, body.get("source_nom"))
+                    intrus = blocs_autre_pit(
+                        [body.get("geosum_contenu") or "", body.get("base_contenu") or ""], pit_src)
+                    if intrus:
+                        autre = "West Pit" if pit_src == "M" else "Main Pit"
+                        detail = ", ".join("%s (%s)" % (b, tn) for b, tn in intrus[:8])
+                        if len(intrus) > 8:
+                            detail += " ... (+%d)" % (len(intrus) - 8)
+                        creer_alerte(conn, "blast_rejete", "-",
+                                     "Blast %s refuse : %d bloc(s) de %s dans la source %s : %s" % (
+                                         numero, len(intrus), autre, body.get("source_nom") or "?", detail),
+                                     voix_off=0, dest_office=0)
+                        return self._send_json(422, {
+                            "error": "Blast refuse : %d bloc(s) ont une teneur de %s alors que la source est "
+                                     "'%s' : %s. Verifiez la source ou le Geosum." % (
+                                         len(intrus), autre, body.get("source_nom") or "?", detail),
+                            "blocs_autre_pit": [{"bloc": b, "teneur": tn} for b, tn in intrus]})
+                    # --- JAMAIS DE BLAST SANS CARTE (18/11, regle client) ---
+                    # Un blast (RL) sans plan ne peut ni etre affiche ni etre
+                    # suivi sur la tablette : la creation est refusee, avec
+                    # une trace dans les alertes, avant toute ecriture.
+                    if not body.get("map_contenu") and not str(body.get("map_url") or "").strip():
+                        creer_alerte(conn, "blast_rejete", "-",
+                                     "Blast %s refuse : carte (plan) absente" % numero,
+                                     voix_off=0, dest_office=0)
+                        return self._send_json(422, {
+                            "error": "Blast refuse : la carte (plan image) est obligatoire. "
+                                     "Joignez la Map avant d'enregistrer."})
                     extraits = []
                     if contenu:
                         bas = source_fichier.lower()
@@ -4051,9 +4207,12 @@ class Handler(BaseHTTPRequestHandler):
                     bid = int(body.get("id", 0))
                     if not bid:
                         return self._send_json(400, {"error": "id requis"})
-                    ex = conn.execute("SELECT id FROM blasts WHERE id=? AND actif=1", (bid,)).fetchone()
+                    ex = conn.execute("SELECT id, clos_le FROM blasts WHERE id=? AND actif=1",
+                                      (bid,)).fetchone()
                     if not ex:
                         return self._send_json(404, {"error": "blast introuvable"})
+                    if (ex["clos_le"] or "").strip():
+                        return self._send_json(409, {"error": "blast clos : modification impossible"})
                     if body.get("numero"):
                         conn.execute("UPDATE blasts SET numero=? WHERE id=?",
                                      (str(body["numero"]).strip(), bid))
@@ -4186,6 +4345,26 @@ class Handler(BaseHTTPRequestHandler):
                                                   "nb_blocs_remplaces": len(blocs_remplaces),
                                                   "oreblocs": blocs_crees + blocs_remplaces})
 
+                # ETAT CLOS (18/11, demande client) : le blast est termine.
+                # Il reste en base (consultable), n'est plus modifiable ni
+                # repousse, et Serveur_OT le publie dans `clos` : c'est le
+                # signal qui autorise les tablettes a purger leurs donnees
+                # (une fois leurs envois recus).
+                if path == "/api/blasts_clore" and method == "POST":
+                    body = json.loads(self._read_body() or b"{}")
+                    bid = int(body.get("id", 0))
+                    if not bid:
+                        return self._send_json(400, {"error": "id requis"})
+                    if not conn.execute("SELECT id FROM blasts WHERE id=? AND actif=1",
+                                        (bid,)).fetchone():
+                        return self._send_json(404, {"error": "blast introuvable"})
+                    clore_blast_local(conn, bid)
+                    ot_ok, ot_err = ot_clore_blast(conn, bid)
+                    clos_le = conn.execute("SELECT clos_le FROM blasts WHERE id=?",
+                                           (bid,)).fetchone()[0]
+                    return self._send_json(200, {"ok": True, "id": bid, "clos_le": clos_le,
+                                                 "ot_sync": ot_ok, "ot_erreur": ot_err})
+
                 if path == "/api/blasts" and method == "DELETE":
                     qs = self._qs()
                     bid = int(qs.get("id", ["0"])[0])
@@ -4194,6 +4373,11 @@ class Handler(BaseHTTPRequestHandler):
                     ligne = conn.execute("SELECT numero FROM blasts WHERE id=?",
                                          (bid,)).fetchone()
                     numero = ligne["numero"] if ligne else ""
+                    # Supprimer = clore puis retirer (18/11) : sans la
+                    # cloture, la tablette ne verrait qu'une ABSENCE et
+                    # garderait le blast 24 h.
+                    clore_blast_local(conn, bid)
+                    ot_clore_blast(conn, bid)
                     conn.execute("UPDATE blasts SET actif=0 WHERE id=?", (bid,))
                     conn.execute("UPDATE oreblocs SET actif=0 WHERE blast_id=?", (bid,))
                     conn.commit()
@@ -5459,7 +5643,12 @@ def main():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(blasts)")]
     for colonne, definition in (("ot_sync", "INTEGER DEFAULT 0"),
                                 ("ot_erreur", "TEXT DEFAULT ''"),
-                                ("ot_maj_le", "TEXT DEFAULT ''")):
+                                ("ot_maj_le", "TEXT DEFAULT ''"),
+                                # 18/11 : etat CLOS, pose par le client
+                                # (bouton Clore de Dig Plan) ; clos_ot = 1
+                                # quand Serveur_OT l'a enregistre.
+                                ("clos_le", "TEXT DEFAULT ''"),
+                                ("clos_ot", "INTEGER DEFAULT 0")):
         if colonne not in cols:
             conn.execute("ALTER TABLE blasts ADD COLUMN %s %s" % (colonne, definition))
             conn.commit()
