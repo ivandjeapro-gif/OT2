@@ -334,6 +334,11 @@
                                     </div>
                                     <div class="relais-aide" id="relaisRemonteesEtat"></div>
                                     <div class="form-row">
+                                        <label for="relaisChargementsIntervalle">Lecture de la production (onglet Chargements, KPI du dashboard) toutes les (s)</label>
+                                        <input type="number" class="form-input" id="relaisChargementsIntervalle" min="5" max="600" step="1" />
+                                    </div>
+                                    <div class="relais-aide" id="relaisChargementsEtat"></div>
+                                    <div class="form-row">
                                         <label for="relaisAlerteRouge">Alerte non vue en rouge apres (min)</label>
                                         <input type="number" class="form-input" id="relaisAlerteRouge" min="1" max="1440" step="1" />
                                     </div>
@@ -343,6 +348,28 @@
                                     </div>
                                     <div class="account-status" id="relaisStatus"></div>
                                     <div class="relais-resultats" id="relaisResultats" hidden></div>
+
+                                    <h4 class="relais-titre">Secours direct du dashboard (ce poste uniquement)</h4>
+                                    <p class="relais-aide">Si la passerelle ne répond plus, le dashboard ouvert sur CE navigateur lit
+                                        lui-même la production chez Serveur_SG. L'URL et le jeton sont gardés dans ce navigateur
+                                        (jamais envoyés à la passerelle) : à ne remplir que sur les postes de confiance.</p>
+                                    <div class="form-row">
+                                        <label for="secoursSgUrl">URL Serveur_SG (/exec)</label>
+                                        <input type="text" class="form-input form-input-wide" id="secoursSgUrl"
+                                               name="secours-sg-url" placeholder="https://script.google.com/macros/s/XXXX/exec"
+                                               autocomplete="off" spellcheck="false" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="secoursSgToken">Jeton Serveur_SG <span class="relais-empreinte" id="secoursSgEtat"></span></label>
+                                        <input type="password" class="form-input form-input-wide" id="secoursSgToken"
+                                               name="secours-sg-token" placeholder="laisser vide pour conserver le jeton de ce poste"
+                                               autocomplete="new-password" />
+                                    </div>
+                                    <div class="ot-actions">
+                                        <button type="button" class="ot-btn ot-btn-primaire" id="btnSecoursSave">Enregistrer sur ce poste</button>
+                                        <button type="button" class="ot-btn" id="btnSecoursOff">Désactiver sur ce poste</button>
+                                    </div>
+                                    <div class="account-status" id="secoursStatus"></div>
                                 </div>
                             </div>
                         </div>

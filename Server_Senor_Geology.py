@@ -3747,6 +3747,170 @@ def boucle_remontees():
         time.sleep(remontees_intervalle())
 
 
+# ------------------------------------------------ chargements de SG (E3) ---
+# KPI du dashboard calcules sur l'onglet « Chargements » de Serveur_SG (la
+# base en ligne), releve toutes les CHARGEMENTS_INTERVALLE_S secondes (5 par
+# defaut, decision du 19/11). Tout le jour est relu a chaque passage : SG
+# reecrit les lignes d'un chargement en cours. La derniere lecture reussie
+# reste en memoire : si la 4G tombe, le dashboard garde le dernier etat et
+# affiche son anciennete.
+CHARGEMENTS_INTERVALLE_DEFAUT = 5
+_chargements_etat = {"actif": False, "jour": "", "lignes": [], "lu_le": "", "lu_ts": 0.0,
+                     "derniere_tentative": "", "derniere_erreur": "", "duree_ms": 0}
+_chargements_lock = threading.Lock()
+
+
+def chargements_intervalle():
+    try:
+        v = int(float(param_lire("CHARGEMENTS_INTERVALLE_S", str(CHARGEMENTS_INTERVALLE_DEFAUT))))
+    except (TypeError, ValueError):
+        v = CHARGEMENTS_INTERVALLE_DEFAUT
+    return max(5, min(v, 600))
+
+
+def sg_lire_chargements(jour):
+    """GET ?action=chargements&jour=AAAA-MM-JJ chez Serveur_SG. (ok, donnees, erreur)."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return False, {}, "Serveur_SG non configure"
+    url = "%s?action=chargements&jour=%s&token=%s" % (sg_url, quote(jour), quote(sg_token))
+    try:
+        with urllib.request.urlopen(url, timeout=30) as rep_:
+            d = json.loads(rep_.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return False, {}, "%s: %s" % (type(e).__name__, str(e)[:160])
+    if d.get("ok") is False:
+        return False, d, str(d.get("erreur") or "refus de Serveur_SG")
+    if not isinstance(d.get("lignes"), list):
+        # deploiement SG anterieur au 19/11 : l'action n'existe pas encore
+        return False, d, "reponse sans lignes (Serveur_SG a redeployer ?)"
+    return True, d, ""
+
+
+def chargements_un_passage():
+    jour = datetime.now().strftime("%Y-%m-%d")
+    t0 = time.time()
+    ok, d, err = sg_lire_chargements(jour)
+    with _chargements_lock:
+        _chargements_etat["derniere_tentative"] = now_iso()
+        _chargements_etat["duree_ms"] = int((time.time() - t0) * 1000)
+        if ok:
+            _chargements_etat.update(jour=jour, lignes=d.get("lignes") or [],
+                                     lu_le=now_iso(), lu_ts=time.time(), derniere_erreur="")
+        else:
+            _chargements_etat["derniere_erreur"] = err
+    return ok, err
+
+
+def boucle_chargements():
+    _chargements_etat["actif"] = True
+    while True:
+        try:
+            chargements_un_passage()
+        except Exception as e:
+            _chargements_etat["derniere_erreur"] = "%s: %s" % (type(e).__name__, e)
+            print("CHARGEMENTS: erreur %s" % e)
+        sg_url, sg_token, _ = sg_conf()
+        time.sleep(chargements_intervalle() if (sg_url and sg_token) else 30)
+
+
+def etat_cloud():
+    """Etat de la liaison vers la base en ligne, pour le pied du dashboard."""
+    sg_url, sg_token, _ = sg_conf()
+    with _chargements_lock:
+        e = dict(_chargements_etat)
+    age = round(time.time() - e["lu_ts"], 1) if e["lu_ts"] else None
+    intervalle = chargements_intervalle()
+    if not (sg_url and sg_token):
+        statut = "non_configure"
+    elif age is None:
+        statut = "ko" if e["derniere_erreur"] else "attente"
+    elif age <= max(30, 4 * intervalle):
+        statut = "ok"
+    elif age <= 300:
+        statut = "lent"
+    else:
+        statut = "ko"
+    return {"statut": statut, "lu_le": e["lu_le"], "age_s": age, "intervalle_s": intervalle,
+            "erreur": e["derniere_erreur"], "duree_ms": e["duree_ms"],
+            "derniere_tentative": e["derniere_tentative"]}
+
+
+def kpi_chargements(conn, lignes, jour):
+    """Memes KPI que kpi_voyages, calcules sur les lignes « Chargements » de SG.
+    Teneur Au (onces) et nature minerai/sterile : table locale oreblocs, par nom
+    (le referentiel est pousse depuis Dig Plan). Un orebloc inconnu localement
+    est classe par son code de teneur et sa destination, sans onces."""
+    blocs = {r["nom"]: r for r in conn.execute(
+        "SELECT nom, au_teneur, minerai, destination FROM oreblocs")}
+    res = {"jour": jour, "voyages": len(lignes), "minerais_t": 0.0, "waste_t": 0.0, "onces": 0.0,
+           "grades": {g: {"tonnes": 0.0, "onces": 0.0} for g in ("high", "medium", "low", "marginal")},
+           "sans_bloc": 0, "sans_tonnage": 0, "blocs_inconnus": 0}
+    for r in lignes:
+        nom = str(r.get("orebloc") or "").strip()
+        if not nom:
+            res["sans_bloc"] += 1          # chargement hors de tout orebloc : non classe
+            continue
+        try:
+            t = float(r.get("tonnes"))
+        except (TypeError, ValueError):
+            res["sans_tonnage"] += 1       # pas de truck_factor_t : compte, sans tonnage
+            continue
+        b = blocs.get(nom)
+        if b is None:
+            res["blocs_inconnus"] += 1
+        code = code_teneur_bloc(nom)
+        dest = str(r.get("teneur") or (b["destination"] if b is not None else "") or "").strip().upper()
+        minerai = bool(b["minerai"]) if b is not None else (code != "WST" and dest != "W")
+        sterile = code == "WST" or dest == "W" or not minerai
+        if sterile and code not in KPI_GRADES:
+            res["waste_t"] += t
+            continue
+        onces = t * float((b["au_teneur"] if b is not None else 0) or 0) / GRAMMES_PAR_ONCE
+        res["minerais_t"] += t
+        res["onces"] += onces
+        g = KPI_GRADES.get(code)
+        if g:
+            res["grades"][g]["tonnes"] += t
+            res["grades"][g]["onces"] += onces
+    arrondir = lambda v: round(v, 1)
+    res["minerais_t"], res["waste_t"], res["onces"] = map(arrondir, (res["minerais_t"], res["waste_t"], res["onces"]))
+    for g in res["grades"].values():
+        g["tonnes"], g["onces"] = arrondir(g["tonnes"]), arrondir(g["onces"])
+    return res
+
+
+def kpi_du_jour(jour=None):
+    """KPI pour /api/kpi. Source : Chargements de SG (cache du releve pour
+    aujourd'hui, lecture directe pour un autre jour) ; a defaut (SG non
+    configure ou jamais lu), l'ancienne table locale « voyages »."""
+    aujourdhui = datetime.now().strftime("%Y-%m-%d")
+    jour = jour or aujourdhui
+    sg_url, sg_token, _ = sg_conf()
+    lignes = None
+    if sg_url and sg_token:
+        if jour == aujourdhui:
+            with _chargements_lock:
+                if _chargements_etat["jour"] == jour and _chargements_etat["lu_ts"]:
+                    lignes = list(_chargements_etat["lignes"])
+        else:
+            ok, d, _err = sg_lire_chargements(jour)
+            if ok:
+                lignes = d.get("lignes") or []
+    conn = get_conn()
+    try:
+        if lignes is not None:
+            res = kpi_chargements(conn, lignes, jour)
+            res["source"] = "sg"
+        else:
+            res = kpi_voyages(conn, None if jour == aujourdhui else jour)
+            res["source"] = "voyages"
+    finally:
+        conn.close()
+    res["cloud"] = etat_cloud()
+    return res
+
+
 def vider_file_office(conn):
     """Vide la file office_sync vers Serveur_OT. Statut 'envoye' seulement
     si OT a reellement accuse reception (ok:true).
@@ -3965,6 +4129,13 @@ class Handler(BaseHTTPRequestHandler):
             if diff is None:
                 return self._send_json(502, {"error": err})
             return self._send_json(200, diff)
+        # KPI du jour : depuis le releve des Chargements de SG (19/11). HORS
+        # verrou : un autre jour declenche un appel au cloud (quelques s).
+        if path == "/api/kpi" and method == "GET":
+            jour = (self._qs().get("jour") or [None])[0]
+            if jour and not re.match(r"^\d{4}-\d{2}-\d{2}$", jour):
+                return self._send_json(400, {"error": "jour attendu au format AAAA-MM-JJ"})
+            return self._send_json(200, kpi_du_jour(jour))
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())
@@ -4861,6 +5032,8 @@ class Handler(BaseHTTPRequestHandler):
                         "office_token_empreinte": empreinte_jeton(office_token),
                         "sg_token_empreinte": empreinte_jeton(sg_token),
                         "remontees_intervalle_s": remontees_intervalle(),
+                        "chargements_intervalle_s": chargements_intervalle(),
+                        "chargements": etat_cloud(),
                         "remontees": dict(_remontees_etat,
                                           derniere_ligne=param_lire("REMONTEES_DERNIERE_LIGNE", ""),
                                           derniere_ligne_trajet=param_lire("TRAJET_DERNIERE_LIGNE", "")),
@@ -4877,7 +5050,8 @@ class Handler(BaseHTTPRequestHandler):
                               "sg_token": "SG_TOKEN",
                               "sg_intervalle_s": "SG_INTERVALLE_S",
                               "alerte_rouge_min": "ALERTE_ROUGE_MIN",
-                              "remontees_intervalle_s": "REMONTEES_INTERVALLE_S"}
+                              "remontees_intervalle_s": "REMONTEES_INTERVALLE_S",
+                              "chargements_intervalle_s": "CHARGEMENTS_INTERVALLE_S"}
                     ecrits = []
                     for champ, cle in connus.items():
                         if champ not in body:
@@ -5487,12 +5661,6 @@ class Handler(BaseHTTPRequestHandler):
                             "message": "%s toujours devie (%d m du trajet)." % (dt_code, int(m["ecart_m"]))})
                     return self._send_json(200, {"statut": "ok", "message": "pas de deviation"})
 
-                if path == "/api/kpi" and method == "GET":
-                    jour = (self._qs().get("jour") or [None])[0]
-                    if jour and not re.match(r"^\d{4}-\d{2}-\d{2}$", jour):
-                        return self._send_json(400, {"error": "jour attendu au format AAAA-MM-JJ"})
-                    return self._send_json(200, kpi_voyages(conn, jour))
-
                 if path == "/api/offroad" and method == "GET":
                     return self._send_json(200, etat_offroad(conn))
 
@@ -5800,6 +5968,8 @@ def main():
     threading.Thread(target=boucle_office, daemon=True).start()
     # positions reelles des DT : remontees de Serveur_SG (17/11)
     threading.Thread(target=boucle_remontees, daemon=True).start()
+    # chargements de SG pour les KPI du dashboard, toutes les 5 s (19/11)
+    threading.Thread(target=boucle_chargements, daemon=True).start()
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Server_Senor_Geology demarre sur http://%s:%d" % (HOST, PORT))
