@@ -2614,3 +2614,813 @@ textarea:focus {
 }
 
 .side-btn-dark:hover { background: rgba(255, 255, 255, 0.1); }
+
+/* ============================================================
+   HOME v3 — fidélité maquette (corrections)
+   ============================================================ */
+
+/* --- 1. Bandeau d'alerte : fond rosé quand le site est en alerte --- */
+.r-bandeau {
+    align-items: stretch;
+}
+
+.r-bandeau-main { flex: 1; min-width: 0; }
+
+.r-bandeau.is-danger {
+    background: #f7e4e0 !important;
+    border-color: #ecc9c2 !important;
+}
+
+.r-bandeau.is-warn {
+    background: #faf1dc !important;
+    border-color: #ecd9b5 !important;
+}
+
+.r-bandeau.is-ok {
+    background: var(--r-bg-panel) !important;
+    border-color: var(--r-border) !important;
+}
+
+.r-bandeau-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 10px;
+}
+
+.r-bandeau-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--r-red);
+    flex-shrink: 0;
+}
+
+.r-bandeau.is-ok .r-bandeau-dot { background: var(--r-green); }
+.r-bandeau.is-warn .r-bandeau-dot { background: var(--r-gold); }
+
+.r-bandeau-headline {
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -0.7px;
+    line-height: 1.15;
+    color: var(--r-text);
+    margin-bottom: 7px;
+}
+
+.r-bandeau-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--r-text-2);
+    margin: 0;
+}
+
+.r-bandeau .voyant {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    margin: 0;
+}
+
+.r-bandeau .voyant-texte {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--r-text-2);
+    letter-spacing: 0;
+}
+
+.r-bandeau-cta {
+    align-self: center;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
+}
+
+.r-bandeau-cta i { font-size: 11px; }
+
+/* --- 2. Stats : soulignés courts sous chaque chiffre --- */
+.home-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0 18px;
+    padding-bottom: 4px;
+}
+
+.home-stats .stat-card {
+    padding: 0 0 20px 0 !important;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.home-stats .stat-card::after {
+    width: 42px;
+    height: 3px;
+    left: 0;
+    bottom: 8px;
+    border-radius: 2px;
+}
+
+.home-stats .stat-card .stat-label {
+    order: 1;
+    margin: 0 0 10px 0 !important;
+    font-size: 10px;
+    line-height: 1.3;
+    min-height: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-stats .stat-card .stat-value {
+    order: 2;
+    font-size: 42px;
+    letter-spacing: -2.2px;
+    line-height: 1;
+}
+
+.home-stats .stat-card .stat-note {
+    order: 3;
+    margin-top: 16px;
+    font-size: 11px;
+    color: var(--r-text-3);
+    line-height: 1.4;
+}
+
+.home-stats .stat-card i { display: none; }
+
+/* --- 3. File « À traiter » : titre + en-têtes + lignes --- */
+.r-fileblock {
+    background: transparent;
+    margin-top: 8px;
+}
+
+.r-filetitle {
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--r-text);
+    margin-bottom: 4px;
+}
+
+.r-filesub {
+    font-size: 12.5px;
+    color: var(--r-text-2);
+    margin-bottom: 18px;
+}
+
+.r-filehead {
+    display: grid;
+    grid-template-columns: 130px 1fr 110px 92px;
+    gap: 12px;
+    padding: 0 0 9px;
+    border-bottom: 1px solid var(--r-border);
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    color: var(--r-text-3);
+}
+
+.r-filehead-delai { text-align: left; }
+
+.home-file {
+    display: flex;
+    flex-direction: column;
+}
+
+.home-file .file-item {
+    display: grid !important;
+    grid-template-columns: 130px 1fr 110px 92px;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--r-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    text-decoration: none;
+    color: var(--r-text);
+    transition: background 0.15s;
+}
+
+.home-file .file-item:hover {
+    background: transparent !important;
+    padding-left: 0 !important;
+}
+
+.home-file .file-item i { display: none !important; }
+
+.home-file .file-item span {
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--r-text-2);
+}
+
+.home-file .file-item b {
+    color: var(--r-text);
+    font-weight: 800;
+    letter-spacing: 0.2px;
+}
+
+.home-file .file-age {
+    display: block;
+    font-size: 11.5px !important;
+    color: var(--r-text-3) !important;
+    margin: 0 !important;
+    white-space: nowrap;
+    font-style: italic;
+}
+
+/* --- 4. Panneau SHIFT : progression, blocs, actions --- */
+.shift-hours {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -1.2px;
+    color: #f4f2ea;
+    line-height: 1.1;
+    margin-bottom: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.shift-dash { color: #6e7566; font-weight: 400; }
+
+.shift-elapsed {
+    font-size: 11.5px;
+    color: #9a9c8d;
+    margin-bottom: 10px;
+}
+
+.shift-progress {
+    height: 3px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 22px;
+}
+
+.shift-progress span {
+    display: block;
+    height: 100%;
+    background: var(--r-gold);
+    border-radius: 2px;
+}
+
+.side-block {
+    padding: 14px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 4px;
+}
+
+.side-block-label {
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: #8a8f80;
+    margin-bottom: 6px;
+}
+
+.side-block-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #f4f2ea;
+    letter-spacing: -0.1px;
+    margin-bottom: 3px;
+}
+
+.side-block-sub {
+    font-size: 11px;
+    color: #9a9c8d;
+}
+
+.panel-side .side-row {
+    align-items: flex-start;
+    padding: 13px 0;
+}
+
+.panel-side .side-row-label {
+    font-size: 11px;
+    color: #8a8f80;
+    flex: 0 0 42%;
+    line-height: 1.4;
+}
+
+.panel-side .side-row-value {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #e8e6da;
+    text-align: right;
+    line-height: 1.4;
+}
+
+.side-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 18px;
+}
+
+.side-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    text-decoration: none;
+    transition: filter 0.15s, background 0.15s;
+}
+
+.side-btn i { font-size: 10px; opacity: 0.8; }
+
+.side-btn-gold {
+    background: var(--r-gold);
+    color: #1e221c;
+}
+
+.side-btn-gold:hover { filter: brightness(1.07); }
+
+.side-btn-dark {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e8e6da;
+}
+
+.side-btn-dark:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* --- 5. Pied de sidebar : LA FIGUÉ MINE --- */
+.sidebar-mine {
+    margin-top: auto;
+    padding: 16px;
+    background: #1d2620;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+    flex-shrink: 0;
+}
+
+.sidebar-mine-brand {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: #7f8477;
+    margin-bottom: 3px;
+}
+
+.sidebar-mine-name {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    color: #f4f2ea;
+}
+
+.sidebar-mine-sub {
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: #7f8477;
+    margin-top: 2px;
+}
+
+/* --- Badge de compteur et chevron de la sidebar --- */
+.sidebar-link { position: relative; }
+
+.sidebar-badge {
+    margin-left: auto;
+    min-width: 22px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(30, 34, 28, 0.1);
+    color: var(--r-text-2);
+    font-size: 10px;
+    font-weight: 800;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.sidebar-link.active .sidebar-badge {
+    background: var(--r-bg-deep);
+    color: #f4f2ea;
+}
+
+.sidebar-link-chev {
+    margin-left: auto;
+    font-size: 9px !important;
+    opacity: 0.45;
+    width: auto !important;
+    height: auto !important;
+}
+
+/* ============================================================
+   HOME v4 — corrections de finition
+   ============================================================ */
+
+/* La file est un vrai panneau blanc qui contient ses lignes */
+.r-fileblock {
+    background: var(--r-bg-panel) !important;
+    border: 1px solid var(--r-border) !important;
+    border-radius: var(--r-radius);
+    padding: 22px 24px 8px;
+    margin-top: 14px;
+}
+
+.r-filetitle {
+    margin-bottom: 3px;
+}
+
+.r-filesub {
+    margin-bottom: 16px;
+}
+
+/* pas de débordement : la grille reste dans le panneau */
+.r-filehead,
+.home-file .file-item {
+    grid-template-columns: 118px minmax(0, 1fr) 96px 0px !important;
+    gap: 14px;
+}
+
+.home-file {
+    margin: 0 -24px;
+    padding: 0 24px;
+}
+
+.home-file .file-item {
+    padding: 15px 24px !important;
+}
+
+.home-file .file-item:last-child {
+    border-bottom: none !important;
+}
+
+.r-fileblock .home-file .member-empty {
+    margin: 0 -24px;
+    padding: 14px 24px 18px;
+}
+
+/* casse normale, comme la maquette */
+.home-file .file-item span {
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+}
+
+/* le tiret séparateur en trop */
+.home-file .file-item span > b + br { display: none; }
+
+/* stats : souligné juste sous le chiffre */
+.home-stats .stat-card {
+    padding-bottom: 0 !important;
+}
+
+.home-stats .stat-card::after {
+    position: relative !important;
+    display: block;
+    content: "";
+    width: 42px;
+    height: 3px;
+    margin-top: 12px;
+    border-radius: 2px;
+    left: auto;
+    bottom: auto;
+}
+
+.home-stats .stat-card .stat-note {
+    margin-top: 12px;
+}
+
+/* panneau shift : hauteur pleine, pas de vide */
+.panel-side {
+    align-self: start;
+}
+
+.panel-side-body {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ============================================================
+   HOME v5 — REGLES FINALES (remplacent toutes les precedentes)
+   ============================================================ */
+
+/* --- Stats : libelle / chiffre / souligne / note --- */
+.home-stats {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 0 20px;
+    border: none !important;
+    background: transparent !important;
+}
+
+.home-stats .stat-card,
+.home-stats .stat-card:hover {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    overflow: visible !important;
+}
+
+.home-stats .stat-card > i {
+    display: none !important;
+}
+
+/* pas de ::after : on utilise un trait reel dans le flux */
+.home-stats .stat-card::after,
+.home-stats .stat-card::before {
+    display: none !important;
+    content: none !important;
+}
+
+.home-stats .stat-label {
+    order: 1 !important;
+    margin: 0 0 10px !important;
+    padding: 0 !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    letter-spacing: 1.2px !important;
+    text-transform: uppercase !important;
+    color: var(--r-text-3) !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    line-height: 1.3;
+}
+
+.home-stats .stat-value {
+    order: 2 !important;
+    margin: 0 !important;
+    font-size: 42px !important;
+    font-weight: 800 !important;
+    letter-spacing: -2.2px !important;
+    line-height: 1 !important;
+    color: var(--r-text) !important;
+    font-variant-numeric: tabular-nums;
+}
+
+.home-stats .stat-rule {
+    order: 3 !important;
+    display: block;
+    width: 42px;
+    height: 3px;
+    border-radius: 2px;
+    margin-top: 11px;
+    background: var(--r-border-strong);
+}
+
+.home-stats .stat-card:nth-child(1) .stat-rule { background: var(--r-accent); }
+.home-stats .stat-card:nth-child(2) .stat-rule { background: var(--r-red); }
+.home-stats .stat-card:nth-child(3) .stat-rule { background: var(--r-blue); }
+.home-stats .stat-card:nth-child(4) .stat-rule { background: var(--r-gold); }
+
+.home-stats .stat-note {
+    order: 4 !important;
+    margin: 12px 0 0 !important;
+    font-size: 11px !important;
+    color: var(--r-text-3) !important;
+    line-height: 1.4;
+}
+
+/* --- File : dans le panneau, alignee sur la maquette --- */
+.r-fileblock {
+    background: var(--r-bg-panel) !important;
+    border: 1px solid var(--r-border) !important;
+    border-radius: var(--r-radius) !important;
+    padding: 22px 0 0 !important;
+    overflow: hidden;
+}
+
+.r-fileblock .r-filetitle,
+.r-fileblock .r-filesub,
+.r-fileblock .r-filehead {
+    padding-left: 24px;
+    padding-right: 24px;
+}
+
+.r-fileblock .r-filetitle { margin: 0 0 3px !important; }
+.r-fileblock .r-filesub { margin: 0 0 16px !important; }
+
+.r-filehead {
+    display: grid !important;
+    grid-template-columns: 132px minmax(0, 1fr) 104px 96px !important;
+    gap: 16px;
+    padding-bottom: 10px !important;
+    border-bottom: 1px solid var(--r-border);
+    font-size: 9.5px !important;
+    font-weight: 800 !important;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    color: var(--r-text-3) !important;
+}
+
+.r-filehead-delai { text-align: left; }
+
+.home-file {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.home-file .file-item,
+.home-file .file-item:hover,
+.home-file .file-item.u1,
+.home-file .file-item.u2 {
+    display: grid !important;
+    grid-template-columns: 132px minmax(0, 1fr) 104px 96px !important;
+    align-items: center !important;
+    gap: 16px !important;
+    padding: 15px 24px !important;
+    margin: 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--r-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    text-decoration: none;
+    color: var(--r-text) !important;
+}
+
+.home-file .file-item:last-child { border-bottom: none !important; }
+.home-file .file-item > i { display: none !important; }
+
+.home-file .file-item span {
+    font-size: 13px !important;
+    line-height: 1.45;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    color: var(--r-text-2) !important;
+}
+
+.home-file .file-item b {
+    color: var(--r-text) !important;
+    font-weight: 800 !important;
+}
+
+.home-file .file-age {
+    display: block;
+    font-size: 11.5px !important;
+    color: var(--r-text-3) !important;
+    margin: 0 !important;
+    font-style: italic;
+    white-space: nowrap;
+}
+
+.r-fileblock .member-empty {
+    padding: 14px 24px 20px !important;
+    margin: 0 !important;
+}
+
+/* --- Sidebar : pied collee en bas, pas de vide --- */
+.sidebar {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.sidebar-nav { flex: 1 1 auto !important; }
+.sidebar-user { margin-top: 0 !important; }
+.sidebar-mine { margin-top: 0 !important; }
+
+/* --- Topbar : pastille de sync discrete --- */
+.sync-pill.ko,
+.sync-pill[class*="ko"] {
+    background: transparent !important;
+    border-color: var(--r-border) !important;
+    color: var(--r-text-3) !important;
+}
+
+/* --- Panneau shift --- */
+.panel-side {
+    align-self: start !important;
+    background: var(--r-bg-dark) !important;
+}
+
+.panel-side .panel-side-body {
+    display: flex;
+    flex-direction: column;
+    padding: 18px 20px 20px !important;
+}
+
+.panel-side .side-row {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 14px;
+    padding: 13px 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+.panel-side .side-row:last-of-type { border-bottom: none !important; }
+
+/* ============================================================
+   HOME v6 — corrections structurelles finales
+   ============================================================ */
+
+/* --- La sidebar occupe TOUTE la hauteur --- */
+.app-body {
+    align-items: stretch !important;
+}
+
+.sidebar {
+    align-self: stretch !important;
+    height: auto !important;
+    min-height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+/* le pied LA FIGUE est creme, pas noir */
+.sidebar-mine {
+    margin-top: auto !important;
+    background: transparent !important;
+    border-top: 1px solid var(--r-border);
+}
+
+.sidebar-mine-brand,
+.sidebar-mine-sub {
+    color: var(--r-text-3) !important;
+}
+
+.sidebar-mine-name {
+    color: var(--r-text) !important;
+}
+
+/* --- Badge Alerts : pastille sombre, comme la maquette --- */
+.sidebar-badge {
+    margin-left: auto;
+    min-width: 24px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: var(--r-bg-deep) !important;
+    color: #f4f2ea !important;
+    font-size: 10px;
+    font-weight: 800;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+/* --- Stats : libelles sur une ligne, plus courts --- */
+.home-stats .stat-label {
+    letter-spacing: 1px !important;
+    font-size: 9.5px !important;
+}
+
+/* --- La file remonte dans le flux, collee sous les stats --- */
+.home-main-col {
+    gap: 26px !important;
+}
+
+.r-fileblock {
+    margin-top: 0 !important;
+}
+
+/* --- Colonne Heure/Engin : pas de point parasite --- */
+.home-file .file-item > span:first-child,
+.home-file .file-item > b:first-child {
+    font-weight: 800;
+}
+
+/* --- Evenement : pas de tiret ni de double espace --- */
+.home-file .file-item span {
+    text-indent: 0 !important;
+}
+
+/* --- Boutons du panneau Shift : fleches alignees --- */
+.side-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    min-height: 46px;
+}
+
+.side-btn i {
+    margin-left: auto;
+    font-size: 11px !important;
+    opacity: 0.9;
+}
+
+/* --- Topbar : pastille sync discrete, comme la maquette --- */
+.sync-pill {
+    display: none !important;
+}
