@@ -374,8 +374,8 @@
   // Source de verite : onglet `identifiants` du Google Sheet (miroir local
   // sync_identifiants). Un membre = une ligne (profil, identifiant, nom,
   // role, equipe, actif). L'equipe est un attribut du membre : la carte
-  // d'equipe regroupe les lignes a la volÃ©e. Une team est creee AVEC son
-  // chef d'equipe (premiere ligne) â€” jamais vide.
+  // d'equipe regroupe les lignes a la volée. Une team est creee AVEC son
+  // chef d'equipe (premiere ligne) — jamais vide.
 
   const ROLE_LIBELLE = {
     'SPOTER': 'Spotter',
@@ -628,31 +628,153 @@
     return API.getRows('sync_flotte').then((d) => d.rows || []);
   }
 
+  // Rendu « Parametres › Flotte » (maquette du 19/11) : une ligne par engin,
+  // 6 visibles puis « consulter le reste ». Les DT ont une colonne « Temps
+  // reel » (compte MQTT tenu par la passerelle, voir etatMqtt ci-dessous).
+  const VISIBLES_INITIAL = 6;
+  const flotteDepliee = { truck: false, excavator: false };
+  const dernieresLignes = { truck: [], excavator: [] };
+
   function renderEquipList(type, rows) {
     const cfg = EQUIP_TYPES[type];
     const box = $('#' + cfg.container);
     if (!box) return;
-    const machines = (rows || []).filter((r) => cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0);
+    const machines = (rows || []).filter((r) => cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0
+      || (type === 'truck' && /^DT-/i.test(String(r.code || ''))));
     machines.sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), undefined, { numeric: true }));
+    dernieresLignes[type] = machines;
+    const cpt = $(type === 'truck' ? '#cptTrucks' : '#cptExcavators');
+    if (cpt) cpt.textContent = String(machines.length).padStart(2, '0') + ' engin' + (machines.length > 1 ? 's' : '') + ' enregistré' + (machines.length > 1 ? 's' : '');
     if (!machines.length) {
-      box.innerHTML = '<div class="empty-state"><i class="fas ' + cfg.icon + '"></i><span>Aucun engin</span></div>';
+      box.innerHTML = '<div class="pm-vide">Aucun engin</div>';
+      majVoirPlus(type, 0);
       return;
     }
-    box.innerHTML = machines.map((r) => {
-      const active = r.actif === 1;
-      const summary = (r.famille || '') + ' Â· nÂ° ' + (r.numero != null ? r.numero : '?');
-      let html = '<div class="account-item' + (active ? '' : ' desactive') + '" data-id="' + r.id + '">' +
-        '<i class="fas ' + cfg.icon + '"></i>' +
-        '<span class="account-nom">' + eqEscape(r.code || ('?-' + r.numero)) + '</span>' +
-        '<span class="account-email">' + eqEscape(summary) + '</span>';
-      if (!active) html += '<span class="account-flag">desactive</span>';
-      html += '<span class="account-actions">' +
-        '<button class="account-btn" data-eq="' + type + '" data-action="toggle" data-id="' + r.id + '" data-active="' + active + '" title="' + (active ? 'Desactiver' : 'Activer') + '">' +
-        '<i class="fas fa-' + (active ? 'ban' : 'check') + '"></i></button>' +
-        '<button class="account-btn" data-eq="' + type + '" data-action="delete" data-id="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
-        '</span></div>';
+    const visibles = flotteDepliee[type] ? machines : machines.slice(0, VISIBLES_INITIAL);
+    box.innerHTML = visibles.map((r) => {
+      const active = Number(r.actif) === 1;
+      const code = eqEscape(r.code || ('?-' + r.numero));
+      let html = '<div class="pm-ligne' + (active ? '' : ' desactive') + '" data-id="' + r.id + '" data-code="' + code + '">' +
+        '<span class="pm-code">' + code + '</span>' +
+        '<span class="pm-famille">' + eqEscape(r.famille || '') + (active ? '' : ' <em>· désactivé</em>') + '</span>';
+      if (type === 'truck') html += '<span class="pm-tr" data-tr="' + code + '">' + celluleTempsReel(r.code, active) + '</span>';
+      html += '<span class="pm-actions">' +
+        '<button type="button" class="pm-menu-btn" data-eq="' + type + '" data-action="menu" aria-haspopup="true" title="Actions">…</button>' +
+        '<span class="pm-menu" hidden>' +
+          '<button type="button" data-eq="' + type + '" data-action="toggle" data-id="' + r.id + '" data-active="' + active + '">' + (active ? 'Désactiver' : 'Activer') + '</button>' +
+          (type === 'truck' && active ? '<button type="button" data-eq="truck" data-action="renouveler" data-code="' + code + '">Renouveler l\'accès temps réel</button>' : '') +
+          '<button type="button" class="danger" data-eq="' + type + '" data-action="delete" data-id="' + r.id + '">Supprimer</button>' +
+        '</span></span></div>';
       return html;
     }).join('');
+    majVoirPlus(type, machines.length);
+  }
+
+  function majVoirPlus(type, total) {
+    const b = $(type === 'truck' ? '#truckVoirPlus' : '#excavatorVoirPlus');
+    if (!b) return;
+    b.hidden = total <= VISIBLES_INITIAL;
+    b.textContent = flotteDepliee[type]
+      ? 'Réduire l\'affichage ↑'
+      : 'Affichage de ' + VISIBLES_INITIAL + ' engins · consulter le reste de la flotte (' + total + ') →';
+  }
+
+  // ---- temps reel (MQTT) : etat des comptes tenu par la passerelle ----
+  // GET /api/mqtt/comptes (jamais de mot de passe) ; apres un changement de
+  // flotte, POST /api/mqtt/rapprocher pour un effet immediat (sinon la
+  // passerelle rattrape d'elle-meme toutes les 30 s).
+  const passerelleBase = () => (window.OTCFG && OTCFG.passerelle)
+    ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+  let etatMqtt = null;            // derniere reponse /api/mqtt/comptes
+
+  function celluleTempsReel(code, actif) {
+    if (!etatMqtt) return '<span class="pm-tr-etat attente">…</span>';
+    if (!etatMqtt.configure) return '<span class="pm-tr-etat absent" title="Broker non installé">—</span>';
+    const c = (etatMqtt.comptes || []).find((x) => x.code === code);
+    if (!actif) return '<span class="pm-tr-etat inactif" title="DT désactivé : accès coupé">Désactivé</span>';
+    if (!c || !c.applique_broker) return '<span class="pm-tr-etat attente" title="Compte en cours de création">En création</span>';
+    if (c.en_ligne) {
+      const age = c.derniere_position_s;
+      return '<span class="pm-tr-etat ok" title="Tablette connectée">En ligne' + (age != null ? ' · ' + (age < 60 ? age + ' s' : Math.round(age / 60) + ' min') : '') + '</span>';
+    }
+    return '<span class="pm-tr-etat hors" title="Compte prêt, tablette non connectée">Hors ligne</span>';
+  }
+
+  function majCellulesTempsReel() {
+    dernieresLignes.truck.forEach((r) => {
+      const el = document.querySelector('[data-tr="' + CSS.escape(String(r.code || '')) + '"]');
+      if (el) el.innerHTML = celluleTempsReel(r.code, Number(r.actif) === 1);
+    });
+    const bandeau = $('#mqttEtatFlotte');
+    if (!bandeau || !etatMqtt) return;
+    bandeau.hidden = false;
+    const t = bandeau.querySelector('.pm-mqtt-texte');
+    let cls = 'ok', msg;
+    if (!etatMqtt.configure) {
+      cls = 'ko'; msg = 'Temps réel : broker MQTT non installé sur ce poste.';
+    } else if (etatMqtt.erreur) {
+      cls = 'ko'; msg = 'Temps réel : ' + etatMqtt.erreur;
+    } else {
+      const enLigne = (etatMqtt.comptes || []).filter((c) => c.en_ligne).length;
+      msg = 'Temps réel : ' + (etatMqtt.comptes || []).length + ' accès DT tenus à jour, ' + enLigne + ' tablette(s) en ligne';
+      if (etatMqtt.ot_erreur) { cls = 'warn'; msg += ' — envoi à Serveur_OT : ' + etatMqtt.ot_erreur; }
+      else if (etatMqtt.ot_envoye_le) msg += ' — accès envoyés à Serveur_OT le ' + etatMqtt.ot_envoye_le;
+    }
+    bandeau.className = 'pm-mqtt ' + cls;
+    t.textContent = msg;
+  }
+
+  async function lireEtatMqtt() {
+    try {
+      const r = await fetch(passerelleBase() + '/api/mqtt/comptes', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      etatMqtt = await r.json();
+    } catch (e) {
+      etatMqtt = { configure: true, erreur: 'passerelle :8101 injoignable (' + e.message + ')', comptes: [] };
+    }
+    majCellulesTempsReel();
+  }
+
+  async function rapprocherMqtt() {
+    try {
+      await fetch(passerelleBase() + '/api/mqtt/rapprocher', { method: 'POST', cache: 'no-store' });
+    } catch (e) { /* la passerelle rattrape toute seule toutes les 30 s */ }
+    lireEtatMqtt();
+  }
+
+  async function renouvelerMqtt(code) {
+    if (!await Splash.confirmer('Renouveler l\'accès temps réel de ' + code + ' ?\nL\'ancien mot de passe est refusé immédiatement ; la tablette se reconnecte seule sous 2 min.',
+        { titre: 'Accès temps réel', libelleOk: 'Renouveler' })) return;
+    try {
+      const r = await fetch(passerelleBase() + '/api/mqtt/renouveler', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      const d = await r.json();
+      equipStatus('truckStatus', d.ok ? 'Accès de ' + code + ' renouvelé' : 'Renouvellement impossible : ' + (d.erreur || d.broker || '?'), !!d.ok);
+    } catch (e) {
+      equipStatus('truckStatus', 'Passerelle injoignable : ' + e.message, false);
+    }
+    lireEtatMqtt();
+  }
+
+  function initTempsReel() {
+    if (!$('#mqttEtatFlotte')) return;
+    lireEtatMqtt();
+    setInterval(() => {
+      const onglet = document.querySelector('#page-settings .onglet-pane[data-onglet="flotte"]');
+      if (onglet && !onglet.hidden) lireEtatMqtt();
+    }, 10000);
+    ['truck', 'excavator'].forEach((type) => {
+      const b = $(type === 'truck' ? '#truckVoirPlus' : '#excavatorVoirPlus');
+      if (b) b.addEventListener('click', () => {
+        flotteDepliee[type] = !flotteDepliee[type];
+        renderEquipList(type, dernieresLignes[type].length ? dernieresLignes[type].concat([]) : []);
+      });
+    });
+    // un menu « … » ouvert se referme au clic ailleurs
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.pm-actions')) return;
+      document.querySelectorAll('.pm-menu').forEach((m) => { m.hidden = true; });
+    });
   }
 
   // ---- truck factor par famille de DT (17/11) ----
@@ -741,7 +863,7 @@
     let famille = (type === 'excavator' ? (familleSelect ? familleSelect.value : 'EXCAVATOR') : (familleSelect ? familleSelect.value : '1500'));
     if (famille === 'AUTRE') {
       const v = (familleAutre && familleAutre.value ? familleAutre.value.trim() : '').toUpperCase();
-      if (!v) { equipStatus(cfg.statusId, 'PrÃ©cisez la famille', false); return; }
+      if (!v) { equipStatus(cfg.statusId, 'Précisez la famille', false); return; }
       famille = v;
     }
     const numField = e.target.querySelector('input[type="number"]');
@@ -760,7 +882,8 @@
       Splash.etape('Publication vers le cloud...');
       try { if (window.pushGasSiCouche) await window.pushGasSiCouche(); } catch (eSync) { }
       Splash.succes('Machine ajoutee', code);
-      equipStatus(cfg.statusId, 'Ajoute: ' + code + ' (poussez vers Google Sheets)', true);
+      equipStatus(cfg.statusId, 'Ajouté : ' + code + (type === 'truck' ? ' — accès temps réel en cours de création' : ''), true);
+      if (type === 'truck') rapprocherMqtt();
       e.target.reset();
       if (familleAutre) { familleAutre.value = ''; familleAutre.style.display = 'none'; }
       if (familleSelect) familleSelect.value = type === 'excavator' ? 'EXCAVATOR' : '1500';
@@ -772,8 +895,9 @@
   async function toggleEquip(type, id, active) {
     try {
       await API.updateRow('sync_flotte', id, { actif: active ? 0 : 1 });
-      equipStatus(EQUIP_TYPES[type].statusId, active ? 'Desactive' : 'Active', true);
+      equipStatus(EQUIP_TYPES[type].statusId, active ? 'Désactivé' + (type === 'truck' ? ' — accès temps réel coupé' : '') : 'Activé', true);
       await loadEquipList(type);
+      if (type === 'truck') rapprocherMqtt();
       try { if (window.pushGasSiCouche) await window.pushGasSiCouche(); } catch(err) { /* sync best effort */ }
     } catch (e) { equipStatus(EQUIP_TYPES[type].statusId, 'Erreur: ' + e.message, false); }
   }
@@ -783,8 +907,9 @@
         { titre: 'Suppression de machine', danger: true, libelleOk: 'Supprimer' })) return;
     try {
       await API.deleteRow('sync_flotte', id);
-      equipStatus(EQUIP_TYPES[type].statusId, 'Supprime (poussez vers Google Sheets)', true);
+      equipStatus(EQUIP_TYPES[type].statusId, 'Supprimé' + (type === 'truck' ? ' — accès temps réel supprimé' : ''), true);
       await loadEquipList(type);
+      if (type === 'truck') rapprocherMqtt();
       try { if (window.pushGasSiCouche) await window.pushGasSiCouche(); } catch(err) { /* sync best effort */ }
     } catch (e) { equipStatus(EQUIP_TYPES[type].statusId, 'Erreur: ' + e.message, false); }
   }
@@ -793,6 +918,16 @@
     const btn = e.target.closest('[data-action]');
     if (!btn || !btn.dataset.eq) return;
     const type = btn.dataset.eq;
+    if (btn.dataset.action === 'menu') {
+      const menu = btn.parentElement.querySelector('.pm-menu');
+      const ouvrir = menu.hidden;
+      document.querySelectorAll('.pm-menu').forEach((m) => { m.hidden = true; });
+      menu.hidden = !ouvrir;
+      return;
+    }
+    const menu = btn.closest('.pm-menu');
+    if (menu) menu.hidden = true;
+    if (btn.dataset.action === 'renouveler') { renouvelerMqtt(btn.dataset.code); return; }
     if (btn.dataset.action === 'toggle') toggleEquip(type, btn.dataset.id, btn.dataset.active === 'true');
     else if (btn.dataset.action === 'delete') deleteEquip(type, btn.dataset.id);
   }
@@ -836,7 +971,7 @@
     const a = loadAssignments();
     const cat = (window.OreTrackingGnss && window.OreTrackingGnss.loadGnssCatalog)
       ? window.OreTrackingGnss.loadGnssCatalog() : [];
-    // un GNSSÐ¸Ñ€ÑƒÐµÑ‚ÑÑ pairÃ© hors catalogue reste visible
+    // un GNSSÐ¸Ñ€ÑƒÐµÑ‚ÑÑ pairé hors catalogue reste visible
     cat.forEach((c) => { if (!reg.some((r) => r.id === c.id)) reg.push({ id: c.id, terminal: '' }); });
 
     if (!reg.length) {
@@ -856,7 +991,7 @@
           (lie ? '<i class="fas fa-tablet-alt"></i> ' + eqEscape(r.terminal)
                : '<span style="opacity:.4">Non lie</span>');
       if (engin) {
-        html += ' &nbsp;Â·&nbsp; <i class="fas fa-digging"></i> ' + eqEscape(engin);
+        html += ' &nbsp;·&nbsp; <i class="fas fa-digging"></i> ' + eqEscape(engin);
       }
       html += '</span>';
       // actions : dissocier (si lie) + supprimer, sur chaque ligne
@@ -937,7 +1072,7 @@
     if (list.find((t) => t.id === id)) { equipStatus('tabletStatus', 'Tablette deja existante', false); return; }
     list.push({ id, team: '', actif: true });
     saveTablets(list);
-    equipStatus('tabletStatus', 'AjoutÃ©e: ' + id, true);
+    equipStatus('tabletStatus', 'Ajoutée: ' + id, true);
     e.target.reset();
     renderFleet();
     // Synchronisation avec le serveur (API publique, pas d'auth requise)
@@ -948,9 +1083,9 @@
         body: JSON.stringify({ nom: id, device_id: id, type: 'terrain' })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      equipStatus('tabletStatus', 'AjoutÃ©e: ' + id + ' (serveur OK)', true);
+      equipStatus('tabletStatus', 'Ajoutée: ' + id + ' (serveur OK)', true);
     } catch (err) {
-      equipStatus('tabletStatus', 'AjoutÃ©e localement (serveur indisponible)', false);
+      equipStatus('tabletStatus', 'Ajoutée localement (serveur indisponible)', false);
     }
   }
 
@@ -1115,7 +1250,7 @@
       const btn = $('#btnRegisterDevice');
       if (btn) btn.addEventListener('click', () => {
         registerThisDevice(info.id);
-        equipStatus('tabletStatus', 'Tablette enregistrÃ©e: ' + info.id, true);
+        equipStatus('tabletStatus', 'Tablette enregistrée: ' + info.id, true);
         renderThisDeviceBanner();
       });
     } else if (info.ignored) {
@@ -1195,7 +1330,7 @@
         renderThisDeviceBanner();
         renderFleet();
         renderTabEquip();
-        equipStatus('tabletStatus', 'Tablette supprimÃ©e : ' + info.id, true);
+        equipStatus('tabletStatus', 'Tablette supprimée : ' + info.id, true);
       });
     }
   }
@@ -1230,7 +1365,7 @@
         '<span class="account-nom">' + eqEscape(t.id) + '</span>' +
         '<span class="account-email" style="flex:1">' +
           (gnssId ? '<i class="fas fa-satellite-dish"></i> ' + eqEscape(gnssId) : '<span style="opacity:.4">Pas de GNSS</span>') +
-          ' &nbsp;Â·&nbsp; ' +
+          ' &nbsp;·&nbsp; ' +
           (equipLabel ? '<i class="fas fa-digging"></i> ' + eqEscape(equipLabel) : '<span style="opacity:.4">Pas d\'engin</span>') +
         '</span>' +
         (active ? '' : '<span class="account-flag">desactive</span>') +
@@ -1323,7 +1458,7 @@
 
     // machines : miroir sync_flotte. Camions = familles 1500/785/ADT ;
     // excavatrices = toutes les autres familles (Hitachi EX, Komatsu PC,
-    // HYUNDAI, VOLVO, EXCAVATOR...) â€” meme regle que la page Sync.
+    // HYUNDAI, VOLVO, EXCAVATOR...) — meme regle que la page Sync.
     const flotte = await allFlotteRows();
     const trucks = flotte.filter((r) => FAMILLES_DT.indexOf(String(r.famille).toUpperCase()) >= 0)
       .map((r) => ({ equip_id: r.code }));
@@ -1332,8 +1467,8 @@
     // fallback si API indisponible : engins deja connus dans assignments
     if (!trucks.length && !excs.length) {
       sel.innerHTML = '<option value="">Choisir un engin...</option>' +
-        '<option value="truck:__manual">â€” Saisir un ID DT â€”</option>' +
-        '<option value="excavator:__manual">â€” Saisir un ID EXC â€”</option>';
+        '<option value="truck:__manual">— Saisir un ID DT —</option>' +
+        '<option value="excavator:__manual">— Saisir un ID EXC —</option>';
       return;
     }
 
@@ -1367,7 +1502,7 @@
     const a = loadAssignments();
     a.gnss[gnssId] = { type, target };
     saveAssignments(a);
-    equipStatus('tabEquipStatus', 'AffectÃ©: ' + enginLabel(type, target), true);
+    equipStatus('tabEquipStatus', 'Affecté: ' + enginLabel(type, target), true);
     await renderTabEquip();
     renderFleet();
   }
@@ -1380,7 +1515,7 @@
     const a = loadAssignments();
     delete a.gnss[gnssEntry.id];
     saveAssignments(a);
-    equipStatus('tabEquipStatus', 'RetirÃ©', true);
+    equipStatus('tabEquipStatus', 'Retiré', true);
     await renderTabEquip();
     renderFleet();
   }
@@ -1401,13 +1536,13 @@
         const det = detectThisDevice();
         const os = (d.platform + (d.platformVersion ? ' ' + d.platformVersion : '')).trim();
         if (det.isNew) {
-          equipStatus('tabletStatus', 'DÃ©tectÃ©e : ' + det.model
+          equipStatus('tabletStatus', 'Détectée : ' + det.model
             + (os && os !== det.model && d.platform !== 'Inconnu' ? ' (' + os + ')' : '')
             + ' -> ' + det.id + ' (cliquer + pour enregistrer)', true);
         } else {
-          equipStatus('tabletStatus', 'DÃ©tectÃ©e : ' + det.model
+          equipStatus('tabletStatus', 'Détectée : ' + det.model
             + (os && os !== det.model && d.platform !== 'Inconnu' ? ' (' + os + ')' : '')
-            + ' -> ' + det.id + ' (deja enregistrÃ©e)', true);
+            + ' -> ' + det.id + ' (deja enregistrée)', true);
         }
       }, () => {
         const det = detectThisDevice();
@@ -1515,6 +1650,7 @@
     // (Firebase ou token localStorage non expire)
     loadTeams();
     Object.keys(EQUIP_TYPES).forEach((t) => loadEquipList(t));
+    initTempsReel();
 
     // session Firebase etablie -> recharge (loadTeams re-affiche les +)
     const MSG_AUTH = 'Connectez-vous pour gerer les equipements';
@@ -1552,7 +1688,7 @@
         .map(k => c[k] + ' ' + (LIBELLES[k] || k));
       const msg = 'Recupere: ' + (parts.join(', ') || 'rien');
       if (status) {
-        status.textContent = msg + (res.errors && res.errors.length ? ' â€” ' + res.errors.length + ' erreur(s)' : '');
+        status.textContent = msg + (res.errors && res.errors.length ? ' — ' + res.errors.length + ' erreur(s)' : '');
         status.className = 'account-status ' + (res.errors && res.errors.length ? 'err' : 'ok');
       }
       if (res.errors && res.errors.length) console.warn('[GAS Pull] erreurs:', res.errors);
@@ -1616,7 +1752,7 @@
       const msg = 'profils ' + (res.profils || []).length
         + ' | Spotter ' + (res.identifiants || []).length
         + ' | engins ' + (res.flotte || []).length
-        + ' | ' + (lignes.length ? lignes.join(' â€” ') : 'aucune anomalie detectee');
+        + ' | ' + (lignes.length ? lignes.join(' — ') : 'aucune anomalie detectee');
       if (status) {
         status.textContent = msg;
         status.style.color = lignes.length ? '#f97316' : '#22c55e';
@@ -1641,7 +1777,7 @@
       const errs = res.errors || [];
       if (status) {
         if (errs.length) {
-          status.textContent = 'Pousse: ' + (parts.join(', ') || 'rien') + ' â€” ' + errs[0];
+          status.textContent = 'Pousse: ' + (parts.join(', ') || 'rien') + ' — ' + errs[0];
           status.className = 'account-status err';
         } else {
           status.textContent = 'Pousse vers Google Sheets: ' + (parts.join(', ') || 'rien');
@@ -1919,15 +2055,15 @@
         dernierOk = new Date();
         if (dot) dot.className = 'sync-dot ok';
         if (texte) {
-          texte.textContent = 'Synchronise â€” dernier echange ' +
+          texte.textContent = 'Synchronise — dernier echange ' +
             dernierOk.toLocaleTimeString();
         }
       }).catch(() => {
         if (dot) dot.className = 'sync-dot ko';
         if (texte) {
           texte.textContent = 'Hors ligne' + (dernierOk
-            ? ' â€” dernier echange ' + dernierOk.toLocaleTimeString()
-            : ' â€” aucune connexion au serveur');
+            ? ' — dernier echange ' + dernierOk.toLocaleTimeString()
+            : ' — aucune connexion au serveur');
         }
       });
     };
@@ -1941,20 +2077,7 @@
       if (typeof chargerToutEquipements === 'function') chargerToutEquipements();
     });
 
-    // compteurs de machines dans l'onglet Flotte (17 DT / 8 EX attendus)
-    const majCompteurs = () => {
-      const trucks = document.querySelectorAll('#truckContainer .account-item:not(.muted)').length;
-      const excs = document.querySelectorAll('#excavatorContainer .account-item:not(.muted)').length;
-      const t = document.getElementById('cptTrucks');
-      if (t) t.textContent = 'Trucks (' + trucks + ')';
-      const x = document.getElementById('cptExcavators');
-      if (x) x.textContent = 'Excavators (' + excs + ')';
-    };
-    const obs = new MutationObserver(majCompteurs);
-    ['truckContainer', 'excavatorContainer'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) obs.observe(el, { childList: true });
-    });
+    // compteurs de machines : ecrits par renderEquipList (19/11)
   }
 
   if (document.readyState === 'loading') {

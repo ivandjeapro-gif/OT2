@@ -1,0 +1,122 @@
+/* =====================================================================
+ * parametres.css — page Paramètres (Zone 1, 19/11), d'après les maquettes.
+ * Chargée APRÈS style.css et refonte.css. Tout est préfixé .pm- : la
+ * barre latérale et la barre du haut restent celles de refonte.css.
+ * Étape 1 : onglet Flotte (+ état temps réel MQTT des DT).
+ * ===================================================================== */
+
+#page-settings {
+    --pm-fond: #f7f5ef;
+    --pm-beige: #efece4;
+    --pm-beige-2: #e7e3d8;
+    --pm-sombre: #232b2a;
+    --pm-encre: #1e221c;
+    --pm-gris: #6b675d;
+    --pm-gris-2: #9a968a;
+    --pm-bleu: #0E74B2;
+    --pm-orange: #EE7A2A;
+    --pm-jaune: #FCD525;
+    --pm-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+}
+#page-settings .lbl {
+    display: block; font-family: var(--pm-mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--pm-gris);
+}
+
+/* ------------------------------------------------------- onglet Flotte */
+.pm-flotte { padding-top: 6px; }
+.pm-flotte[hidden] { display: none !important; }
+.pm-flotte-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; }
+.pm-col h2 { margin: 0; font-size: 26px; font-weight: 600; color: var(--pm-encre); letter-spacing: -.01em; }
+.pm-sous { margin: 10px 0 0; font-size: 14px; color: var(--pm-gris); }
+
+.pm-ajout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; gap: 24px; align-items: end; margin-top: 30px; }
+.pm-champ { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pm-champ select, .pm-champ input {
+    height: 40px; padding: 0 12px; border: 0; border-radius: 1px; background: var(--pm-beige);
+    font-size: 14px; color: var(--pm-encre); width: 100%;
+}
+.pm-champ input[id$="FamilleAutre"] { margin-top: -4px; }
+.pm-btn-sombre {
+    height: 42px; padding: 0 16px; border: 0; border-radius: 2px; background: var(--pm-sombre); color: #fff;
+    font-size: 14px; font-weight: 500; text-align: left; min-width: 160px; cursor: pointer;
+}
+.pm-btn-sombre:hover { background: #2f3836; }
+.pm-aide { margin: 16px 0 0; font-size: 12.5px; color: var(--pm-gris); }
+
+/* tableau des engins */
+.pm-table { margin-top: 30px; }
+.pm-thead, .pm-ligne { display: grid; align-items: center; gap: 12px; padding: 0 16px; }
+.pm-table-dt .pm-thead, .pm-table-dt .pm-ligne { grid-template-columns: 1.1fr 1fr 1.2fr .6fr; }
+.pm-table-ex .pm-thead, .pm-table-ex .pm-ligne { grid-template-columns: 1.1fr 1.4fr .7fr; }
+.pm-thead {
+    padding-bottom: 12px; font-family: var(--pm-mono); font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--pm-gris);
+}
+.pm-droite { text-align: right; }
+.pm-ligne { min-height: 44px; margin-bottom: 5px; border-radius: 2px; }
+.pm-ligne:nth-child(odd) { background: var(--pm-beige); }
+.pm-ligne.desactive .pm-code, .pm-ligne.desactive .pm-famille { color: var(--pm-gris-2); }
+.pm-code { font-size: 15px; color: var(--pm-encre); }
+.pm-famille { font-size: 14px; color: var(--pm-gris); }
+.pm-famille em { font-style: normal; color: var(--pm-orange); }
+.pm-vide { padding: 14px 16px; color: var(--pm-gris); font-size: 13.5px; background: var(--pm-beige); }
+
+/* temps reel (MQTT) */
+.pm-tr-etat { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--pm-gris); }
+.pm-tr-etat::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--pm-gris-2); flex: none; }
+.pm-tr-etat.ok { color: var(--pm-bleu); }
+.pm-tr-etat.ok::before { background: var(--pm-bleu); box-shadow: 0 0 0 3px rgba(14,116,178,.18); }
+.pm-tr-etat.attente::before { background: var(--pm-jaune); }
+.pm-tr-etat.inactif { color: var(--pm-orange); }
+.pm-tr-etat.inactif::before { background: var(--pm-orange); }
+.pm-tr-etat.absent::before { display: none; }
+
+.pm-mqtt {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 26px; padding: 12px 16px;
+    background: var(--pm-beige); border-radius: 2px; font-size: 13px; color: var(--pm-encre);
+}
+.pm-mqtt[hidden] { display: none; }
+.pm-mqtt-pastille { width: 9px; height: 9px; border-radius: 50%; background: var(--pm-gris-2); flex: none; }
+.pm-mqtt.ok .pm-mqtt-pastille { background: var(--pm-bleu); }
+.pm-mqtt.warn .pm-mqtt-pastille { background: var(--pm-jaune); }
+.pm-mqtt.ko { background: #f8e3dc; }
+.pm-mqtt.ko .pm-mqtt-pastille { background: #E5482F; }
+
+/* actions : « … » ouvre un petit menu */
+.pm-actions { position: relative; display: flex; justify-content: flex-end; }
+.pm-menu-btn {
+    border: 0; background: none; color: var(--pm-bleu); font-size: 18px; line-height: 1; padding: 4px 10px;
+    cursor: pointer; border-radius: 2px;
+}
+.pm-menu-btn:hover { background: rgba(14,116,178,.08); }
+.pm-menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; padding: 6px;
+    display: flex; flex-direction: column; background: #fff; border-radius: 3px;
+    box-shadow: 0 10px 28px rgba(30, 34, 28, .16), 0 0 0 1px rgba(30,34,28,.06);
+}
+.pm-menu[hidden] { display: none; }
+.pm-menu button {
+    border: 0; background: none; text-align: left; padding: 9px 10px; border-radius: 2px;
+    font-size: 13.5px; color: var(--pm-encre); cursor: pointer;
+}
+.pm-menu button:hover { background: var(--pm-beige); }
+.pm-menu button.danger { color: #c23b22; }
+
+.pm-voir-plus {
+    margin-top: 26px; border: 0; background: none; padding: 0; color: var(--pm-gris); font-size: 13px; cursor: pointer;
+}
+.pm-voir-plus:hover { color: var(--pm-encre); }
+.pm-voir-plus[hidden] { display: none; }
+
+.pm-facteurs { margin-top: 34px; padding: 14px 16px; background: var(--pm-beige); border-radius: 2px; }
+.pm-facteurs summary { cursor: pointer; font-size: 14px; font-weight: 500; color: var(--pm-encre); }
+.pm-facteurs[open] summary { margin-bottom: 14px; }
+.pm-facteurs .pm-btn-sombre { margin-top: 12px; }
+.pm-facteurs .truck-factor-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.pm-facteurs .truck-factor-row input { width: 110px; height: 34px; border: 0; padding: 0 10px; background: #fff; }
+.pm-facteurs .truck-factor-fam { width: 120px; font-size: 14px; }
+
+@media (max-width: 1200px) {
+    .pm-flotte-cols { grid-template-columns: minmax(0, 1fr); }
+}

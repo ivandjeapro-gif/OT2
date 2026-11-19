@@ -540,6 +540,21 @@ CREATE TABLE IF NOT EXISTS positions_dt (
 );
 CREATE INDEX IF NOT EXISTS idx_positions_dt ON positions_dt (code, horodatage);
 
+-- Comptes MQTT des DT (19/11) : un par DT de la flotte du SaaS (lue dans
+-- data/oretracking.db, table sync_flotte, en LECTURE seule). Le mot de passe
+-- est genere ici, applique a chaud au broker (Dynamic Security) et envoye a
+-- Serveur_OT (referentiels) pour que la tablette se connecte seule.
+CREATE TABLE IF NOT EXISTS mqtt_comptes (
+    code TEXT PRIMARY KEY,
+    famille TEXT DEFAULT '',
+    numero INTEGER DEFAULT 0,
+    mdp TEXT NOT NULL,
+    actif INTEGER DEFAULT 1,
+    mdp_applique TEXT DEFAULT '',   -- empreinte du mot de passe connu du broker
+    cree_le TEXT DEFAULT '',
+    maj_le TEXT DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS params (
     cle TEXT PRIMARY KEY,
     valeur TEXT DEFAULT '',
@@ -2093,6 +2108,16 @@ def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=Tru
     `relayer=False` : ne pas renvoyer la position a Serveur_SG (elle en vient)."""
     instant = horodatage or now_iso()
     existe = conn.execute("SELECT * FROM engins WHERE code=?", (code,)).fetchone()
+    # 19/11 : deux sources de positions (MQTT en direct, remontees de SG avec
+    # ~30 s de retard). Une position plus ANCIENNE que la derniere connue va
+    # seulement dans l'historique : elle ne doit pas ramener le DT en arriere.
+    if horodatage and existe is not None and str(typ or existe["type"]).upper() == "DT":
+        derniere = conn.execute("SELECT MAX(horodatage) FROM positions_dt WHERE code=?", (code,)).fetchone()[0]
+        if derniere and horodatage < derniere:
+            conn.execute("INSERT INTO positions_dt (code, x, y, horodatage) VALUES (?, ?, ?, ?)",
+                         (code, x, y, horodatage))
+            conn.commit()
+            return
     historiser_position_dt(conn, code, (existe["type"] if existe else typ) or "DT",
                            x, y, instant, existe)
     if existe:
@@ -4058,6 +4083,375 @@ def kpi_du_jour(jour=None):
     return res
 
 
+# ------------------------------------------- MQTT : comptes + positions ---
+# Broker Mosquitto du PC (module Dynamic Security), expose aux tablettes par
+# Tailscale Funnel. Identifiants de la passerelle (compte d'administration +
+# compte « passerelle ») dans un fichier protege, ecrit par la mise en place
+# du broker (deploiement/mqtt/windows/migrer_dynsec.ps1).
+MQTT_CONF_FICHIER = os.environ.get("OT_MQTT_CONF", r"C:\ProgramData\OreTracking\passerelle\mqtt.json")
+SAAS_DB_PATH = os.path.join(DATA_DIR, "oretracking.db")
+FAMILLES_DT = ("1500", "785", "ADT")
+MQTT_COMPTES_INTERVALLE_S = 30
+MQTT_EN_LIGNE_S = 120          # « en ligne » = presence en_ligne ou position < 2 min
+_mqtt_etat = {"comptes_actif": False, "suivi_actif": False, "dernier_rapprochement": "",
+              "erreur": "", "resume": {}, "ot_envoye_le": "", "ot_erreur": "",
+              "abonne": False, "messages": 0, "presence": {}, "derniere_position": {}}
+_mqtt_reveil = threading.Event()
+_mqtt_rapprochement = threading.Lock()
+
+
+def mqtt_conf():
+    try:
+        with open(MQTT_CONF_FICHIER, encoding="utf-8-sig") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+class DynsecAdmin:
+    """Commandes $CONTROL/dynamic-security/v1 (memes regles que
+    deploiement/mqtt/windows/dynsec.py)."""
+    SUJET = "$CONTROL/dynamic-security/v1"
+
+    def __init__(self, conf, timeout=8):
+        if mqtt is None:
+            raise RuntimeError("paho-mqtt absent")
+        self.timeout, self._rep, self._rc = timeout, {}, None
+        self._ev = threading.Event()
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
+                        client_id="passerelle-admin-%d" % os.getpid(), protocol=mqtt.MQTTv311)
+        c.username_pw_set(conf["admin"]["identifiant"], conf["admin"]["mdp"])
+        c.on_connect = self._connecte
+        c.on_message = self._message
+        self.c = c
+        c.connect(conf.get("hote", "127.0.0.1"), int(conf.get("port", 1883)), keepalive=30)
+        c.loop_start()
+        t0 = time.time()
+        while self._rc is None and time.time() - t0 < timeout:
+            time.sleep(0.05)
+        if self._rc is None or self._rc.is_failure:
+            self.fermer()
+            raise RuntimeError("administration du broker refusee : %s" % self._rc)
+        time.sleep(0.1)
+
+    def _connecte(self, cl, u, f, rc, p=None):
+        self._rc = rc
+        if not rc.is_failure:
+            cl.subscribe(self.SUJET + "/response", qos=1)
+
+    def _message(self, cl, u, m):
+        try:
+            for r in json.loads(m.payload.decode("utf-8")).get("responses", []):
+                self._rep[r.get("correlationData")] = r
+        except ValueError:
+            pass
+        self._ev.set()
+
+    def commande(self, nom, **champs):
+        cid = secrets.token_hex(8)
+        self.c.publish(self.SUJET, json.dumps({"commands": [dict(command=nom, correlationData=cid, **champs)]}), qos=1)
+        t0 = time.time()
+        while cid not in self._rep and time.time() - t0 < self.timeout:
+            self._ev.wait(0.2); self._ev.clear()
+        r = self._rep.pop(cid, None)
+        if r is None:
+            return False, {"error": "pas de reponse du broker"}
+        err = str(r.get("error") or "")
+        return (not err or "already exists" in err), r
+
+    def lister(self):
+        ok, r = self.commande("listClients", verbose=True)
+        if not ok:
+            raise RuntimeError("liste des comptes impossible : %s" % r.get("error"))
+        return (r.get("data") or {}).get("clients") or []
+
+    def fermer(self):
+        try:
+            self.c.loop_stop(); self.c.disconnect()
+        except Exception:
+            pass
+
+
+def _empreinte(t):
+    return hashlib.sha256(str(t).encode("utf-8")).hexdigest()[:16]
+
+
+def flotte_dt_saas():
+    """DT de la flotte du SaaS (sync_flotte), en lecture seule. None si la
+    base du SaaS est introuvable."""
+    if not os.path.exists(SAAS_DB_PATH):
+        return None
+    uri = "file:%s?mode=ro" % urllib.request.pathname2url(SAAS_DB_PATH)
+    c = sqlite3.connect(uri, uri=True, timeout=5)
+    c.row_factory = sqlite3.Row
+    try:
+        rows = c.execute("SELECT code, famille, numero, actif FROM sync_flotte").fetchall()
+    finally:
+        c.close()
+    out = {}
+    for r in rows:
+        famille = str(r["famille"] or "").strip().upper()
+        code = str(r["code"] or "").strip()
+        if not code or not (famille in FAMILLES_DT or code.upper().startswith("DT-")):
+            continue
+        out[code] = {"code": code, "famille": famille, "numero": int(r["numero"] or 0),
+                     "actif": 1 if str(r["actif"]) in ("1", "True", "true") or r["actif"] is True else 0}
+    return out
+
+
+def ot_envoyer_comptes_mqtt(conn, conf, forcer=False):
+    """Envoie a Serveur_OT les acces des DT (onglet mqtt_comptes) et
+    l'adresse publique du broker, seulement s'ils ont change."""
+    comptes = [{"code": r["code"], "famille": r["famille"], "numero": r["numero"],
+                "mdp": r["mdp"], "actif": r["actif"]}
+               for r in conn.execute("SELECT * FROM mqtt_comptes ORDER BY code")]
+    pub = conf.get("public") or {}
+    corps = {"comptes": comptes, "mqtt": {"hote": pub.get("hote", ""), "port": int(pub.get("port", 443)),
+                                          "tls": bool(pub.get("tls", True))}}
+    empreinte = _empreinte(json.dumps(corps, sort_keys=True))
+    if not forcer and param_lire("MQTT_OT_EMPREINTE", "") == empreinte:
+        return True
+    office_url, _ = office_conf()
+    if not office_url:
+        _mqtt_etat["ot_erreur"] = "Serveur_OT non configure (Parametres > Liaisons)"
+        return False
+    if office_appel("mqtt_comptes", corps):
+        param_ecrire(conn, "MQTT_OT_EMPREINTE", empreinte)
+        _mqtt_etat.update(ot_envoye_le=now_iso(), ot_erreur="")
+        return True
+    _mqtt_etat["ot_erreur"] = "Serveur_OT a refuse ou n'a pas repondu (action mqtt_comptes deployee ?)"
+    return False
+
+
+def rapprocher_comptes_mqtt(forcer_ot=False):
+    """Flotte du SaaS -> table mqtt_comptes -> broker (a chaud) -> Serveur_OT.
+    Rend un resume. Ne leve pas."""
+    with _mqtt_rapprochement:
+        resume = {"crees": 0, "modifies": 0, "supprimes": 0, "broker": "", "ot": ""}
+        conf = mqtt_conf()
+        if not conf:
+            _mqtt_etat["erreur"] = "broker non installe (fichier %s absent)" % MQTT_CONF_FICHIER
+            return dict(resume, ok=False, erreur=_mqtt_etat["erreur"])
+        flotte = flotte_dt_saas()
+        if flotte is None:
+            _mqtt_etat["erreur"] = "base du SaaS introuvable (%s)" % SAAS_DB_PATH
+            return dict(resume, ok=False, erreur=_mqtt_etat["erreur"])
+        conn = get_conn()
+        try:
+            maintenant = now_iso()
+            locaux = {r["code"]: dict(r) for r in conn.execute("SELECT * FROM mqtt_comptes")}
+            for code, d in flotte.items():
+                l = locaux.get(code)
+                if l is None:
+                    conn.execute("INSERT INTO mqtt_comptes (code, famille, numero, mdp, actif, cree_le, maj_le) "
+                                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                 (code, d["famille"], d["numero"], secrets.token_urlsafe(18), d["actif"],
+                                  maintenant, maintenant))
+                    resume["crees"] += 1
+                elif (l["actif"], l["famille"], l["numero"]) != (d["actif"], d["famille"], d["numero"]):
+                    conn.execute("UPDATE mqtt_comptes SET actif=?, famille=?, numero=?, maj_le=? WHERE code=?",
+                                 (d["actif"], d["famille"], d["numero"], maintenant, code))
+                    resume["modifies"] += 1
+            for code in set(locaux) - set(flotte):
+                conn.execute("DELETE FROM mqtt_comptes WHERE code=?", (code,))
+                resume["supprimes"] += 1
+            conn.commit()
+            lignes = [dict(r) for r in conn.execute("SELECT * FROM mqtt_comptes")]
+
+            # broker : a chaud, sans redemarrage
+            try:
+                adm = DynsecAdmin(conf)
+            except Exception as e:
+                resume["broker"] = str(e)
+            else:
+                try:
+                    clients = {c.get("username"): c for c in adm.lister()}
+                    techniques = set(conf.get("comptes_techniques") or [])
+                    for r in lignes:
+                        c, h = clients.get(r["code"]), _empreinte(r["mdp"])
+                        if c is None:
+                            adm.commande("createClient", username=r["code"], password=r["mdp"],
+                                         roles=[{"rolename": "dt"}])
+                            if not r["actif"]:
+                                adm.commande("disableClient", username=r["code"])
+                            conn.execute("UPDATE mqtt_comptes SET mdp_applique=? WHERE code=?", (h, r["code"]))
+                            continue
+                        if r["mdp_applique"] != h:
+                            adm.commande("setClientPassword", username=r["code"], password=r["mdp"])
+                            conn.execute("UPDATE mqtt_comptes SET mdp_applique=? WHERE code=?", (h, r["code"]))
+                        if bool(c.get("disabled")) == bool(r["actif"]):
+                            adm.commande("enableClient" if r["actif"] else "disableClient", username=r["code"])
+                    codes = {r["code"] for r in lignes}
+                    for nom, c in clients.items():
+                        roles = {x.get("rolename") for x in c.get("roles") or []}
+                        if nom not in codes and nom not in techniques and "dt" in roles:
+                            adm.commande("deleteClient", username=nom)
+                    conn.commit()
+                    resume["broker"] = "ok"
+                except Exception as e:
+                    resume["broker"] = str(e)
+                finally:
+                    adm.fermer()
+
+            resume["ot"] = "ok" if ot_envoyer_comptes_mqtt(conn, conf, forcer_ot) else _mqtt_etat["ot_erreur"]
+        finally:
+            conn.close()
+        _mqtt_etat.update(dernier_rapprochement=now_iso(), resume=resume,
+                          erreur="" if resume["broker"] == "ok" else "broker : " + resume["broker"])
+        return dict(resume, ok=resume["broker"] == "ok")
+
+
+def renouveler_mdp_mqtt(code):
+    conn = get_conn()
+    try:
+        n = conn.execute("UPDATE mqtt_comptes SET mdp=?, maj_le=? WHERE code=?",
+                         (secrets.token_urlsafe(18), now_iso(), code)).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if not n:
+        return {"ok": False, "erreur": "DT inconnu : %s" % code}
+    return rapprocher_comptes_mqtt(forcer_ot=True)
+
+
+def comptes_mqtt_etat():
+    """Etat des comptes pour Parametres > Flotte : jamais de mot de passe."""
+    conn = get_conn()
+    try:
+        lignes = [dict(r) for r in conn.execute(
+            "SELECT code, famille, numero, actif, mdp_applique, cree_le, maj_le FROM mqtt_comptes ORDER BY code")]
+    finally:
+        conn.close()
+    maintenant = time.time()
+    for l in lignes:
+        pres = _mqtt_etat["presence"].get(l["code"]) or {}
+        pos = _mqtt_etat["derniere_position"].get(l["code"])
+        recent = pos is not None and maintenant - pos < MQTT_EN_LIGNE_S
+        l["applique_broker"] = bool(l.pop("mdp_applique"))
+        l["en_ligne"] = (pres.get("etat") == "en_ligne") or recent
+        l["presence"] = pres.get("etat", "")
+        l["derniere_position_s"] = None if pos is None else int(maintenant - pos)
+    conf = mqtt_conf() or {}
+    return {"configure": bool(conf), "public": conf.get("public") or {},
+            "dernier_rapprochement": _mqtt_etat["dernier_rapprochement"], "erreur": _mqtt_etat["erreur"],
+            "ot_envoye_le": _mqtt_etat["ot_envoye_le"], "ot_erreur": _mqtt_etat["ot_erreur"],
+            "abonne": _mqtt_etat["abonne"], "messages": _mqtt_etat["messages"], "comptes": lignes}
+
+
+def boucle_comptes_mqtt():
+    _mqtt_etat["comptes_actif"] = True
+    while True:
+        try:
+            if mqtt_conf():
+                rapprocher_comptes_mqtt()
+        except Exception as e:
+            _mqtt_etat["erreur"] = "%s: %s" % (type(e).__name__, e)
+            print("MQTT comptes : erreur %s" % e)
+        _mqtt_reveil.wait(MQTT_COMPTES_INTERVALLE_S)
+        _mqtt_reveil.clear()
+
+
+def _instant_local(at):
+    """ISO 8601 UTC (« ...Z ») -> « AAAA-MM-JJ HH:MM:SS » heure locale."""
+    try:
+        d = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+        if d.tzinfo is not None:
+            d = d.astimezone().replace(tzinfo=None)
+        return d.strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def appliquer_message_mqtt(sujet, charge):
+    """camions/<code>/position|connexion. Le code vient du SUJET : le broker
+    garantit qu'un DT ne publie que sous son propre code."""
+    parties = sujet.split("/")
+    if len(parties) != 3 or parties[0] != "camions":
+        return
+    code, nature = parties[1], parties[2]
+    if not charge:
+        return                                   # effacement d'un message conserve
+    try:
+        d = json.loads(charge.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return
+    _mqtt_etat["messages"] += 1
+    if nature == "connexion":
+        _mqtt_etat["presence"][code] = {"etat": str(d.get("etat") or ""), "le": now_iso()}
+        return
+    if nature != "position":
+        return
+    try:
+        x, y = float(d["x"]), float(d["y"])
+    except (KeyError, TypeError, ValueError):
+        return
+    instant = _instant_local(d.get("at")) or now_iso()
+    _mqtt_etat["derniere_position"][code] = time.time()
+    conn = get_conn()
+    try:
+        LOCK.route("mqtt position %s" % code)
+        with LOCK:
+            exc = d.get("exc") or {}
+            if exc.get("id") and exc.get("x") is not None and exc.get("y") is not None:
+                try:
+                    appliquer_position_engin(conn, str(exc["id"]), "EXCA", float(exc["x"]), float(exc["y"]),
+                                             horodatage=instant, relayer=False)
+                except (TypeError, ValueError):
+                    pass
+            appliquer_position_engin(conn, code, "DT", x, y, horodatage=instant, relayer=False)
+    finally:
+        conn.close()
+
+
+def boucle_suivi_mqtt():
+    """Abonnement de la passerelle aux positions et presences des DT."""
+    import queue
+    _mqtt_etat["suivi_actif"] = True
+    file_msgs = queue.Queue(maxsize=5000)
+
+    def travailleur():
+        while True:
+            sujet, charge = file_msgs.get()
+            try:
+                appliquer_message_mqtt(sujet, charge)
+            except Exception as e:
+                print("MQTT suivi : message ignore (%s)" % e)
+
+    threading.Thread(target=travailleur, daemon=True).start()
+    while True:
+        conf = mqtt_conf()
+        if mqtt is None or not conf:
+            time.sleep(60)
+            continue
+        try:
+            c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="passerelle-suivi",
+                            protocol=mqtt.MQTTv311, clean_session=True)
+            c.username_pw_set(conf["passerelle"]["identifiant"], conf["passerelle"]["mdp"])
+
+            def connecte(cl, u, f, rc, p=None):
+                _mqtt_etat["abonne"] = not rc.is_failure
+                if not rc.is_failure:
+                    cl.subscribe([("camions/+/position", 0), ("camions/+/connexion", 1)])
+
+            def deconnecte(cl, u, f, rc, p=None):
+                _mqtt_etat["abonne"] = False
+
+            def message(cl, u, m):
+                try:
+                    file_msgs.put_nowait((m.topic, m.payload))
+                except queue.Full:
+                    pass                         # surcharge : on perd des positions, jamais la passerelle
+
+            c.on_connect, c.on_disconnect, c.on_message = connecte, deconnecte, message
+            c.reconnect_delay_set(1, 30)
+            c.connect(conf.get("hote", "127.0.0.1"), int(conf.get("port", 1883)), keepalive=30)
+            c.loop_forever(retry_first_connection=True)
+        except Exception as e:
+            _mqtt_etat["abonne"] = False
+            print("MQTT suivi : %s" % e)
+            time.sleep(10)
+
+
 def vider_file_office(conn):
     """Vide la file office_sync vers Serveur_OT. Statut 'envoye' seulement
     si OT a reellement accuse reception (ok:true).
@@ -4276,6 +4670,18 @@ class Handler(BaseHTTPRequestHandler):
             if diff is None:
                 return self._send_json(502, {"error": err})
             return self._send_json(200, diff)
+        # Comptes MQTT des DT (19/11) : etat sans mot de passe, rapprochement
+        # immediat (apres un changement de flotte), renouvellement d'un mot de passe.
+        if path == "/api/mqtt/comptes" and method == "GET":
+            return self._send_json(200, comptes_mqtt_etat())
+        if path == "/api/mqtt/rapprocher" and method == "POST":
+            return self._send_json(200, rapprocher_comptes_mqtt())
+        if path == "/api/mqtt/renouveler" and method == "POST":
+            body = json.loads(self._read_body() or b"{}")
+            code = str(body.get("code") or "").strip()
+            if not re.match(r"^[A-Za-z0-9_-]{2,40}$", code):
+                return self._send_json(400, {"error": "code de DT invalide"})
+            return self._send_json(200, renouveler_mdp_mqtt(code))
         # Suivi des DT (19/11) : lecture seule, HORS verrou (sondee toutes les
         # 2-3 s par chaque carte ouverte). ?depuis=&jusqua= (AAAA-MM-JJ HH:MM:SS)
         # ajoute les trajets de la periode.
@@ -6133,6 +6539,9 @@ def main():
     threading.Thread(target=boucle_remontees, daemon=True).start()
     # chargements de SG pour les KPI du dashboard, toutes les 5 s (19/11)
     threading.Thread(target=boucle_chargements, daemon=True).start()
+    # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
+    threading.Thread(target=boucle_comptes_mqtt, daemon=True).start()
+    threading.Thread(target=boucle_suivi_mqtt, daemon=True).start()
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Server_Senor_Geology demarre sur http://%s:%d" % (HOST, PORT))

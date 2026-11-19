@@ -6,6 +6,7 @@
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
     <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="stylesheet" href="../css/parametres.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -569,82 +570,83 @@
                     </div><!-- /onglet connexion -->
 
                     <!-- ===== ONGLET FLOTTE : machines, une section par type ===== -->
-                    <div class="settings-grid-5 onglet-pane" data-onglet="flotte" hidden>
-
-                        <!-- DRIVING TRUCK -->
-                        <div class="panel">
-                            <div class="panel-label" data-i18n>Driving Truck</div>
-                            <div class="panel-content">
-                                <div class="settings-form">
-                                    <div class="equip-list">
-                                        <h4><i class="fas fa-truck"></i> <span id="cptTrucks">Trucks</span></h4>
-                                        <div id="truckContainer">
-                                            <div class="account-item muted">Chargement...</div>
-                                        </div>
-                                        <form class="account-add-form" id="truckAddForm">
-                                            <select class="form-select-sm" id="newTruckFamille">
-                                                <option value="1500">1500</option>
-                                                <option value="785">785</option>
-                                                <option value="ADT">ADT</option>
-                                                <option value="AUTRE">Autre...</option>
-                                            </select>
-                                            <input type="text" class="form-input-sm" id="newTruckFamilleAutre" placeholder="Famille" style="display:none" />
-                                            <input type="number" class="form-input-sm" id="newTruckNumero" placeholder="Numero" required min="1" step="1" />
-                                            <button type="submit" class="btn-add-account" title="Ajouter">
-                                                <i class="fas fa-plus"></i>
-                                            </button>
-                                        </form>
-                                        <div class="account-status" id="truckStatus"></div>
-                                    </div>
-                                    <div class="equip-list truck-factors">
-                                        <h4><i class="fas fa-weight-hanging"></i> Tonnes par voyage (par famille)</h4>
-                                        <div id="truckFactorList">
-                                            <div class="account-item muted">Chargement...</div>
-                                        </div>
-                                        <button type="button" class="btn-action-label" id="btnTruckFactors">
-                                            <i class="fas fa-save"></i> Enregistrer et envoyer a Serveur_OT
-                                        </button>
-                                        <div class="account-status" id="truckFactorStatus"></div>
-                                        <small class="field-hint">Truck factor de chaque famille de DT, utilise par Serveur_SG pour le tonnage de chaque chargement. Vide = facteur global de Serveur_OT.</small>
-                                    </div>
-                                </div>
-                            </div>
+                    <div class="onglet-pane pm-flotte" data-onglet="flotte" hidden>
+                        <!-- Flotte (Zone 1, 19/11) : maquette « Paramètres › Flotte ».
+                             Ajouter un DT cree aussi son acces temps reel (MQTT) :
+                             la passerelle lit la flotte, cree le compte du broker
+                             et l'envoie a Serveur_OT. Aucune saisie dans la tablette. -->
+                        <div class="pm-mqtt" id="mqttEtatFlotte" hidden>
+                            <span class="pm-mqtt-pastille"></span>
+                            <span class="pm-mqtt-texte">Temps réel : vérification…</span>
                         </div>
-
-                        <!-- EXCAVATOR -->
-                        <div class="panel">
-                            <div class="panel-label" data-i18n>Excavator</div>
-                            <div class="panel-content">
-                                <div class="settings-form">
-                                    <div class="equip-list">
-                                        <h4><i class="fas fa-digging"></i> <span id="cptExcavators">Excavators</span></h4>
-                                        <div id="excavatorContainer">
-                                            <div class="account-item muted">Chargement...</div>
-                                        </div>
-                                        <form class="account-add-form" id="excavatorAddForm">
-                                            <select class="form-select-sm" id="newExcavatorFamille">
-                                                <option value="EXCAVATOR">EXCAVATOR</option>
-                                                <option value="CAT">CAT</option>
-                                                <option value="HITACHI">HITACHI</option>
-                                                <option value="HYUNDAI">HYUNDAI</option>
-                                                <option value="KOMATSU">KOMATSU</option>
-                                                <option value="LIEBHERR">LIEBHERR</option>
-                                                <option value="VOLVO">VOLVO</option>
-                                                <option value="DOOSAN">DOOSAN</option>
-                                                <option value="AUTRE">Autre...</option>
-                                            </select>
-                                            <input type="text" class="form-input-sm" id="newExcavatorFamilleAutre" placeholder="Famille" style="display:none" />
-                                            <input type="number" class="form-input-sm" id="newExcavatorNumero" placeholder="Numero" required min="1" step="1" />
-                                            <button type="submit" class="btn-add-account" title="Ajouter">
-                                                <i class="fas fa-plus"></i>
-                                            </button>
-                                        </form>
-                                        <div class="account-status" id="excavatorStatus"></div>
-                                    </div>
+                        <div class="pm-flotte-cols">
+                            <section class="pm-col" aria-labelledby="titreTrucks">
+                                <h2 id="titreTrucks">Driving Truck</h2>
+                                <p class="pm-sous" id="cptTrucks">Chargement…</p>
+                                <form class="pm-ajout" id="truckAddForm">
+                                    <label class="pm-champ"><span class="lbl">Famille</span>
+                                        <select id="newTruckFamille">
+                                            <option value="1500">1500</option>
+                                            <option value="785">785</option>
+                                            <option value="ADT">ADT</option>
+                                            <option value="AUTRE">Autre…</option>
+                                        </select>
+                                        <input type="text" id="newTruckFamilleAutre" placeholder="Famille" style="display:none" />
+                                    </label>
+                                    <label class="pm-champ pm-num"><span class="lbl">Numéro</span>
+                                        <input type="number" id="newTruckNumero" placeholder="032" required min="1" step="1" />
+                                    </label>
+                                    <button type="submit" class="pm-btn-sombre">+ Ajouter</button>
+                                </form>
+                                <p class="pm-aide">Familles : 1500 · 785 · ADT · autre — chaque DT ajouté reçoit automatiquement son accès temps réel.</p>
+                                <div class="pm-table pm-table-dt">
+                                    <div class="pm-thead"><span>Engin</span><span>Famille / marque</span><span>Temps réel</span><span class="pm-droite">Actions</span></div>
+                                    <div id="truckContainer"><div class="pm-vide">Chargement…</div></div>
                                 </div>
-                            </div>
-                        </div>
+                                <button type="button" class="pm-voir-plus" id="truckVoirPlus" hidden></button>
+                                <div class="account-status" id="truckStatus"></div>
 
+                                <details class="pm-facteurs">
+                                    <summary>Tonnes par voyage (par famille)</summary>
+                                    <div id="truckFactorList"><div class="pm-vide">Chargement…</div></div>
+                                    <button type="button" class="pm-btn-sombre" id="btnTruckFactors">Enregistrer et envoyer à Serveur_OT</button>
+                                    <div class="account-status" id="truckFactorStatus"></div>
+                                    <p class="pm-aide">Truck factor de chaque famille de DT, utilisé par Serveur_SG pour le tonnage de chaque chargement. Vide = facteur global de Serveur_OT.</p>
+                                </details>
+                            </section>
+
+                            <section class="pm-col" aria-labelledby="titreExcavators">
+                                <h2 id="titreExcavators">Excavator</h2>
+                                <p class="pm-sous" id="cptExcavators">Chargement…</p>
+                                <form class="pm-ajout" id="excavatorAddForm">
+                                    <label class="pm-champ"><span class="lbl">Marque</span>
+                                        <select id="newExcavatorFamille">
+                                            <option value="EXCAVATOR">EXCAVATOR</option>
+                                            <option value="CAT">CAT</option>
+                                            <option value="HITACHI">HITACHI</option>
+                                            <option value="HYUNDAI">HYUNDAI</option>
+                                            <option value="KOMATSU">KOMATSU</option>
+                                            <option value="LIEBHERR">LIEBHERR</option>
+                                            <option value="VOLVO">VOLVO</option>
+                                            <option value="DOOSAN">DOOSAN</option>
+                                            <option value="AUTRE">Autre…</option>
+                                        </select>
+                                        <input type="text" id="newExcavatorFamilleAutre" placeholder="Marque" style="display:none" />
+                                    </label>
+                                    <label class="pm-champ pm-num"><span class="lbl">Numéro</span>
+                                        <input type="number" id="newExcavatorNumero" placeholder="04" required min="1" step="1" />
+                                    </label>
+                                    <button type="submit" class="pm-btn-sombre">+ Ajouter</button>
+                                </form>
+                                <p class="pm-aide">CAT · HITACHI · HYUNDAI · KOMATSU · autres</p>
+                                <div class="pm-table pm-table-ex">
+                                    <div class="pm-thead"><span>Engin</span><span>Famille / marque</span><span class="pm-droite">Actions</span></div>
+                                    <div id="excavatorContainer"><div class="pm-vide">Chargement…</div></div>
+                                </div>
+                                <button type="button" class="pm-voir-plus" id="excavatorVoirPlus" hidden></button>
+                                <div class="account-status" id="excavatorStatus"></div>
+                            </section>
+                        </div>
                     </div><!-- /onglet flotte -->
 
                     <!-- ===== ONGLET EQUIPES : gestion des teams Spotter ===== -->
