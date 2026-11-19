@@ -2214,3 +2214,117 @@ textarea:focus {
 .sidebar-mine-brand,
 .sidebar-mine-name,
 .sidebar-mine-sub { display: none !important; }
+
+/* ============================================================
+   20. NAVBAR — lisibilité des boutons
+   Mesuré : texte 13px rgb(91,87,76) sur #ede9dc ≈ 3,5:1. Trop peu.
+   La maquette montre un texte sombre, net, bien séparé de l'icône.
+   ============================================================ */
+
+/* --- texte : plus sombre, plus gros, plus marqué --- */
+.sidebar-link {
+    color: var(--r-text) !important;
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    padding: 11px 14px !important;
+    min-height: 44px !important;
+}
+
+.sidebar-link span:not(.sidebar-badge) {
+    color: var(--r-text) !important;
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.1px;
+}
+
+/* --- icônes : mêmes taille/couleur que le texte --- */
+.sidebar-link i:not(.sidebar-link-chev) {
+    color: var(--r-text-2) !important;
+    opacity: 1 !important;
+    width: 20px !important;
+    font-size: 15px !important;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* --- item actif : blanc sur sombre, toujours très lisible --- */
+.sidebar-link.active,
+.sidebar-link.active span:not(.sidebar-badge) {
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+
+.sidebar-link.active i:not(.sidebar-link-chev) {
+    color: var(--r-gold) !important;
+    opacity: 1 !important;
+}
+
+/* --- badge : détaché du libellé --- */
+.sidebar-link .sidebar-badge {
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
+}
+
+.sidebar-link span:not(.sidebar-badge),
+.sidebar-link .sidebar-badge {
+    display: inline-block !important;
+}
+
+/* --- survol : retour visuel net --- */
+.sidebar-link:hover {
+    color: var(--r-text) !important;
+    background: rgba(30, 34, 28, 0.09) !important;
+}
+
+.sidebar-link:hover span:not(.sidebar-badge) {
+    color: var(--r-text) !important;
+}
+
+.sidebar-link:hover i:not(.sidebar-link-chev) {
+    color: var(--r-text) !important;
+}
+
+/* ============================================================
+   21. NAVBAR — icônes : règle finale (priorité par ordre)
+   ============================================================ */
+
+.sidebar-link i,
+.sidebar-link i:not(.sidebar-link-chev),
+.sidebar-link[data-page] i {
+    color: var(--r-text) !important;
+    opacity: 1 !important;
+    font-size: 15px !important;
+    width: 20px !important;
+}
+
+.sidebar-link:hover i {
+    color: var(--r-text) !important;
+    opacity: 1 !important;
+}
+
+.sidebar-link.active i:not(.sidebar-link-chev),
+.sidebar-link.active[data-page] i {
+    color: var(--r-gold) !important;
+    opacity: 1 !important;
+}
+
+/* ============================================================
+   22. NAVBAR — densifier : utilisateur sous le menu, pied en bas
+   ============================================================ */
+
+.sidebar-user {
+    margin-top: 0 !important;
+}
+
+.sidebar-nav {
+    flex: 0 0 auto !important;
+    overflow-y: visible !important;
+}
+
+/* un ressort invisible pousse uniquement le pied de sidebar en bas */
+.sidebar-nav::after {
+    content: "";
+    display: block;
+    flex: 1 1 auto;
+    min-height: 24px;
+}
