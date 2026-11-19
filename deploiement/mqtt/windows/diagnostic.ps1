@@ -21,6 +21,10 @@ foreach ($f in "$base\mosquitto.log", "$base\dynamic-security.json.pw") {
 $txt = Lire-Partage "$base\mosquitto.log"
 $lignes = $txt -split "`r?`n" | Where-Object { $_ -match "\S" }
 $l += $lignes | Where-Object { $_ -notmatch "New connection|disconnected: not authorised" } | Select-Object -Last 40
+$l += "", "--- tentatives des tablettes (lignes dt- / DT-, 30 dernieres) ---"
+$l += $lignes | Where-Object { $_ -match "dt-|DT-" } | Select-Object -Last 30
+$l += "", "--- connexions par le tunnel (hors passerelle/admin/recette), 15 dernieres ---"
+$l += $lignes | Where-Object { $_ -match "New client connected|New connection" -and $_ -notmatch "passerelle|admin|recette|ot-dynsec|nettoyage" } | Select-Object -Last 15
 $l += "", "--- 12 dernieres lignes brutes ---"
 $l += $lignes | Select-Object -Last 12
 $l += "", "--- .pw (longueur et forme, pas le contenu) ---"
