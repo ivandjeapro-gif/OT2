@@ -2328,3 +2328,155 @@ textarea:focus {
     flex: 1 1 auto;
     min-height: 24px;
 }
+
+/* ============================================================
+   23. NAVBAR — disposition fixe, non scrollable
+   Le profil est descendu juste au-dessus du logo LA FIGUE MINE.
+   La sidebar ne défile jamais : contenu fixe, overflow hidden.
+   ============================================================ */
+
+/* --- sidebar : aucun défilement --- */
+.sidebar {
+    overflow: hidden !important;
+}
+
+.sidebar-nav {
+    flex: 0 0 auto !important;
+    overflow: hidden !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none !important;
+}
+
+/* supprimer le ressort interne ajouté au nav */
+.sidebar-nav::after {
+    content: none !important;
+    display: none !important;
+}
+
+/* masquer toute barre de scroll héritée */
+.sidebar::-webkit-scrollbar,
+.sidebar-nav::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+}
+
+/* --- le profil est poussé vers le bas, collé au-dessus du logo --- */
+.sidebar-user {
+    margin-top: auto !important;
+    flex: 0 0 auto !important;
+}
+
+.sidebar-mine {
+    margin-top: 0 !important;
+    flex: 0 0 auto !important;
+}
+
+/* --- profil : plus de chevauchement --- */
+.sidebar-user {
+    align-items: center !important;
+    padding: 14px 16px !important;
+    min-height: 0 !important;
+    height: auto !important;
+    border-top: 1px solid var(--r-border) !important;
+}
+
+.sidebar-user .user-info {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
+    line-height: normal !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+.sidebar-user .user-name {
+    position: static !important;
+    display: block !important;
+    float: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    font-size: 12.5px !important;
+    font-weight: 800 !important;
+    line-height: 1.4 !important;
+}
+
+.sidebar-user .user-role {
+    position: static !important;
+    display: block !important;
+    float: none !important;
+    height: auto !important;
+    font-size: 9px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1.2px !important;
+    text-transform: uppercase !important;
+    color: var(--r-text-3) !important;
+    line-height: 1.4 !important;
+}
+
+.sidebar-user .user-email {
+    position: static !important;
+    display: block !important;
+    float: none !important;
+    height: auto !important;
+    font-size: 10px !important;
+    line-height: 1.4 !important;
+}
+
+/* le logout reste à droite, verticalement centré */
+.sidebar-user .btn-logout {
+    margin-left: auto !important;
+    align-self: center !important;
+}
+
+/* ============================================================
+   24. NAVBAR/HOME — ligne urgente : délai ET bouton (maquette)
+   La maquette montre « 15 min » puis le bouton « Marquer vu »
+   sur la même ligne. Le bouton passe dans une 5e colonne.
+   ============================================================ */
+
+.home-file .file-item > .file-cell,
+.home-file .file-item > .file-cell > .file-slot {
+    grid-template-columns: 62px 66px minmax(0, 1fr) 62px 112px !important;
+    column-gap: 12px !important;
+}
+
+.home-file .file-age {
+    grid-column: 4 !important;
+    justify-self: end;
+    text-align: right !important;
+}
+
+/* le bouton occupe la colonne 5, sans chevaucher le délai */
+.home-file .file-item.u2:first-child::after {
+    position: static !important;
+    transform: none !important;
+    grid-column: 5 !important;
+    grid-row: 1 !important;
+    justify-self: end !important;
+    align-self: center !important;
+    right: auto !important;
+}
+
+/* plus besoin de réserver la place par le padding */
+.home-file .file-item.u2:first-child {
+    padding-right: 24px !important;
+}
+
+/* en-tête : la colonne DÉLAI reste sur la 4e piste */
+.r-filehead {
+    grid-template-columns: 62px 66px minmax(0, 1fr) 62px 112px !important;
+    column-gap: 12px !important;
+}
+
+.r-filehead > span:nth-child(3) {
+    grid-column: 4 !important;
+    text-align: right !important;
+}
+
+/* la ligne urgente déborde du panneau : padding d'alignement identique */
+.home-file .file-item.u2:first-child {
+    margin: 0 !important;
+}
