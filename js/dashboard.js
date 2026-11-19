@@ -311,21 +311,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===== TABLETTES =====
     // Connectee = vue par le serveur dans les 10 dernieres minutes.
     const TABLETTE_VUE_S = 600;
+    // Tablettes connectees = DT dont la tablette est en ligne sur le broker
+    // MQTT (presence + positions recentes), lu sur la passerelle : sans
+    // session, contrairement a l'ancienne liste /api/tablettes (19/11).
     function refreshTablettes() {
-        if (typeof API === 'undefined' || !API.getTablettes) return;
-        API.getTablettes().then((d) => {
-            const vues = (d.tablettes || []).filter((t) =>
-                Number(t.actif) !== 0 && secondesDepuis(t.dernier_seen) < TABLETTE_VUE_S);
-            $('tabletCount').textContent = deux(vues.length);
-            $('tabletList').textContent = vues.length
-                ? vues.map((t) => t.nom || t.serial || t.device_id).join(' · ')
-                : 'Aucune tablette vue depuis 10 min';
-        }).catch((e) => {
+        getJSON(PASSERELLE + '/api/mqtt/comptes').then((d) => {
+            if (!d.configure) {
+                $('tabletCount').textContent = '--';
+                $('tabletList').textContent = 'Suivi temps réel non installé';
+                return;
+            }
+            const enLigne = (d.comptes || []).filter((c) => c.en_ligne).map((c) => c.code);
+            $('tabletCount').textContent = deux(enLigne.length);
+            $('tabletList').textContent = enLigne.length
+                ? enLigne.join(' · ')
+                : 'Aucune tablette en ligne (' + (d.comptes || []).length + ' DT équipés)';
+        }).catch(() => {
             $('tabletCount').textContent = '--';
-            // la liste des tablettes est privee : sans session ouverte, 401
-            $('tabletList').textContent = e && e.status === 401
-                ? 'Connexion requise (session OreTracking)'
-                : 'Serveur injoignable';
+            $('tabletList').textContent = 'Passerelle injoignable';
         });
     }
 
@@ -476,7 +479,10 @@ document.addEventListener('DOMContentLoaded', () => {
         getJSON(PASSERELLE + '/api/office/sync')
             .then((d) => {
                 const rows = d.office_sync || [];
-                const echecs = rows.filter((r) => r.statut === 'echec').length;
+                // seuls les echecs des dernieres 24 h comptent : au-dela, la
+                // passerelle ne les rejoue plus (vieux envois d'essai d'octobre)
+                const echecs = rows.filter((r) => r.statut === 'echec'
+                    && secondesDepuis(r.created_at, true) < 86400).length;
                 const attente = rows.filter((r) => r.statut === 'en_attente').length;
                 data.liens.office = echecs ? 'ko' : attente > 5 ? 'warn' : 'ok';
                 data.liens.officeTxt = echecs ? echecs + ' échec(s)' : attente ? attente + ' en attente' : '';
@@ -604,7 +610,7 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshKpi();          setInterval(refreshKpi, 5000);
     refreshOffroad();      setInterval(refreshOffroad, 3000);
     refreshAlertes();      setInterval(refreshAlertes, 8000);
-    refreshTablettes();    setInterval(refreshTablettes, 30000);
+    refreshTablettes();    setInterval(refreshTablettes, 5000);
     refreshLiens();        setInterval(refreshLiens, 15000);
     setTimeout(afficherAlerte, 1500);
     setInterval(afficherAlerte, 6000);

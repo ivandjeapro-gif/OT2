@@ -3954,7 +3954,13 @@ def suivi_engins(conn, depuis=None, jusqua=None):
             "WHERE m.statut = 'en_cours' ORDER BY m.id"):
         missions[m["dt_code"]] = m                    # la plus recente gagne
     engins, compte = [], {}
+    # 19/11 : les DT suivis sont ceux de la FLOTTE du SaaS (comptes MQTT) ; les
+    # engins d'essai restes dans la table engins (DT-HEXTEST, ZZ-RELAIS-01...)
+    # ne sont plus comptes. Flotte inconnue (table vide) : tous, comme avant.
+    flotte_dt = {r[0] for r in conn.execute("SELECT code FROM mqtt_comptes")}
     for e in conn.execute("SELECT * FROM engins WHERE actif = 1 ORDER BY type DESC, code"):
+        if e["type"] == "DT" and flotte_dt and e["code"] not in flotte_dt:
+            continue
         ll = _vers_latlng(e["x"], e["y"], zone, hemi)
         if not ll or not (e["x"] or e["y"]):
             continue
@@ -4004,7 +4010,7 @@ def suivi_engins(conn, depuis=None, jusqua=None):
             if garde[-1] is not rs[-1]:
                 garde.append(rs[-1])
             trajets[code] = [list(_vers_latlng(r["x"], r["y"], zone, hemi)) for r in garde]
-    return {"maintenant": maintenant, "engins": engins, "compte": compte,
+    return {"maintenant": maintenant, "engins": engins, "compte": compte, "flotte_dt": len(flotte_dt),
             "periode": {"depuis": depuis or "", "jusqua": jusqua or ""}, "trajets": trajets}
 
 
