@@ -527,6 +527,19 @@ CREATE TABLE IF NOT EXISTS geographic_system (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Historique des positions des DT (19/11) : vitesse et cap du suivi en
+-- direct, trajets par shift sur les cartes (Live, dashboard). Un point est
+-- garde s'il a bouge de plus de 1 m ou 30 s apres le precedent ; purge
+-- au-dela de POSITIONS_DT_JOURS jours.
+CREATE TABLE IF NOT EXISTS positions_dt (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    horodatage TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_positions_dt ON positions_dt (code, horodatage);
+
 CREATE TABLE IF NOT EXISTS params (
     cle TEXT PRIMARY KEY,
     valeur TEXT DEFAULT '',
@@ -2050,6 +2063,27 @@ def gps_vers_local(conn, lat, lon):
     return x, y
 
 
+POSITIONS_DT_JOURS = 7
+_positions_dt_compteur = [0]
+
+
+def historiser_position_dt(conn, code, typ, x, y, instant, existe):
+    """Garde la position d'un DT dans positions_dt (suivi, trajets). Pas de
+    commit ici : celui de appliquer_position_engin suit."""
+    if str(typ).upper() != "DT":
+        return
+    if existe is not None:
+        bouge = distance(x, y, existe["x"], existe["y"]) > 1.0
+        if not bouge and abs(_secondes_depuis(existe["derniere_maj"], instant)) < 30:
+            return
+    conn.execute("INSERT INTO positions_dt (code, x, y, horodatage) VALUES (?, ?, ?, ?)",
+                 (code, x, y, instant))
+    _positions_dt_compteur[0] += 1
+    if _positions_dt_compteur[0] % 500 == 1:          # purge de temps en temps
+        conn.execute("DELETE FROM positions_dt WHERE horodatage < datetime('now', 'localtime', ?)",
+                     ("-%d days" % POSITIONS_DT_JOURS,))
+
+
 def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=True):
     """Met a jour (ou cree) un engin a la position (x, y) et gere le chrono
     d'immobilisation (seuil SEUIL_IMMOBILISATION_M). Utilise par la route
@@ -2059,6 +2093,8 @@ def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=Tru
     `relayer=False` : ne pas renvoyer la position a Serveur_SG (elle en vient)."""
     instant = horodatage or now_iso()
     existe = conn.execute("SELECT * FROM engins WHERE code=?", (code,)).fetchone()
+    historiser_position_dt(conn, code, (existe["type"] if existe else typ) or "DT",
+                           x, y, instant, existe)
     if existe:
         deplacement = distance(x, y, existe["x"], existe["y"])
         if deplacement <= SEUIL_IMMOBILISATION_M:
@@ -3836,6 +3872,117 @@ def etat_cloud():
             "derniere_tentative": e["derniere_tentative"]}
 
 
+# ------------------------------------------------- suivi des DT (19/11) ---
+# Etat de chaque engin pour les cartes de suivi (Live, dashboard) : statut
+# terrain, etat lisible, vitesse / cap (historique), mission, teneur du
+# chargement, et trajets d'une periode (shift). Positions renvoyees en
+# lat/lng (fuseau de Geographic System, 30N par defaut) : le navigateur n'a
+# plus a deviner le repere.
+SUIVI_SIGNAL_PERDU_S = 120
+SUIVI_TRAJET_MAX_POINTS = 600
+
+
+def _vers_latlng(x, y, zone, hemi):
+    try:
+        lat, lng = utm_vers_wgs84(float(x), float(y), zone, hemi)
+        return round(lat, 7), round(lng, 7)
+    except (TypeError, ValueError):
+        return None
+
+
+def _grade_bloc(nom, destination):
+    code = code_teneur_bloc(nom)
+    if code in KPI_GRADES:
+        return KPI_GRADES[code]
+    if code == "WST" or str(destination or "").strip().upper() == "W":
+        return "waste"
+    return ""
+
+
+def etat_suivi_dt(statut, offroad, age_s, mission):
+    """Etat lisible, par priorite : signal_perdu > hors_piste > chargement >
+    mission > attente_loin > roulage."""
+    if age_s is None or age_s > SUIVI_SIGNAL_PERDU_S:
+        return "signal_perdu"
+    if offroad:
+        return "hors_piste"
+    if statut == "ODT":
+        return "chargement"
+    if mission:
+        return "mission"
+    if statut == "SBDT":
+        return "attente_loin"
+    return "roulage"
+
+
+def suivi_engins(conn, depuis=None, jusqua=None):
+    zone, hemi = repere_site(conn)
+    zone, hemi = zone or 30, hemi or "N"
+    maintenant = now_iso()
+    missions = {}
+    for m in conn.execute(
+            "SELECT m.id, m.dt_code, datetime(m.debut, 'localtime') AS debut, m.arrivee, "
+            "o.nom AS orebloc, o.destination, "  # debut : DEFAULT datetime('now') = UTC
+            "d.nom AS dumping_area FROM missions m "
+            "LEFT JOIN oreblocs o ON o.id = m.orebloc_id "
+            "LEFT JOIN dumping_areas d ON d.id = m.dumping_area_id "
+            "WHERE m.statut = 'en_cours' ORDER BY m.id"):
+        missions[m["dt_code"]] = m                    # la plus recente gagne
+    engins, compte = [], {}
+    for e in conn.execute("SELECT * FROM engins WHERE actif = 1 ORDER BY type DESC, code"):
+        ll = _vers_latlng(e["x"], e["y"], zone, hemi)
+        if not ll or not (e["x"] or e["y"]):
+            continue
+        age = _secondes_depuis(e["derniere_maj"]) if e["derniere_maj"] else None
+        fiche = {"code": e["code"], "type": e["type"], "statut": e["statut"],
+                 "lat": ll[0], "lng": ll[1], "x": e["x"], "y": e["y"],
+                 "derniere_maj": e["derniere_maj"], "age_s": None if age is None else round(age),
+                 "offroad": bool(e["offroad"]), "offroad_distance": round(e["offroad_distance"] or 0)}
+        if e["type"] == "DT":
+            m = missions.get(e["code"])
+            fiche["mission"] = None if not m else {
+                "id": m["id"], "orebloc": m["orebloc"] or "", "dumping_area": m["dumping_area"] or "",
+                "depuis": m["debut"], "arrivee": bool(m["arrivee"])}
+            fiche["teneur"] = _grade_bloc(m["orebloc"], m["destination"]) if m else ""
+            # vitesse et cap : deux derniers points distincts de l'historique
+            pts = conn.execute(
+                "SELECT x, y, horodatage FROM positions_dt WHERE code = ? "
+                "ORDER BY horodatage DESC LIMIT 6", (e["code"],)).fetchall()
+            vitesse, cap = 0.0, None
+            for prec in pts[1:]:
+                d = distance(pts[0]["x"], pts[0]["y"], prec["x"], prec["y"])
+                dt_s = abs(_secondes_depuis(prec["horodatage"], pts[0]["horodatage"]))
+                if d > 1.0 and dt_s > 0:
+                    vitesse = d / dt_s * 3.6
+                    cap = (math.degrees(math.atan2(pts[0]["x"] - prec["x"], pts[0]["y"] - prec["y"])) + 360) % 360
+                    break
+            fiche["vitesse_kmh"] = round(min(vitesse, 120), 1)
+            fiche["cap_deg"] = None if cap is None else round(cap)
+            fiche["etat"] = etat_suivi_dt(e["statut"], fiche["offroad"], age, m)
+            compte[fiche["etat"]] = compte.get(fiche["etat"], 0) + 1
+        else:
+            fiche["etat"] = "minage" if e["statut"] == "OMEX" else "attente"
+        engins.append(fiche)
+
+    trajets = {}
+    if depuis:
+        lignes = conn.execute(
+            "SELECT code, x, y, horodatage FROM positions_dt WHERE horodatage >= ? "
+            "AND horodatage <= ? ORDER BY code, horodatage",
+            (depuis, jusqua or maintenant)).fetchall()
+        par_code = {}
+        for r in lignes:
+            par_code.setdefault(r["code"], []).append(r)
+        for code, rs in par_code.items():
+            pas = max(1, -(-len(rs) // SUIVI_TRAJET_MAX_POINTS))
+            garde = rs[::pas]
+            if garde[-1] is not rs[-1]:
+                garde.append(rs[-1])
+            trajets[code] = [list(_vers_latlng(r["x"], r["y"], zone, hemi)) for r in garde]
+    return {"maintenant": maintenant, "engins": engins, "compte": compte,
+            "periode": {"depuis": depuis or "", "jusqua": jusqua or ""}, "trajets": trajets}
+
+
 def kpi_chargements(conn, lignes, jour):
     """Memes KPI que kpi_voyages, calcules sur les lignes « Chargements » de SG.
     Teneur Au (onces) et nature minerai/sterile : table locale oreblocs, par nom
@@ -4129,6 +4276,22 @@ class Handler(BaseHTTPRequestHandler):
             if diff is None:
                 return self._send_json(502, {"error": err})
             return self._send_json(200, diff)
+        # Suivi des DT (19/11) : lecture seule, HORS verrou (sondee toutes les
+        # 2-3 s par chaque carte ouverte). ?depuis=&jusqua= (AAAA-MM-JJ HH:MM:SS)
+        # ajoute les trajets de la periode.
+        if path == "/api/suivi_dt" and method == "GET":
+            qs = self._qs()
+            depuis = (qs.get("depuis") or [""])[0].replace("T", " ")[:19]
+            jusqua = (qs.get("jusqua") or [""])[0].replace("T", " ")[:19]
+            motif = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$"
+            for v in (depuis, jusqua):
+                if v and not re.match(motif, v):
+                    return self._send_json(400, {"error": "depuis/jusqua : AAAA-MM-JJ HH:MM:SS attendu"})
+            conn = get_conn()
+            try:
+                return self._send_json(200, suivi_engins(conn, depuis or None, jusqua or None))
+            finally:
+                conn.close()
         # KPI du jour : depuis le releve des Chargements de SG (19/11). HORS
         # verrou : un autre jour declenche un appel au cloud (quelques s).
         if path == "/api/kpi" and method == "GET":

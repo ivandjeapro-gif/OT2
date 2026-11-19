@@ -76,6 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
         [['hg', 'high'], ['mg', 'medium'], ['lg', 'low'], ['mo', 'marginal']].forEach(([k, g]) => {
             const p = parseFloat(lire(k).planned);
             data.grades[g].planned = isNaN(p) ? null : p;
+            const a = parseFloat(lire(k).alerte);
+            data.grades[g].alerte = isNaN(a) ? null : a;
         });
     }
 
@@ -138,7 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
         v.textContent = fmtSigne(diff);
         v.className = 'var ' + (diff > 0 ? 'pos' : diff < 0 ? 'neg' : '');
         rail.style.width = g.planned ? Math.min(g.actuel / g.planned / 1.25, 1) * 100 + '%' : '0';
-        ligne.classList.toggle('bad', etat(g.actuel, g.planned, thresholds.gradeVariance) === 'bad');
+        ligne.classList.toggle('bad', etat(g.actuel, g.planned, g.alerte || thresholds.gradeVariance) === 'bad');
     }
 
     function renderKpis() {
@@ -266,7 +268,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===== OFFROAD =====
-    let majCamionsMaintenant = null;   // branche par initMap()
     let codesHorsPiste = '';
 
     function renderOffroad() {
@@ -293,7 +294,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     codesHorsPiste = codes;
                     if (nouveau) jouerSonDanger();
                     afficherAlerte();
-                    if (majCamionsMaintenant) majCamionsMaintenant();
                 }
             })
             .catch(() => { /* on garde la derniere valeur */ });
@@ -352,8 +352,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===== ALERTES (pastille du bandeau + cloche) =====
     let configLive = {};
     try { configLive = JSON.parse(localStorage.getItem('oreTrackingConfig')) || {}; } catch (e) {}
-    const afficherAlertes = configLive.showAlerts !== false;
-    if (!afficherAlertes) $('alertBanner').style.visibility = 'hidden';
+    let afficherAlertes = configLive.showAlerts !== false;
+    try {
+        const d = JSON.parse(localStorage.getItem('oreTrackingDiffusion'));
+        if (d && d.alertes !== undefined) afficherAlertes = d.alertes !== false;
+    } catch (e) {}
+    $('alertBanner').style.visibility = afficherAlertes ? '' : 'hidden';
+    window.addEventListener('storage', (ev) => {
+        if (ev.key !== 'oreTrackingDiffusion') return;
+        try { afficherAlertes = (JSON.parse(ev.newValue) || {}).alertes !== false; } catch (e) {}
+        $('alertBanner').style.visibility = afficherAlertes ? '' : 'hidden';
+    });
+
+    // Diffusion « plein ecran etendu » : le navigateur n'autorise le plein
+    // ecran qu'apres un clic dans CETTE fenetre -> invite discrete.
+    if (/[?&]plein=1/.test(location.search) && document.documentElement.requestFullscreen) {
+        const invite = document.createElement('button');
+        invite.type = 'button'; invite.className = 'invite-plein';
+        invite.textContent = 'Cliquer pour passer en plein écran';
+        invite.addEventListener('click', () => {
+            document.documentElement.requestFullscreen().catch(() => {});
+            invite.remove();
+        });
+        document.body.appendChild(invite);
+        setTimeout(() => invite.remove(), 20000);
+    }
 
     const TYPES_INFO = { fin_mission: 1, arrivee: 1, retour_piste: 1, retour_trajet: 1, mission: 1 };
     let alertesReelles = [];
@@ -533,249 +556,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ===== CARTE =====
-    const BASEMAPS = {
-        'osm':       { nom: 'Plan · OpenStreetMap', url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', maxZoom: 19 },
-        'esri-sat':  { nom: 'Vue satellite', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', maxZoom: 19 },
-        'esri-topo': { nom: 'Vue topographique', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', maxZoom: 19 },
-        'esri-dark': { nom: 'Vue sombre', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', maxZoom: 16 }
-    };
-
-    function convertCRS(x, y) {
-        if (Math.abs(x) > 180 || Math.abs(y) > 90) {
-            if (typeof proj4 !== 'undefined') {
-                try { const ll = proj4('EPSG:32630', 'EPSG:4326', [x, y]); return { lat: ll[1], lng: ll[0] }; } catch (e) {}
-            }
-            return { lat: 0, lng: 0 };
-        }
-        return { lat: x, lng: y };
-    }
-
-    async function chargerZones(config) {
-        if (config && config.zones && config.zones.length) return config.zones;
-        try {
-            const resp = await fetch('../data/Mining Areas.csv');
-            if (resp.ok) {
-                const lines = (await resp.text()).replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim().split('\n');
-                if (lines.length >= 2) {
-                    const header = lines[0].toLowerCase();
-                    const sep = header.includes('\t') ? '\t' : (header.includes(';') ? ';' : ',');
-                    const cols = header.split(sep).map((c) => c.trim()).filter((c) => c);
-                    const nameIdx = cols.findIndex((c) => c === 'name' || c === 'nom' || c === 'zone');
-                    let xIdx = cols.findIndex((c) => c === 'x' || c === 'easting');
-                    let yIdx = cols.findIndex((c) => c === 'y' || c === 'northing');
-                    if (xIdx === -1 || yIdx === -1) { xIdx = 0; yIdx = 1; }
-                    const zones = [];
-                    for (let i = 1; i < lines.length; i++) {
-                        const parts = lines[i].trim().split(sep).map((p) => p.trim());
-                        const rx = parseFloat(parts[xIdx]), ry = parseFloat(parts[yIdx]);
-                        if (!isFinite(rx) || !isFinite(ry)) continue;
-                        const ll = convertCRS(rx, ry);
-                        zones.push({ name: (nameIdx >= 0 && parts[nameIdx]) || 'Zone ' + i, lat: ll.lat, lng: ll.lng });
-                    }
-                    if (zones.length) return zones;
-                }
-            }
-        } catch (e) { console.warn('[Dashboard] zones CSV illisibles :', e); }
-        return [];
-    }
-
-    async function chargerTrails(config) {
-        try {
-            const saved = JSON.parse(localStorage.getItem('oreTrackingTrails') || 'null');
-            if (saved && saved.length) return saved;
-        } catch (e) {}
-        if (config && config.trails && config.trails.length) return config.trails;
-        try {
-            const resp = await fetch('../data/Trails.geojson.geojson');
-            if (resp.ok) {
-                const geo = await resp.json();
-                return (geo.features || [])
-                    .filter((f) => f.geometry && f.geometry.coordinates && f.geometry.coordinates.length >= 2)
-                    .map((f) => ({
-                        type: 'imported', name: (f.properties && f.properties.name) || 'Trail',
-                        color: '#EE7A2A', useColor: true,
-                        waypoints: f.geometry.coordinates.map((c) => [c[1], c[0]])
-                    }));
-            }
-        } catch (e) { console.warn('[Dashboard] pistes GeoJSON illisibles :', e); }
-        return [];
-    }
-
-    // Resume des zones pour le sous-titre : « West Pit · Main Pit · ROM Pads 1, 2 et 3 »
-    function resumeZones(zones) {
-        const noms = zones.map((z) => z.name);
-        const roms = noms.filter((n) => /^rom\s*pad\s*\d+$/i.test(n)).map((n) => n.match(/\d+/)[0]);
-        const autres = noms.filter((n) => !/^rom\s*pad\s*\d+$/i.test(n));
-        if (roms.length > 1) {
-            autres.push('ROM Pads ' + roms.slice(0, -1).join(', ') + ' et ' + roms[roms.length - 1]);
-        } else if (roms.length) {
-            autres.push('ROM Pad ' + roms[0]);
-        }
-        return autres.join(' · ') || 'Aucune zone configurée';
-    }
-
-    const PIN_SVG = '<svg class="pin" viewBox="0 0 28 36"><path d="M14 1C6.8 1 1 6.7 1 13.8 1 23 14 35 14 35s13-12 13-21.2C27 6.7 21.2 1 14 1z" fill="#0E74B2" stroke="#FCF9EA" stroke-width="1.5"/><circle cx="14" cy="13.5" r="5.2" fill="#FCF9EA"/></svg>';
-
-    function iconeZone(z, showLabels) {
-        const role = /pit|fosse/i.test(z.name) ? ['load', 'Chargement DT']
-                   : /rom|pad|dump|stock/i.test(z.name) ? ['unload', 'Déchargement DT'] : null;
-        const tags = showLabels
-            ? '<span class="tags"><span class="name"></span>' +
-              (role ? '<span class="role ' + role[0] + '">' + role[1] + '</span>' : '') + '</span>'
-            : '';
-        const html = document.createElement('div');
-        html.className = 'zone-pin';
-        html.innerHTML = PIN_SVG + tags;
-        const nom = html.querySelector('.name');
-        if (nom) nom.textContent = z.name;     // nom de zone saisi : texte, jamais HTML
-        return L.divIcon({ className: 'zone-marker', html, iconSize: [0, 0], iconAnchor: [0, 0] });
-    }
-
+    // ===== CARTE + SUIVI DES DT =====
+    // Carte et suivi partages avec Live (js/carte-suivi.js, 19/11). Les
+    // filtres du « Perimetre de suivi » de Live et les options de diffusion
+    // (trajets, animations) s'appliquent ici en direct.
     async function initMap() {
         let config = null;
         try { config = JSON.parse(localStorage.getItem('oreTrackingConfig')); } catch (e) {}
-
-        const centerLat = (config && config.center && config.center.lat) || 8.2626;
-        const centerLng = (config && config.center && config.center.lng) || -4.6301;
-        const zoomVal = (config && config.zoom) || 14;
-        const showZones = !config || config.showZones !== false;
-        const showTrails = !config || config.showTrails !== false;
-        const showLabels = !config || config.showLabels !== false;
-
-        const zones = await chargerZones(config);
-        const trailsDef = await chargerTrails(config);
-        $('mapZones').textContent = resumeZones(zones);
-
-        const map = L.map('map', {
-            center: [centerLat, centerLng], zoom: zoomVal,
-            zoomControl: false, attributionControl: false
+        const cfg = config || {};
+        const carte = await CarteSuivi.construire($('map'), cfg, {
+            zones: cfg.showZones !== false, pistes: cfg.showTrails !== false, labels: cfg.showLabels !== false,
         });
+        $('mapZones').textContent = CarteSuivi.resumeZones(carte.zones);
+        $('basemapName').textContent = carte.fond;
+        $('segmentsPiste').textContent = fmt(carte.segments);
+        $('zoomIn').addEventListener('click', () => carte.map.zoomIn());
+        $('zoomOut').addEventListener('click', () => carte.map.zoomOut());
+        $('zoomCenter').addEventListener('click', () => carte.recentrer());
 
-        // ---- fond ----
-        const basemapId = config && config.basemap;
-        if (basemapId === 'mbtiles' && config.mbtilesUrl) {
-            L.tileLayer(config.mbtilesUrl.replace(/\/$/, '') + '/{z}/{x}/{y}.png', { maxZoom: 19, errorTileUrl: '' }).addTo(map);
-            $('basemapName').textContent = 'Fond local · MBTiles';
-        } else {
-            const bm = BASEMAPS[basemapId] || BASEMAPS['esri-sat'];
-            L.tileLayer(bm.url, { crossOrigin: true, maxZoom: bm.maxZoom }).addTo(map);
-            $('basemapName').textContent = bm.nom;
-        }
-
-        // ---- couches importees sur Live (TIFF / GeoJSON / MBTiles) ----
-        const mbtilesBase = (config && config.mbtilesUrl ? config.mbtilesUrl : 'http://localhost:8080').replace(/\/$/, '');
-        const couches = [].concat((config && config.layers) || [], (config && config.tiffLayers) || []);
-        couches.forEach((layer) => {
-            if (!layer.visible) return;
-            const op = layer.opacity || 0.8;
-            if ((layer.type === 'tiff' || layer.type === 'georef' || !layer.type) && layer.dataUrl && layer.bounds) {
-                L.imageOverlay(layer.dataUrl, layer.bounds, { opacity: op, interactive: false }).addTo(map);
-            } else if (layer.type === 'geojson' && layer.geoJSON) {
-                L.geoJSON(layer.geoJSON, {
-                    style: () => ({ color: '#EE7A2A', weight: 2, opacity: op, fillColor: '#EE7A2A', fillOpacity: op * 0.35 }),
-                    pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 5, color: '#EE7A2A', weight: 2, fillOpacity: op * 0.6 })
-                }).addTo(map);
-            } else if (layer.type === 'mbtiles' && layer.mbtilesName) {
-                L.tileLayer(mbtilesBase + '/' + encodeURIComponent(layer.mbtilesName) + '/{z}/{x}/{y}.png',
-                    { maxZoom: 19, errorTileUrl: '', opacity: op }).addTo(map);
-            }
+        const diffusion = CarteSuivi.lireDiffusion();
+        CarteSuivi.suivre(carte, {
+            labels: cfg.showLabels !== false,
+            trajets: diffusion.trajets, animations: diffusion.animations,
+            suivreDiffusion: true,
+            onMaj: (r) => {
+                $('enginsSuivis').textContent = r.affiches === r.total ? r.total : r.affiches + ' / ' + r.total;
+                const actifs = CarteSuivi.filtresActifs(r.filtres);
+                const el = $('filtreActif');
+                el.hidden = !actifs.length;
+                el.textContent = actifs.length ? 'Filtre : ' + actifs.join(' · ') : '';
+            },
         });
-
-        // ---- pistes : trait plein sous un tirete clair = « piste roulee » ----
-        let segments = 0;
-        trailsDef.forEach((t) => {
-            let wp = (t.waypoints && t.waypoints.length >= 2) ? t.waypoints : null;
-            if (!wp) {
-                const a = zones.find((z) => z.name === t.from), b = zones.find((z) => z.name === t.to);
-                if (!a || !b) return;
-                wp = [[a.lat, a.lng], [b.lat, b.lng]];
-            }
-            segments += wp.length - 1;
-            if (!showTrails) return;
-            const couleur = t.useColor === false ? '#B7B3A3' : (t.color || '#EE7A2A');
-            L.polyline(wp, { color: '#000', weight: 7, opacity: 0.35, interactive: false }).addTo(map);
-            L.polyline(wp, { color: couleur, weight: 4, opacity: 0.9, interactive: false }).addTo(map);
-            L.polyline(wp, { color: '#FCF9EA', weight: 1.2, opacity: 0.7, dashArray: '2 10', interactive: false }).addTo(map);
-        });
-        $('segmentsPiste').textContent = fmt(segments);
-
-        // ---- zones ----
-        if (showZones) {
-            zones.forEach((z) => {
-                if (!z.lat || !z.lng) return;
-                L.marker([z.lat, z.lng], { icon: iconeZone(z, showLabels), zIndexOffset: 200 }).addTo(map);
-            });
-        }
-
-        $('zoomIn').addEventListener('click', () => map.zoomIn());
-        $('zoomOut').addEventListener('click', () => map.zoomOut());
-        $('zoomCenter').addEventListener('click', () => map.setView([centerLat, centerLng], zoomVal));
-
-        // ---- DT reels (/api/engins de la passerelle) ----
-        const dtMarkers = {};
-        const POSITION_PERIMEE_S = 120;   // au-dela, DT grise (signal perdu)
-
-        function iconeDT(code, offroad, perime) {
-            return L.divIcon({
-                className: 'zone-marker dt-marker' + (offroad ? ' offroad' : '') + (perime ? ' perime' : ''),
-                html: (offroad ? '<span class="dt-halo"></span>' : '') + '<img src="../assets/icon DT.png" class="dt-icon" alt="">',
-                iconSize: [28, 28], iconAnchor: [14, 14]
-            });
-        }
-
-        function majCamions() {
-            getJSON(PASSERELLE + '/api/engins')
-                .then((d) => {
-                    const horsPiste = new Set((data.offroad.dts || []).map((x) => x.code));
-                    const vus = new Set();
-                    (d.engins || [])
-                        .filter((e) => e.type === 'DT' && Number(e.actif) !== 0)
-                        .forEach((e) => {
-                            const ll = convertCRS(Number(e.x), Number(e.y));
-                            if (!ll.lat && !ll.lng) return;
-                            vus.add(e.code);
-                            const offroad = horsPiste.has(e.code) || Number(e.offroad) === 1;
-                            const perime = secondesDepuis(e.derniere_maj) > POSITION_PERIMEE_S;
-                            const etatDT = (offroad ? 'o' : '') + (perime ? 'p' : '');
-                            let m = dtMarkers[e.code];
-                            if (!m) {
-                                m = L.marker([ll.lat, ll.lng], { zIndexOffset: 500 }).addTo(map);
-                                m._etat = null;
-                                dtMarkers[e.code] = m;
-                            } else {
-                                m.setLatLng([ll.lat, ll.lng]);
-                            }
-                            if (m._etat !== etatDT) {
-                                m.setIcon(iconeDT(e.code, offroad, perime));
-                                m.setZIndexOffset(offroad ? 1000 : 500);
-                                m.unbindTooltip();
-                                m.bindTooltip('', {
-                                    permanent: showLabels || offroad, direction: 'top', offset: [0, -14],
-                                    className: 'vehicle-tooltip' + (offroad ? ' offroad' : '') + (perime ? ' perime' : '')
-                                });
-                                m._etat = etatDT;
-                            }
-                            const dist = offroad && e.offroad_distance ? ' · ' + Math.round(e.offroad_distance) + ' m' : '';
-                            m.setTooltipContent(e.code + dist);
-                        });
-                    Object.keys(dtMarkers).forEach((code) => {
-                        if (!vus.has(code)) { map.removeLayer(dtMarkers[code]); delete dtMarkers[code]; }
-                    });
-                    $('enginsSuivis').textContent = vus.size;
-                })
-                .catch(() => { /* passerelle hors ligne : dernieres positions conservees */ });
-        }
-        majCamions();
-        setInterval(majCamions, 3000);
-        majCamionsMaintenant = majCamions;
-
-        // la carte suit la taille de son cadre (blocs masques, polices chargees...)
-        new ResizeObserver(() => map.invalidateSize()).observe($('map'));
-        // a faible zoom, les roles (Chargement / Dechargement) se chevauchent : on les masque
-        const majZoom = () => $('map').classList.toggle('z-low', map.getZoom() < 15);
-        map.on('zoomend', majZoom); majZoom();
-        return map;
+        return carte.map;
     }
 
     // ===== DEMARRAGE =====

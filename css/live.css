@@ -1,0 +1,290 @@
+/* =====================================================================
+ * live.css — page Live « Suivi en direct » (Zone 1, 19/11), d'apres les
+ * maquettes. Chargee APRES style.css et refonte.css ; tout est sous .lv
+ * (contenu) et .lv-pied (barre d'etat) : l'habillage commun (sidebar,
+ * barre du haut) reste celui de refonte.css.
+ * Palette : celle de la refonte + couleurs du logo Lafigue.
+ * ===================================================================== */
+
+.lv {
+    --lv-fond: #f7f5ef;
+    --lv-beige: #efece4;
+    --lv-beige-2: #e7e3d8;
+    --lv-sombre: #232b2a;
+    --lv-sombre-2: #2f3836;
+    --lv-encre: #1e221c;
+    --lv-gris: #6b675d;
+    --lv-gris-2: #9a968a;
+    --lv-bleu: #0E74B2;
+    --lv-jaune: #FCD525;
+    --lv-orange: #EE7A2A;
+    --lv-sans: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+    --lv-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+    font-family: var(--lv-sans);
+    color: var(--lv-encre);
+}
+.lv .page.active { padding: 26px 34px 40px; background: var(--lv-fond); }
+.lv h1, .lv h2 { font-family: var(--lv-sans); color: var(--lv-encre); margin: 0; }
+.lv .lbl {
+    display: block; font-family: var(--lv-mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--lv-gris);
+}
+.lv button { font-family: var(--lv-sans); cursor: pointer; }
+
+/* ---------------------------------------------------------- en-tete */
+.lv-tete { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.lv-fil { font-family: var(--lv-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--lv-bleu); }
+.lv-fil i { font-style: normal; margin: 0 .4em; }
+.lv-tete h1 { margin-top: 10px; font-size: 40px; font-weight: 700; letter-spacing: -.015em; }
+.lv-tete p { margin: 8px 0 0; color: var(--lv-gris); font-size: 15px; }
+.lv-presenter {
+    display: inline-flex; align-items: center; gap: 12px; margin-top: 30px;
+    padding: 0 22px; height: 42px; min-width: 236px; border: 0; border-radius: 2px;
+    background: var(--lv-jaune); color: var(--lv-encre); font-size: 14px; font-weight: 600; letter-spacing: .02em;
+    box-shadow: 0 1px 0 rgba(0,0,0,.08);
+    transition: transform .15s, box-shadow .15s;
+}
+.lv-presenter svg { width: 11px; height: 11px; }
+.lv-presenter:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(252,213,37,.45); }
+
+/* ---------------------------------------------------------- onglets */
+.lv-onglets-ligne { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 32px; }
+.lv-onglets { display: flex; gap: 24px; }
+.lv-onglets button {
+    width: 230px; height: 42px; padding: 0 14px; text-align: left; border: 0; border-radius: 2px;
+    background: var(--lv-beige); color: var(--lv-encre); font-size: 14px; font-weight: 500;
+}
+.lv-onglets button.actif { background: var(--lv-sombre); color: #fff; }
+.lv-verrou { font-size: 12.5px; color: var(--lv-gris); }
+.lv-verrou.ouvert { color: var(--lv-orange); font-weight: 600; }
+
+/* ------------------------------------------------------------ grille */
+.lv-grille { display: grid; grid-template-columns: minmax(0, 1fr) 462px; gap: 24px; align-items: start; }
+.lv-volet[hidden] { display: none !important; }
+
+/* ------------------------------------------- tracking de la flotte */
+.lv-track { background: var(--lv-sombre); border-radius: 3px; overflow: hidden; }
+.lv-track-tete { display: flex; align-items: center; gap: 20px; padding: 10px 20px; min-height: 62px; }
+.lv-track-tete h2 { color: #fff; font-size: 21px; font-weight: 500; }
+.lv-track-compteur { flex: 1; text-align: center; color: #b8bcb6; font-size: 13px; }
+.lv-track-actions { display: flex; gap: 8px; }
+.lv-btn-sombre, .lv-btn-clair, .lv-btn-jaune {
+    height: 42px; padding: 0 16px; border: 0; border-radius: 2px; font-size: 14px; font-weight: 500;
+}
+.lv-btn-sombre { background: #4a5351; color: #fff; }
+.lv-btn-sombre:hover { background: #59625f; }
+.lv-btn-jaune { background: var(--lv-jaune); color: var(--lv-encre); }
+.lv-btn-clair { background: #fff; color: var(--lv-encre); }
+.lv-btn-clair:hover { background: #f4f2ec; }
+.lv-track-tete .lv-btn-sombre, .lv-track-tete .lv-btn-jaune { min-width: 128px; }
+
+.lv-track-carte { position: relative; height: clamp(360px, 46vh, 520px); margin: 0 1px 1px; }
+#liveTrackingMap { position: absolute; inset: 0; background: #0f100e; }
+.lv-zoom {
+    position: absolute; z-index: 500; right: 20px; top: 14px; display: flex; flex-direction: column;
+    background: rgba(29, 35, 34, .9);
+}
+.lv-zoom button { width: 44px; height: 44px; border: 0; background: none; color: #fff; font-size: 22px; display: grid; place-items: center; }
+.lv-zoom button + button { border-top: 1px solid rgba(255,255,255,.1); }
+.lv-zoom button:hover { background: rgba(255,255,255,.08); }
+.lv-zoom svg { width: 17px; height: 17px; }
+
+/* legende par etat (clic = filtre) */
+.lv-legende {
+    position: absolute; z-index: 500; left: 16px; top: 14px; display: flex; flex-wrap: wrap; gap: 6px;
+    max-width: calc(100% - 100px);
+}
+.lv-leg {
+    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: 14px;
+    background: rgba(29, 35, 34, .88); color: #e9e6dc; font-size: 12px; backdrop-filter: blur(4px);
+}
+.lv-leg b { font-family: var(--lv-mono); font-weight: 600; color: #fff; }
+.lv-leg.vide { opacity: .55; }
+.lv-leg:hover { background: rgba(47, 56, 54, .95); }
+.lv-leg.actif { background: #fff; color: var(--lv-encre); }
+.lv-leg.actif b { color: var(--lv-encre); }
+
+/* fiche du DT choisi */
+.lv-fiche {
+    position: absolute; z-index: 600; right: 78px; top: 14px; width: 270px;
+    background: rgba(29, 35, 34, .95); color: #e9e6dc; border-radius: 3px; padding: 12px 14px 10px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.35);
+}
+.lv-fiche-tete { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.lv-fiche-tete b { flex: 1; font-size: 16px; color: #fff; }
+.lv-fiche-tete button { border: 0; background: none; color: #b8bcb6; font-size: 20px; line-height: 1; }
+.lv-fiche dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 12.5px; }
+.lv-fiche dt { color: #9aa09a; }
+.lv-fiche dd { margin: 0; color: #fff; font-family: var(--lv-mono); font-size: 12px; word-break: break-word; }
+.lv-fiche-pied { margin: 9px 0 0; font-size: 11px; color: #8f948e; }
+
+.lv-track-barre {
+    position: absolute; z-index: 500; left: 16px; right: 16px; bottom: 14px;
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: rgba(29, 35, 34, .9); color: #e9e6dc; font-size: 13px;
+}
+.lv-track-barre label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.lv-track-barre input { accent-color: var(--lv-jaune); margin: 0; }
+.lv-track-barre > i { font-style: normal; color: #7c817b; }
+.lv-periode { margin-left: auto; font-family: var(--lv-mono); font-size: 11.5px; color: #b8bcb6; }
+.lv-fond { margin-left: 18px; color: var(--lv-jaune); }
+
+/* ------------------------------------------------------- reglages */
+.lv-reglages { margin-top: 28px; }
+.lv-reglages h2, .lv-kpi h2 { font-size: 26px; font-weight: 600; }
+.lv-aide { margin: 10px 0 0; color: var(--lv-gris); font-size: 14px; }
+.lv-resumes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 30px; }
+.lv-resume {
+    display: flex; flex-direction: column; gap: 9px; padding: 14px 14px 13px; text-align: left;
+    border: 0; border-radius: 2px; background: var(--lv-beige); color: var(--lv-encre);
+    transition: background .15s;
+}
+.lv-resume:hover { background: var(--lv-beige-2); }
+.lv-resume b { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-resume small { color: var(--lv-gris); font-size: 12px; }
+.lv-affichage { display: flex; align-items: center; gap: 22px; margin-top: 30px; }
+.lv-affichage .lbl { width: 130px; }
+.lv-affichage .check-item, .lv-teneurs .check-item, .lv-diff-cases .check-item {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: inherit; cursor: pointer;
+}
+.lv input[type="checkbox"] { accent-color: var(--lv-sombre); }
+
+/* editeur detaille : visible seulement en mode Modifier */
+.lv .lv-editeur.locked { display: none; }
+.lv .lv-editeur {
+    margin-top: 26px; padding: 20px; background: #fff; border: 1px solid var(--lv-beige-2); border-radius: 3px;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px;
+}
+.lv .lv-editeur .map-config-section { margin: 0; padding: 0; border: 0; background: none; opacity: 1; pointer-events: auto; }
+.lv .lv-editeur .map-config-section#secZones,
+.lv .lv-editeur .map-config-section#secTrails,
+.lv .lv-editeur .map-config-section#secCouches { grid-column: 1 / -1; }
+.lv .lv-editeur .map-config-title {
+    font-family: var(--lv-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--lv-gris); margin: 0 0 10px; display: flex; align-items: center; gap: 8px;
+}
+.lv .lv-editeur .map-config-section.lv-flash { animation: lvFlash 1.2s ease; }
+@keyframes lvFlash { 0%, 40% { box-shadow: 0 0 0 3px rgba(252,213,37,.9); } 100% { box-shadow: 0 0 0 3px transparent; } }
+
+/* ---------------------------------------------------- KPI & panneaux */
+.lv-panneaux {
+    display: flex; align-items: center; gap: 0; margin-top: 30px; padding: 20px 18px;
+    background: var(--lv-beige); border-radius: 2px;
+}
+.lv-panneaux .kpi-panneaux-titre { width: 140px; font-family: var(--lv-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--lv-gris); font-weight: 500; }
+.lv-panneaux .kpi-check { flex: 1; font-size: 15px; color: var(--lv-encre); }
+.lv-panneaux .kpi-panneaux-info { margin-left: auto; font-size: 12px; color: var(--lv-gris); }
+.lv-panneaux .kpi-panneaux-info.ok { color: var(--lv-bleu); }
+
+.lv .lv-kpi-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 26px; margin-top: 26px; }
+.lv .lv-kpi-grille .kpi-block {
+    position: relative; margin: 0; padding: 16px 18px 16px 20px; border: 0; border-radius: 2px;
+    background: var(--lv-beige); box-shadow: none;
+}
+.lv .lv-kpi-grille .kpi-block::before {
+    content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; background: var(--kc, #9a968a);
+}
+.lv .lv-kpi-grille .kpi-block:nth-child(1) { --kc: #9a968a; }
+.lv .lv-kpi-grille .kpi-block:nth-child(2) { --kc: var(--lv-jaune); }
+.lv .lv-kpi-grille .kpi-block:nth-child(3) { --kc: #9a968a; }
+.lv .lv-kpi-grille .kpi-block.kpi-offroad { --kc: #E5482F; }
+.lv .lv-kpi-grille .kpi-block:nth-child(5) { --kc: var(--lv-orange); }
+.lv .lv-kpi-grille .kpi-block:nth-child(6) { --kc: var(--lv-bleu); }
+.lv .lv-kpi-grille .kpi-block:nth-child(7) { --kc: var(--lv-jaune); }
+.lv .lv-kpi-grille .kpi-block:nth-child(8) { --kc: #c8bfa4; }
+.lv .lv-kpi-grille .kpi-block.kpi-off { opacity: .5; }
+.lv .lv-kpi-grille .kpi-block.alert { background: #f8e3dc; }
+.lv .lv-kpi-grille .kpi-dot { display: none; }
+.lv .lv-kpi-grille .kpi-block-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.lv .lv-kpi-grille .kpi-name { font-size: 18px; font-weight: 500; color: var(--lv-encre); }
+.lv .lv-kpi-grille .kpi-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.lv .lv-kpi-grille .kpi-field label {
+    display: block; margin-bottom: 8px; font-family: var(--lv-mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--lv-gris);
+}
+.lv .lv-kpi-grille .kpi-field input {
+    width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: 1px; background: #fff;
+    font-family: var(--lv-mono); font-size: 13.5px; color: var(--lv-encre);
+}
+.lv .lv-kpi-grille .kpi-field input[readonly] { background: rgba(255,255,255,.65); }
+.lv .lv-unite { position: relative; display: block; }
+.lv .lv-unite::after {
+    content: attr(data-unite); position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    font-family: var(--lv-mono); font-size: 12px; color: var(--lv-gris); pointer-events: none;
+}
+.lv .lv-unite input { padding-right: 28px; }
+/* interrupteur bleu (maquette) */
+.lv .toggle-sm { position: relative; display: inline-block; width: 36px; height: 20px; }
+.lv .toggle-sm input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+.lv .toggle-sm .toggle-track {
+    position: absolute; inset: 0; border-radius: 10px; background: #c9c4b6; transition: background .2s;
+}
+.lv .toggle-sm .toggle-track::after {
+    content: ''; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    transition: transform .2s;
+}
+.lv .toggle-sm input:checked + .toggle-track { background: #1a73e8; }
+.lv .toggle-sm input:checked + .toggle-track::after { transform: translateX(16px); }
+
+.lv-offroad {
+    display: flex; align-items: center; gap: 18px; margin-top: 44px; padding: 14px 18px;
+    background: #e3ecdf; border-radius: 2px;
+}
+.lv-offroad .kpi-check { font-size: 15px; color: #2f6b3a; font-weight: 500; white-space: nowrap; }
+.lv-offroad .kpi-offroad-status { margin: 0; font-size: 12.5px; color: var(--lv-gris); }
+.lv-offroad .kpi-offroad-status.err { color: #c23b22; }
+.lv-offroad .kpi-offroad-status.warn { color: #8c6a00; }
+
+/* ------------------------------------------------- colonne droite */
+.lv-cote { display: flex; flex-direction: column; gap: 24px; }
+.lv-perimetre { padding: 24px 24px 22px; background: var(--lv-beige); border-radius: 2px; }
+.lv-perimetre h2, .lv-diffusion h2 { font-size: 24px; font-weight: 500; }
+.lv-champs { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 18px; margin-top: 30px; }
+.lv-champ { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lv-champ.lv-large { grid-column: 1 / -1; }
+.lv-champ select, .lv-champ input {
+    height: 40px; padding: 0 12px; border: 0; border-radius: 1px; background: var(--lv-fond);
+    font: 400 13.5px var(--lv-sans); color: var(--lv-encre); width: 100%;
+}
+.lv-teneurs-titre { margin-top: 28px; }
+.lv-teneurs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; margin-top: 14px; }
+.lv-filtre-actions { display: grid; grid-template-columns: 1fr auto; gap: 16px; margin-top: 30px; }
+.lv-filtre-actions .lv-btn-sombre { background: var(--lv-sombre); text-align: left; }
+.lv-filtre-actions .lv-btn-sombre:hover { background: #2f3836; }
+.lv-filtre-actions .lv-btn-clair { min-width: 152px; text-align: left; }
+.lv-filtre-etat { margin: 14px 0 0; min-height: 1em; font-size: 12px; color: var(--lv-gris); line-height: 1.45; }
+
+.lv-diffusion { padding: 24px 24px 20px; background: var(--lv-sombre); color: #e9e6dc; border-radius: 2px; }
+.lv-diffusion > .lbl { color: var(--lv-jaune); }
+.lv-diffusion h2 { color: #fff; margin: 18px 0 24px; }
+.lv-diffusion .lv-champ { margin-bottom: 20px; }
+.lv-diffusion .lv-champ .lbl { color: #b8bcb6; }
+.lv-diffusion .lv-champ select { background: var(--lv-sombre-2); color: #fff; }
+.lv-diff-cases { display: flex; gap: 22px; }
+.lv-diff-cases input { accent-color: var(--lv-jaune); }
+.lv-diff-etat { margin: 14px 0 0; font-size: 11.5px; color: #8f948e; }
+.lv-diff-etat.ok { color: var(--lv-jaune); }
+
+/* ----------------------------------------------------- barre d'etat */
+.status-bar.lv-pied {
+    display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 20px;
+    padding: 0 34px; font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace; font-size: 11px; color: #6b675d;
+}
+.lv-pied-lien { display: inline-flex; align-items: center; gap: 8px; letter-spacing: .08em; text-transform: uppercase; }
+.lv-pied-lien i { width: 8px; height: 8px; border-radius: 50%; background: #9a968a; }
+.lv-pied-lien b { font-weight: 500; color: #0E74B2; }
+.lv-pied-lien.ok i { background: #0E74B2; }
+.lv-pied-lien.ko i { background: #E5482F; }
+.lv-pied-lien.ko b, .lv-pied-lien.ko span { color: #c23b22; }
+.lv-pied-env i { font-style: normal; margin: 0 .5em; }
+.lv-pied-heure { display: inline-flex; gap: 26px; text-transform: uppercase; letter-spacing: .06em; }
+
+/* ------------------------------------------------------- responsive */
+@media (max-width: 1500px) {
+    .lv-grille { grid-template-columns: minmax(0, 1fr) 380px; }
+    .lv-onglets button { width: 190px; }
+}
+@media (max-width: 1200px) {
+    .lv-grille { grid-template-columns: minmax(0, 1fr); }
+    .lv-resumes, .lv .lv-kpi-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -6,6 +6,10 @@
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
     <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="../css/carte-suivi.css" />
+    <link rel="stylesheet" href="../css/live.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -123,28 +127,90 @@
             </aside>
 
             <!-- MAIN CONTENT AREA -->
-            <main class="content">
+            <main class="content lv">
 
-<!-- PAGE: LIVE -->
+<!-- PAGE: LIVE — Suivi en direct (maquettes du 19/11, Zone 1) -->
                 <section class="page active" id="page-live">
-                    <div class="live-grid">
-                        <!-- LEFT COLUMN: MAP + KPI -->
-                        <div class="live-left">
-                            <!-- MAP TRACKING -->
-                            <div class="panel panel-map">
-                                <div class="panel-label">
-                                    <span><i class="fas fa-map-marked-alt"></i> Map Tracking</span>
-                                    <div class="panel-actions" id="mapPanelActions">
-                                        <button class="btn-action btn-unlock" id="btnUnlockMap"><i class="fas fa-lock"></i> Modifier</button>
-                                        <button class="btn-action btn-confirm" id="btnConfirmMap" style="display:none"><i class="fas fa-check"></i> Confirmer</button>
-                                        <button class="btn-action btn-cancel" id="btnCancelMap" style="display:none"><i class="fas fa-times"></i> Annuler</button>
+                    <header class="lv-tete">
+                        <div>
+                            <nav class="lv-fil" aria-label="Fil d'ariane">Opérations <i>/</i> Live</nav>
+                            <h1>Suivi en direct</h1>
+                            <p>Configurez le tracking, les indicateurs et la projection salle de contrôle.</p>
+                        </div>
+                        <button class="lv-presenter" id="btnPresent" type="button">
+                            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg>
+                            PRESENTER
+                        </button>
+                    </header>
+
+                    <div class="lv-onglets-ligne">
+                        <div class="lv-onglets" role="tablist">
+                            <button type="button" role="tab" class="actif" data-onglet="carte" aria-selected="true">Carte &amp; tracking</button>
+                            <button type="button" role="tab" data-onglet="kpi" aria-selected="false">KPI &amp; panneaux</button>
+                        </div>
+                        <span class="lv-verrou" id="lvVerrou">Configuration verrouillée par défaut</span>
+                    </div>
+
+                    <div class="lv-grille">
+                        <div class="lv-principal">
+
+                            <!-- ============ ONGLET CARTE & TRACKING ============ -->
+                            <div class="lv-volet actif" data-volet="carte" role="tabpanel">
+                                <section class="lv-track">
+                                    <div class="lv-track-tete">
+                                        <h2>Tracking de la flotte</h2>
+                                        <span class="lv-track-compteur" id="liveTrackingCompteur">Connexion à la passerelle…</span>
+                                        <div class="lv-track-actions" id="mapPanelActions">
+                                            <button type="button" class="lv-btn-sombre" id="btnUnlockMap">Modifier</button>
+                                            <button type="button" class="lv-btn-jaune" id="btnConfirmMap" style="display:none">Confirmer</button>
+                                            <button type="button" class="lv-btn-sombre" id="btnCancelMap" style="display:none">Annuler</button>
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="panel-content">
-                                    <div class="map-config" id="mapConfig">
+                                    <div class="lv-track-carte">
+                                        <div id="liveTrackingMap"></div>
+                                        <div class="lv-zoom">
+                                            <button type="button" id="trkZoomIn" title="Zoom avant">+</button>
+                                            <button type="button" id="trkZoomOut" title="Zoom arrière">−</button>
+                                            <button type="button" id="trkRecentrer" title="Recentrer"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5" stroke="currentColor" stroke-width="1.7"/></svg></button>
+                                        </div>
+                                        <!-- legende = compteurs par etat ; un clic filtre sur l'etat -->
+                                        <div class="lv-legende" id="trkLegende" aria-label="DT par état"></div>
+                                        <!-- fiche du DT choisi (clic sur la carte) -->
+                                        <div class="lv-fiche" id="trkFiche" hidden></div>
+                                        <div class="lv-track-barre">
+                                            <label><input type="checkbox" id="trkZones" checked> Zones minières</label><i>/</i>
+                                            <label><input type="checkbox" id="trkTrajets" checked> Trajets DT</label><i>/</i>
+                                            <label><input type="checkbox" id="trkLabels" checked> Labels engins</label>
+                                            <span class="lv-periode" id="trkPeriode"></span>
+                                            <span class="lv-fond" id="trkFond">--</span>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="lv-reglages">
+                                    <h2>Réglages de la carte</h2>
+                                    <p class="lv-aide" id="lvReglagesAide">Lecture seule · activez Modifier pour changer la configuration.</p>
+                                    <div class="lv-resumes">
+                                        <button type="button" class="lv-resume" data-section="secFond"><span class="lbl">Fond de carte</span><b id="sumFond">--</b><small>OSM · Topo · Sombre · MBTiles local</small></button>
+                                        <button type="button" class="lv-resume" data-section="secCrs"><span class="lbl">Coordonnées</span><b id="sumCrs">--</b><small>WGS84 ou UTM</small></button>
+                                        <button type="button" class="lv-resume" data-section="secCentre"><span class="lbl">Centre &amp; zoom</span><b id="sumCentre">--</b><small>Latitude · Longitude · Zoom</small></button>
+                                        <button type="button" class="lv-resume" data-section="secCouches"><span class="lbl">Couches GeoTIFF</span><b id="sumCouches">--</b><small>Activer toutes · Diagnostic</small></button>
+                                        <button type="button" class="lv-resume" data-section="secZones"><span class="lbl">Zones minières</span><b id="sumZones">--</b><small>Création et modification des zones</small></button>
+                                        <button type="button" class="lv-resume" data-section="secTrails"><span class="lbl">Trails</span><b id="sumTrails">--</b><small>Manuel ou GeoJSON / CSV</small></button>
+                                    </div>
+                                    <div class="lv-affichage">
+                                        <span class="lbl">Affichage</span>
+                                        <label class="check-item"><input type="checkbox" id="cfgShowZones" checked /> Zones</label>
+                                        <label class="check-item"><input type="checkbox" id="cfgShowTrails" checked /> Trails</label>
+                                        <label class="check-item"><input type="checkbox" id="cfgShowLabels" checked /> Labels engins</label>
+                                    </div>
+
+                                    <!-- editeur detaille : visible en mode Modifier (classe .locked retiree par app.js) -->
+                                    <div class="map-config lv-editeur" id="mapConfig">
+
 
                                         <!-- FOND DE CARTE -->
-                                        <div class="map-config-section">
+                                        <div class="map-config-section" id="secFond">
                                             <h4 class="map-config-title"><i class="fas fa-layer-group"></i> Fond de carte</h4>
                                             <div class="map-config-row">
                                                 <div class="map-config-group" style="flex:1">
@@ -197,7 +263,7 @@
                                         </div>
 
                                         <!-- COUCHES PERSONNALISEES -->
-                                        <div class="map-config-section">
+                                        <div class="map-config-section" id="secCouches">
                                             <h4 class="map-config-title"><i class="fas fa-images"></i> Couches <button class="btn-toggle-all" id="btnToggleAllLayers" title="Activer / Desactiver toutes les couches"><i class="fas fa-eye"></i></button></h4>
                                             <div class="tiff-layer-list" id="layerList">
                                                 <!-- Dynamiquement rempli par JS -->
@@ -209,7 +275,7 @@
                                         </div>
 
                                         <!-- CENTRE & ZOOM -->
-                                        <div class="map-config-section">
+                                        <div class="map-config-section" id="secCentre">
                                             <h4 class="map-config-title"><i class="fas fa-crosshairs"></i> Centre & Zoom</h4>
                                             <div class="map-config-row">
                                                 <div class="map-config-group">
@@ -228,7 +294,7 @@
                                         </div>
 
                                         <!-- SYSTEME DE COORDONNEES -->
-                                        <div class="map-config-section">
+                                        <div class="map-config-section" id="secCrs">
                                             <h4 class="map-config-title"><i class="fas fa-globe"></i> Systeme de coordonnees</h4>
                                             <div class="map-config-row">
                                                 <div class="map-config-group" style="flex:1">
@@ -246,7 +312,7 @@
                                         </div>
 
                                         <!-- ZONES -->
-                                        <div class="map-config-section">
+                                        <div class="map-config-section" id="secZones">
                                             <h4 class="map-config-title"><i class="fas fa-map-marker-alt"></i> Zones minieres</h4>
                                             <div class="zone-list" id="zoneList"></div>
                                             <div class="zone-actions">
@@ -257,7 +323,7 @@
                                         </div>
 
                                         <!-- TRAILS -->
-                                        <div class="map-config-section">
+                                        <div class="map-config-section" id="secTrails">
                                             <h4 class="map-config-title"><i class="fas fa-route"></i> Trails (chemins)</h4>
 
                                             <div class="trail-mode-tabs">
@@ -289,48 +355,38 @@
                                             </div>
                                         </div>
 
-                                        <!-- AFFICHAGE -->
-                                        <div class="map-config-section">
-                                            <h4 class="map-config-title"><i class="fas fa-eye"></i> Affichage</h4>
-                                            <div class="map-config-row">
-                                                <label class="check-item"><input type="checkbox" id="cfgShowZones" checked /> Zones</label>
-                                                <label class="check-item"><input type="checkbox" id="cfgShowTrails" checked /> Trails</label>
-                                                <label class="check-item"><input type="checkbox" id="cfgShowLabels" checked /> Labels engins</label>
-                                            </div>
-                                        </div>
                                     </div>
-                                </div>
+                                </section>
                             </div>
-                        </div>
 
-                        <!-- LIGNE 2 (20% hauteur) : KPI -->
-                        <div class="live-bottom">
-                            <div class="panel panel-kpi">
-                                <div class="panel-label">KPI - Configuration</div>
-                                <div class="panel-content">
-                                    <!-- Affichage des panneaux du dashboard sans valeur a saisir -->
-                                    <div class="kpi-panneaux">
+                            <!-- ============ ONGLET KPI & PANNEAUX ============ -->
+                            <div class="lv-volet" data-volet="kpi" role="tabpanel" hidden>
+                                <section class="lv-kpi">
+                                    <h2>Indicateurs &amp; panneaux</h2>
+                                    <p class="lv-aide">Les valeurs Actuel sont calculées par la passerelle et restent en lecture seule.</p>
+                                    <div class="kpi-panneaux lv-panneaux">
                                         <span class="kpi-panneaux-titre">Panneaux</span>
                                         <label class="kpi-check"><input type="checkbox" data-kpi="env" checked /> Environnement</label>
                                         <label class="kpi-check"><input type="checkbox" data-kpi="tablets" checked /> Tablettes</label>
-                                        <span class="kpi-panneaux-info" id="kpiAppliqueInfo">Applique en direct au dashboard</span>
+                                        <span class="kpi-panneaux-info" id="kpiAppliqueInfo">Appliqué en direct au dashboard</span>
                                     </div>
-                                    <div class="kpi-config-grid">
+                                    <div class="kpi-config-grid lv-kpi-grille">
+
                                         <!-- KPI MINERAIS -->
                                         <div class="kpi-block">
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#94a3b8"></span>
-                                                <span class="kpi-name">Minerais - Tonnage</span>
+                                                <span class="kpi-name">Minerais</span>
                                                 <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="minerais" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="minerais" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="minerais" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="minerais" value="55000" min="0" />
+                                                    <span class="lv-unite" data-unite="t"><input type="number" class="form-input-sm" data-planned="minerais" value="55000" min="0" /></span>
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Alerte %</label>
@@ -343,17 +399,17 @@
                                         <div class="kpi-block">
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#fbbf24"></span>
-                                                <span class="kpi-name">Ore -onces</span>
+                                                <span class="kpi-name">Ore · Or produit</span>
                                                 <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="ore" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="ore" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="ore" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="ore" value="1600" min="0" />
+                                                    <span class="lv-unite" data-unite="oz"><input type="number" class="form-input-sm" data-planned="ore" value="1600" min="0" /></span>
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Alerte %</label>
@@ -366,17 +422,17 @@
                                         <div class="kpi-block">
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" style="background:#94a3b8"></span>
-                                                <span class="kpi-name">Waste - Tonnage</span>
+                                                <span class="kpi-name">Waste</span>
                                                 <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="waste" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="waste" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="waste" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="waste" value="25000" min="0" />
+                                                    <span class="lv-unite" data-unite="t"><input type="number" class="form-input-sm" data-planned="waste" value="25000" min="0" /></span>
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Alerte %</label>
@@ -392,7 +448,7 @@
                                         <div class="kpi-block kpi-offroad" id="kpiOffroadBlock">
                                             <div class="kpi-block-header">
                                                 <span class="kpi-dot" id="offroadDot" style="background:#64748b"></span>
-                                                <span class="kpi-name">Offroad Count</span>
+                                                <span class="kpi-name">Off-Route</span>
                                                 <label class="toggle-sm" title="Afficher sur le dashboard"><input type="checkbox" data-kpi="offroad" checked /><span class="toggle-track"></span></label>
                                             </div>
                                             <div class="kpi-fields">
@@ -409,10 +465,6 @@
                                                     <input type="number" class="form-input-sm" id="cfgOffroadDuree" value="10" min="0" max="600" step="1" title="Duree hors piste avant de declencher l'alerte" />
                                                 </div>
                                             </div>
-                                            <div class="kpi-offroad-foot">
-                                                <label class="kpi-check" title="Detection des sorties de route par la passerelle"><input type="checkbox" id="cfgOffroadActif" checked /> Detection</label>
-                                                <div class="kpi-offroad-status" id="offroadStatus">Passerelle : connexion...</div>
-                                            </div>
                                         </div>
 
                                         <!-- GRADE HIGH -->
@@ -425,11 +477,15 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="hg" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="hg" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="hg" value="4500" min="0" />
+                                                    <span class="lv-unite" data-unite="t"><input type="number" class="form-input-sm" data-planned="hg" value="4500" min="0" /></span>
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" data-alerte="hg" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
@@ -444,11 +500,15 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="mg" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="mg" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="mg" value="3000" min="0" />
+                                                    <span class="lv-unite" data-unite="t"><input type="number" class="form-input-sm" data-planned="mg" value="3000" min="0" /></span>
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" data-alerte="mg" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
@@ -463,11 +523,15 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="lg" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="lg" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="lg" value="2600" min="0" />
+                                                    <span class="lv-unite" data-unite="t"><input type="number" class="form-input-sm" data-planned="lg" value="2600" min="0" /></span>
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" data-alerte="lg" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
@@ -482,137 +546,95 @@
                                             <div class="kpi-fields">
                                                 <div class="kpi-field">
                                                     <label>Actuel</label>
-                                                    <input type="number" class="form-input-sm" data-actuel="mo" value="" placeholder="--" readonly title="Calcule sur les voyages du jour (passerelle)" />
+                                                    <input type="number" class="form-input-sm" data-actuel="mo" value="" placeholder="--" readonly title="Calculé par la passerelle (base en ligne)" />
                                                 </div>
                                                 <div class="kpi-field">
                                                     <label>Planned</label>
-                                                    <input type="number" class="form-input-sm" data-planned="mo" value="1000" min="0" />
+                                                    <span class="lv-unite" data-unite="t"><input type="number" class="form-input-sm" data-planned="mo" value="1000" min="0" /></span>
+                                                </div>
+                                                <div class="kpi-field">
+                                                    <label>Alerte %</label>
+                                                    <input type="number" class="form-input-sm" data-alerte="mo" value="10" min="0" max="100" />
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                    <div class="lv-offroad" id="lvOffroadBandeau">
+                                        <label class="kpi-check" title="Détection des sorties de route par la passerelle"><input type="checkbox" id="cfgOffroadActif" checked /> Détection Offroad</label>
+                                        <div class="kpi-offroad-status" id="offroadStatus">Passerelle : connexion...</div>
+                                    </div>
+                                </section>
                             </div>
                         </div>
 
-                        <!-- COLONNE DROITE (20%) : FILTRES + RENDU -->
-                        <div class="live-right">
-                            <!-- FILTRES -->
-                            <div class="panel panel-filters">
-                                <div class="panel-label">Filtres</div>
-                                <div class="panel-content">
-                                    <div class="filter-section">
-                                        <h4 class="filter-title">Engins</h4>
-                                        <div class="filter-group">
-                                            <label>Type</label>
-                                            <select class="form-select-sm">
-                                                <option>Tous</option>
-                                                <option>Dump Truck</option>
-                                                <option>Excavator</option>
-                                                <option>Bulldozer</option>
-                                            </select>
-                                        </div>
-                                        <div class="filter-group">
-                                            <label>Statut</label>
-                                            <select class="form-select-sm">
-                                                <option>Tous</option>
-                                                <option>Actif</option>
-                                                <option>Idle</option>
-                                                <option>Maintenance</option>
-                                            </select>
-                                        </div>
-                                        <div class="filter-group">
-                                            <label>Zone</label>
-                                            <select class="form-select-sm">
-                                                <option>Toutes</option>
-                                                <option>Main Pit</option>
-                                                <option>West Pit</option>
-                                                <option>ROM Pad 1</option>
-                                                <option>ROM Pad 2</option>
-                                                <option>ROM Pad 3</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div class="filter-section">
-                                        <h4 class="filter-title">Shift</h4>
-                                        <div class="filter-group">
-                                            <label>Periode</label>
-                                            <select class="form-select-sm">
-                                                <option>Tous</option>
-                                                <option>Jour (06h-18h)</option>
-                                                <option>Nuit (18h-06h)</option>
-                                            </select>
-                                        </div>
-                                        <div class="filter-group">
-                                            <label>Date</label>
-                                            <input type="date" class="form-input-sm" />
-                                        </div>
-                                    </div>
-
-                                    <div class="filter-section">
-                                        <h4 class="filter-title">Grade</h4>
-                                        <label class="check-item"><input type="checkbox" checked /> High Grade</label>
-                                        <label class="check-item"><input type="checkbox" checked /> Medium Grade</label>
-                                        <label class="check-item"><input type="checkbox" checked /> Low Grade</label>
-                                        <label class="check-item"><input type="checkbox" checked /> Marginal Ore</label>
-                                    </div>
-
-                                    <button class="btn-apply-filter">Appliquer</button>
-                                    <button class="btn-reset-filter">Reinitialiser</button>
+                        <!-- ============ COLONNE DROITE ============ -->
+                        <aside class="lv-cote">
+                            <section class="lv-perimetre">
+                                <h2>Périmètre de suivi</h2>
+                                <div class="lv-champs">
+                                    <label class="lv-champ"><span class="lbl">Type d'engin</span>
+                                        <select id="fltType">
+                                            <option value="tous">Tous les types</option>
+                                            <option value="DT">Dump trucks (DT)</option>
+                                            <option value="EXCA">Excavatrices</option>
+                                        </select></label>
+                                    <label class="lv-champ"><span class="lbl">Statut</span>
+                                        <select id="fltStatut"><option value="tous">Tous</option></select></label>
+                                    <label class="lv-champ lv-large"><span class="lbl">Zone</span>
+                                        <select id="fltZone"><option value="toutes">Toutes les zones</option></select></label>
+                                    <label class="lv-champ"><span class="lbl">Shift</span>
+                                        <select id="fltShift">
+                                            <option value="encours">Shift en cours</option>
+                                            <option value="jour">Jour (06h-18h)</option>
+                                            <option value="nuit">Nuit (18h-06h)</option>
+                                            <option value="journee">Journée entière</option>
+                                        </select></label>
+                                    <label class="lv-champ"><span class="lbl">Date</span>
+                                        <input type="date" id="fltDate" /></label>
                                 </div>
-                            </div>
-
-                            <!-- RENDU -->
-                            <div class="panel panel-rendu">
-                                <div class="panel-label">Rendu</div>
-                                <div class="panel-content rendu-center">
-                                    <p class="rendu-desc">Configuration et lancement de la projection etendue</p>
-                                    <button class="btn-present" id="btnPresent">
-                                        <i class="fas fa-play"></i>
-                                        PRESENTER
-                                    </button>
-                                    <div class="rendu-options">
-                                        <div class="rendu-option">
-                                            <label>Mode</label>
-                                            <select class="form-select-sm">
-                                                <option>Plein ecran etendu</option>
-                                                <option>Fenetre</option>
-                                                <option>Double ecran</option>
-                                            </select>
-                                        </div>
-                                        <div class="rendu-option">
-                                            <label>Ecran cible</label>
-                                            <select class="form-select-sm">
-                                                <option>Automatique</option>
-                                                <option>Ecran 1</option>
-                                                <option>Ecran 2</option>
-                                            </select>
-                                        </div>
-                                        <label class="check-item"><input type="checkbox" id="cfgShowAlerts" checked /> Afficher alertes</label>
-                                        <label class="check-item"><input type="checkbox" checked /> Afficher trails</label>
-                                        <label class="check-item"><input type="checkbox" checked /> Animations</label>
-                                    </div>
+                                <span class="lbl lv-teneurs-titre">Teneurs (chargement des DT)</span>
+                                <div class="lv-teneurs">
+                                    <label class="check-item"><input type="checkbox" data-flt-teneur="high" checked /> High Grade</label>
+                                    <label class="check-item"><input type="checkbox" data-flt-teneur="medium" checked /> Medium Grade</label>
+                                    <label class="check-item"><input type="checkbox" data-flt-teneur="low" checked /> Low Grade</label>
+                                    <label class="check-item"><input type="checkbox" data-flt-teneur="marginal" checked /> Marginal Ore</label>
                                 </div>
-                            </div>
-                        </div>
+                                <div class="lv-filtre-actions">
+                                    <button type="button" class="lv-btn-sombre" id="btnFltAppliquer">Appliquer les filtres</button>
+                                    <button type="button" class="lv-btn-clair" id="btnFltReset">Réinitialiser</button>
+                                </div>
+                                <p class="lv-filtre-etat" id="fltEtat"></p>
+                            </section>
+
+                            <section class="lv-diffusion">
+                                <span class="lbl">Diffusion</span>
+                                <h2>La salle de contrôle, alignée.</h2>
+                                <label class="lv-champ"><span class="lbl">Mode</span>
+                                    <select id="cfgDiffMode">
+                                        <option value="etendu">Plein écran étendu</option>
+                                        <option value="fenetre">Fenêtre</option>
+                                    </select></label>
+                                <label class="lv-champ"><span class="lbl">Écran cible</span>
+                                    <select id="cfgDiffEcran"><option value="auto">Automatique</option></select></label>
+                                <div class="lv-diff-cases">
+                                    <label class="check-item"><input type="checkbox" id="cfgShowAlerts" checked /> Alertes</label>
+                                    <label class="check-item"><input type="checkbox" id="cfgDiffTrajets" checked /> Trajets</label>
+                                    <label class="check-item"><input type="checkbox" id="cfgDiffAnimations" checked /> Animations</label>
+                                </div>
+                                <p class="lv-diff-etat" id="cfgDiffEtat">Appliqué en direct à la salle de contrôle.</p>
+                            </section>
+                        </aside>
                     </div>
                 </section>
 
                 </main>
         </div>
 
-        <!-- BOTTOM STATUS BAR -->
-        <footer class="status-bar">
-            <div class="status-left">
-                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-thermometer-half"></i> Temp. : --</span>
-                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-cloud-rain"></i> Pluie : --</span>
-                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
-            </div>
-            <div class="status-right">
-                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
-                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
-            </div>
+        <!-- BARRE D'ETAT -->
+        <footer class="status-bar lv-pied">
+            <span class="lv-pied-lien" id="lvPasserelle"><i></i><b>Passerelle</b> <span>connexion…</span></span>
+            <span class="lv-pied-env" title="Aucune sonde météo branchée">-- °C <i>/</i> Pluie -- <i>/</i> Humidité -- %</span>
+            <span class="lv-pied-heure"><span id="statusDate">--</span><span id="statusTime">--</span></span>
         </footer>
     </div>
 
@@ -643,6 +665,8 @@
     <script src="../js/server-ui.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
+    <script src="../js/carte-suivi.js"></script>
+    <script src="../js/live-tracking.js"></script>
 </body>
 </html>
 
