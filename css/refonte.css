@@ -8,7 +8,7 @@
     /* --- Palette minérale (exacte maquettes "Bureau minéral") --- */
     --r-bg-deep: #1d2620;          /* sidebar / chips sombres */
     --r-bg-app: #f4f1e8;           /* fond crème */
-    --r-bg-sidebar: #1d2620;       /* vert-charbon sidebar */
+    --r-bg-sidebar: #ede9dc;       /* sidebar crème (maquettes) */
     --r-bg-panel: #fbfaf5;         /* cartes blanches */
     --r-bg-panel-solid: #faf8f1;
     --r-bg-elevated: #ffffff;
@@ -86,10 +86,10 @@ body::before {
     background: rgba(30, 34, 28, 0.08);
 }
 
-/* ---------- SIDEBAR (vert-charbon, lignes horizontales — maquettes) ---------- */
+/* ---------- SIDEBAR (crème, lignes horizontales — maquettes) ---------- */
 .sidebar {
     background: var(--r-bg-sidebar);
-    border-right: 1px solid rgba(0, 0, 0, 0.25);
+    border-right: 1px solid var(--r-border);
     width: 236px;
     align-self: stretch;
     height: 100%;
@@ -99,12 +99,12 @@ body::before {
 
 .sidebar .sidebar-link span,
 .sidebar .user-name {
-    color: #ece9df;
+    color: var(--r-text);
 }
 
 .sidebar .user-email,
 .sidebar .nav-section-label {
-    color: #8d9384;
+    color: var(--r-text-3);
 }
 
 /* Logo en haut de sidebar (maquettes) */
@@ -112,15 +112,15 @@ body::before {
     display: flex;
     align-items: center;
     gap: 11px;
-    padding: 18px 16px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 20px 16px 18px;
+    border-bottom: 1px solid var(--r-border);
 }
 
 .sidebar-brand-mark {
     width: 34px;
     height: 34px;
     border-radius: 9px;
-    background: var(--r-accent);
+    background: var(--r-text);
     color: #fff;
     display: flex;
     align-items: center;
@@ -134,13 +134,13 @@ body::before {
     font-size: 13px;
     font-weight: 800;
     letter-spacing: 1.5px;
-    color: #f4f2ea;
+    color: var(--r-text);
 }
 .sidebar-brand-sub {
     font-size: 9.5px;
     font-weight: 600;
     letter-spacing: 1.4px;
-    color: #8d9384;
+    color: var(--r-text-3);
     text-transform: uppercase;
 }
 
@@ -197,7 +197,7 @@ body::before {
 }
 
 .sidebar-link:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(30, 34, 28, 0.055);
     transform: none;
 }
 
@@ -206,9 +206,9 @@ body::before {
     opacity: 1;
 }
 
-/* Item actif : chip + liseré orange gauche (maquettes) */
+/* Item actif : fond légèrement plus soutenu + liseré orange gauche (maquettes) */
 .sidebar-link.active {
-    background: #2c352b;
+    background: rgba(30, 34, 28, 0.07);
     border-left: 3px solid var(--r-accent);
     border-radius: 0 var(--r-radius-sm) var(--r-radius-sm) 0;
     padding-left: 9px;
@@ -216,8 +216,8 @@ body::before {
 }
 
 .sidebar-link.active span {
-    color: #fff;
-    font-weight: 700;
+    color: var(--r-text);
+    font-weight: 800;
 }
 
 .sidebar-link.active i,
@@ -232,7 +232,7 @@ body::before {
     justify-content: flex-start;
     gap: 10px;
     padding: 12px 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--r-border);
     background: var(--r-bg-sidebar);
     margin-top: auto;
     flex-shrink: 0;
@@ -242,7 +242,7 @@ body::before {
     width: 32px !important;
     height: 32px !important;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(30, 34, 28, 0.08);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -251,7 +251,7 @@ body::before {
 
 .sidebar-user .user-avatar i {
     font-size: 15px !important;
-    color: #cfcabc;
+    color: var(--r-text-2);
 }
 
 .sidebar-user .user-info {
@@ -266,7 +266,7 @@ body::before {
 .sidebar-user .user-name {
     font-size: 12px !important;
     font-weight: 700;
-    color: #ece9df !important;
+    color: var(--r-text) !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -275,7 +275,7 @@ body::before {
 
 .sidebar-user .user-email {
     font-size: 10px !important;
-    color: #8d9384 !important;
+    color: var(--r-text-3) !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -286,7 +286,7 @@ body::before {
 .sidebar-user { position: relative; }
 
 .sidebar-user .btn-logout {
-    color: #8d9384 !important;
+    color: var(--r-text-3) !important;
     font-size: 13px !important;
     padding: 6px !important;
     flex: 0 0 auto !important;
@@ -304,8 +304,8 @@ body::before {
 }
 
 .sidebar-user .btn-logout:hover {
-    color: #fff !important;
-    background: rgba(255, 255, 255, 0.08) !important;
+    color: var(--r-text) !important;
+    background: rgba(30, 34, 28, 0.08) !important;
 }
 
 /* Toast : style maquette (charbon, pas bleu nuit) */
@@ -2101,3 +2101,516 @@ textarea:focus {
     overflow-y: visible !important;
     flex: initial !important;
 }
+
+/* ============================================================
+   TOPBAR (maquette : ORE TRACKING / ESPACE OPÉRATIONS + pastilles)
+   ============================================================ */
+.menu-bar {
+    height: 58px;
+    padding: 0 22px 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.menu-bar .menu-left {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.r-crumb-app {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+    color: var(--r-text);
+}
+
+.r-crumb-sep2 {
+    font-size: 11px;
+    color: var(--r-border-strong);
+}
+
+.r-crumb-space {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--r-text-3);
+}
+
+.menu-bar .menu-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.r-net-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--r-border);
+    background: transparent;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: var(--r-text-2);
+}
+
+.r-net-pill i { font-size: 10px; opacity: 0.7; }
+
+.r-net-pill.is-on {
+    color: var(--r-green);
+    border-color: rgba(47, 158, 68, 0.35);
+    background: rgba(47, 158, 68, 0.07);
+}
+
+.r-net-pill.is-off {
+    color: var(--r-text-3);
+    border-color: var(--r-border);
+    background: transparent;
+}
+
+.r-bell {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--r-border);
+    background: transparent;
+    color: var(--r-text-2);
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.r-bell:hover {
+    border-color: var(--r-border-strong);
+    color: var(--r-text);
+}
+
+.r-site-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--r-bg-deep);
+    color: #f4f2ea;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.r-site-chip i { font-size: 9px; color: var(--r-gold); }
+
+.app-version {
+    font-size: 10.5px !important;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    color: var(--r-text-3) !important;
+    padding-left: 4px;
+}
+
+/* ============================================================
+   HOME v2 — fidèle à la maquette « Bureau minéral »
+   ============================================================ */
+
+/* --- Sidebar : compléments (chevron, badge, pied de marque) --- */
+.sidebar-link-chev {
+    margin-left: auto !important;
+    opacity: 0.45 !important;
+}
+
+.sidebar-badge {
+    margin-left: auto;
+    font-size: 10.5px;
+    font-weight: 800;
+    color: var(--r-text-2);
+    background: rgba(30, 34, 28, 0.08);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sidebar-link.active .sidebar-badge {
+    background: var(--r-text);
+    color: #f4f2ea;
+}
+
+.sidebar-mine {
+    margin-top: auto;
+    padding: 16px 16px 18px;
+    background: var(--r-bg-deep);
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.sidebar-mine-brand {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    color: rgba(244, 242, 234, 0.55);
+    text-transform: uppercase;
+}
+
+.sidebar-mine-name {
+    font-size: 12.5px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+    color: #f4f2ea;
+    margin-top: 3px;
+}
+
+.sidebar-mine-sub {
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: rgba(244, 242, 234, 0.45);
+    margin-top: 2px;
+}
+
+/* --- Bandeau sable « SITE À SURVEILLER » --- */
+.r-bandeau {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 28px;
+    padding: 24px 26px;
+    background: #f0e9d8;
+    border: 1px solid #e3d9c2;
+    border-radius: var(--r-radius);
+    margin-bottom: 30px;
+}
+
+.r-bandeau-main { flex: 1; min-width: 0; }
+
+.r-bandeau-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    color: #8a7f66;
+    margin-bottom: 9px;
+}
+
+.r-bandeau-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--r-accent);
+}
+
+.r-bandeau-headline {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--r-text);
+    line-height: 1.25;
+}
+
+.r-bandeau-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 9px 0 0;
+    border: none;
+    padding: 0;
+    background: transparent;
+    font-size: 12.5px;
+    color: #7a6f58;
+}
+
+.r-bandeau-sub .voyant-pastille {
+    width: 8px;
+    height: 8px;
+    box-shadow: none;
+}
+
+.r-bandeau-sub .voyant-texte {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #7a6f58;
+    letter-spacing: 0;
+}
+
+.r-bandeau-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
+    flex-shrink: 0;
+}
+
+.r-bandeau-cta i { font-size: 10px; }
+
+/* --- Stats --- */
+.home-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin-bottom: 34px;
+}
+
+@media (max-width: 900px) {
+    .home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 0; }
+}
+
+.home-stats .stat-card {
+    position: relative;
+    padding: 0 26px 20px 0;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible;
+}
+
+.home-stats .stat-card::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--r-border);
+}
+
+.home-stats .stat-card:nth-child(1)::after { background: var(--r-accent); }
+.home-stats .stat-card:nth-child(2)::after { background: var(--r-red); }
+.home-stats .stat-card:nth-child(3)::after { background: var(--r-blue); }
+.home-stats .stat-card:nth-child(4)::after { background: #c9a227; }
+
+.home-stats .stat-card i { display: none; }
+
+.home-stats .stat-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--r-text-3);
+    margin: 0 0 10px;
+    padding-right: 0;
+    line-height: 1.3;
+}
+
+.home-stats .stat-value {
+    font-size: 46px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -2.2px;
+    color: var(--r-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.home-stats .stat-note {
+    font-size: 11.5px;
+    color: var(--r-text-3);
+    margin-top: 11px;
+}
+
+/* --- Bloc « À traiter maintenant » --- */
+.r-fileblock { margin-top: 4px; }
+
+.r-filetitle {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+    color: var(--r-text);
+    margin: 0 0 4px;
+}
+
+.r-filesub {
+    font-size: 12.5px;
+    color: var(--r-text-3);
+    margin: 0 0 18px;
+}
+
+.r-filehead {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr) 90px 120px;
+    gap: 16px;
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--r-border);
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--r-text-3);
+}
+
+.r-filehead-delai { text-align: right; }
+
+/* Lignes de la file : grille alignée sur les en-têtes */
+.r-fileblock .home-file {
+    display: flex;
+    flex-direction: column;
+}
+
+.r-fileblock .file-item {
+    display: grid !important;
+    grid-template-columns: 190px minmax(0, 1fr) 90px 120px;
+    align-items: center;
+    gap: 16px;
+    padding: 15px 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--r-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    text-decoration: none;
+    transition: background 0.15s;
+}
+
+.r-fileblock .file-item:hover {
+    background: rgba(30, 34, 28, 0.025) !important;
+    padding-left: 0 !important;
+}
+
+.r-fileblock .file-item > i {
+    display: none !important;
+}
+
+.r-fileblock .file-item > span {
+    display: contents;
+}
+
+/* Si le JS n'a pas encore enrichi la ligne, on garde un rendu correct */
+.r-fileblock .file-item {
+    grid-auto-flow: row;
+}
+
+.r-fileblock .file-age {
+    text-align: right;
+    font-size: 11.5px !important;
+    color: var(--r-text-3) !important;
+    margin: 0 !important;
+}
+
+.r-fileblock .member-empty {
+    padding: 20px 0;
+    font-size: 13px;
+    color: var(--r-text-3);
+    font-style: italic;
+}
+
+/* --- Panneau SHIFT (charbon) --- */
+.panel-side {
+    position: sticky;
+    top: 82px;
+}
+
+.panel-side-head {
+    padding: 19px 22px 15px;
+}
+
+.shift-hours {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -1.2px;
+    color: #f4f2ea;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.shift-dash { color: rgba(244, 242, 234, 0.35); font-weight: 400; }
+
+.shift-elapsed {
+    font-size: 11.5px;
+    color: #8d887a;
+    margin-top: 8px;
+}
+
+.shift-progress {
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 14px 0 22px;
+    overflow: hidden;
+}
+
+.shift-progress span {
+    display: block;
+    height: 100%;
+    background: var(--r-gold);
+    border-radius: 2px;
+}
+
+.side-block {
+    padding: 16px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    margin-bottom: 4px;
+}
+
+.side-block-label {
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #8d887a;
+    margin-bottom: 7px;
+}
+
+.side-block-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f4f2ea;
+    letter-spacing: -0.2px;
+}
+
+.side-block-sub {
+    font-size: 11.5px;
+    color: #8d887a;
+    margin-top: 4px;
+}
+
+.panel-side .side-row-label { font-size: 11.5px; color: #8d887a; line-height: 1.4; }
+.panel-side .side-row-value { font-size: 12px; color: #e3dfd2; text-align: right; line-height: 1.4; font-weight: 600; }
+
+.side-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 20px;
+}
+
+.side-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-decoration: none;
+    transition: filter 0.15s, background 0.15s;
+}
+
+.side-btn i { font-size: 10px; }
+
+.side-btn-gold {
+    background: var(--r-gold);
+    color: #1e221c;
+}
+
+.side-btn-gold:hover { filter: brightness(1.06); }
+
+.side-btn-dark {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e3dfd2;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.side-btn-dark:hover { background: rgba(255, 255, 255, 0.1); }
