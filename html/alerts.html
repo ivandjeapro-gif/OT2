@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -52,8 +53,16 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
+                <div class="sidebar-brand">
+                    <span class="sidebar-brand-mark"><i class="fas fa-mountain"></i></span>
+                    <span class="sidebar-brand-txt">
+                        <span class="sidebar-brand-name">ORE TRACKING</span>
+                        <span class="sidebar-brand-sub">Bureau mineral</span>
+                    </span>
+                </div>
+<nav class="sidebar-nav">
                     <div class="nav-top">
+                        <span class="nav-section-label">Operations</span>
                         <a class="sidebar-link" data-page="home" href="home.html">
                             <i class="fas fa-home"></i>
                             <span>Home</span>
@@ -72,6 +81,7 @@
                         </a>
                     </div>
                     <div class="nav-bottom">
+                        <span class="nav-section-label">Administration</span>
                         <a class="sidebar-link" data-page="settings" href="settings.html">
                             <i class="fas fa-cog"></i>
                             <span data-i18n>Settings</span>
@@ -110,44 +120,74 @@
 
 <!-- PAGE: ALERTS -->
                 <section class="page active" id="page-alerts">
-                    <div class="panel panel-full">
-                        <div class="panel-label">Alerts du jour</div>
-                        <div class="panel-content">
-                            <div class="alerts-description">
-                                <p>Liste des alertes durant les voyages des DT. Le dumping est classifie par <strong class="highlight-green">Rompad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
-                            </div>
-                            <div class="alerts-filtres">
-                                <label>Engin
-                                    <input type="text" id="fltDt" class="form-input-sm" placeholder="DT-01" /></label>
-                                <label>Type
-                                    <select id="fltType" class="form-select-sm">
-                                        <option value="">Tous</option>
-                                        <option value="deviation">Deviation</option>
-                                        <option value="retour_trajet">Retour sur trajet</option>
-                                        <option value="offroad">Sortie de route</option>
-                                        <option value="retour_piste">Retour sur piste</option>
-                                        <option value="non_conforme">Dumping non conforme</option>
-                                        <option value="fin_mission">Fin de mission</option>
-                                    </select></label>
-                                <label class="chk"><input type="checkbox" id="fltNonVues" checked /> Non vues seulement</label>
-                                <button type="button" class="team-btn" id="btnAcquitTout">Tout marquer vu</button>
-                                <span class="alerts-compteur" id="alertsCompteur"></span>
-                            </div>
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Heure</th>
-                                        <th>Engin</th>
-                                        <th>Type</th>
-                                        <th>Description</th>
-                                        <th>Vue</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody id="alertsBody">
-                                    <tr><td colspan="6" class="muted">Chargement...</td></tr>
-                                </tbody>
-                            </table>
+                    <div class="r-pagehead">
+                        <nav class="r-breadcrumb" aria-label="Fil d'ariane">
+                            <span class="r-breadcrumb-cat">Opérations</span>
+                            <span class="r-breadcrumb-sep">/</span>
+                            <span class="r-breadcrumb-current">Alerts</span>
+                        </nav>
+                        <h1 class="r-title">Alertes des voyages</h1>
+                        <p class="r-subtitle">Repérez les événements non vus et acquittez chaque alerte.</p>
+                    </div>
+
+                    <!-- CARTE DE FILTRES -->
+                    <div class="r-filtercard r-filtercard-alerts">
+                        <div class="r-filter-field">
+                            <label class="r-filter-label" for="fltDt">Engin</label>
+                            <input type="text" id="fltDt" class="form-input-sm r-input" placeholder="DT-xx ou tous les engins" />
+                        </div>
+                        <div class="r-filter-field">
+                            <label class="r-filter-label" for="fltType">Type d'événement</label>
+                            <select id="fltType" class="form-select-sm r-input">
+                                <option value="">Tous les types</option>
+                                <option value="deviation">Déviation</option>
+                                <option value="retour_trajet">Retour sur trajet</option>
+                                <option value="offroad">Sortie de route</option>
+                                <option value="retour_piste">Retour sur piste</option>
+                                <option value="non_conforme">Dumping non conforme</option>
+                                <option value="fin_mission">Fin de mission</option>
+                            </select>
+                        </div>
+                        <label class="r-filter-check"><input type="checkbox" id="fltNonVues" checked /> Non vues seulement</label>
+                        <button type="button" class="r-btn-dark team-btn" id="btnAcquitTout">Tout marquer vu</button>
+                        <span class="alerts-compteur r-sr-only" id="alertsCompteur"></span>
+                    </div>
+
+                    <!-- RANGÉE DE GRANDS COMPTEURS -->
+                    <div class="r-counterrow">
+                        <div class="r-counter"><span class="r-counter-num" id="rCountTotal">00</span><span class="r-counter-label">alertes du jour</span></div>
+                        <div class="r-counter r-counter-orange"><span class="r-counter-num" id="rCountUnseen">00</span><span class="r-counter-label">non vues</span></div>
+                        <div class="r-counter r-counter-red"><span class="r-counter-num" id="rCountLate">00</span><span class="r-counter-label">au-delà de 10 min</span></div>
+                        <span class="r-counter-date" id="rCounterDate">17 novembre 2026 · 10:23</span>
+                    </div>
+
+                    <!-- BANDEAU INFO -->
+                    <div class="r-infoband">
+                        <span class="r-infoband-bar"></span>
+                        Le dumping est classifié par <strong class="highlight-green">ROM Pad</strong>, et non par teneur ou destination de teneur.
+                    </div>
+
+                    <!-- LISTE -->
+                    <h2 class="r-listtitle">Toutes les alertes</h2>
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr>
+                                    <th>Heure</th>
+                                    <th>Engin</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                    <th>Vue</th>
+                                    <th class="r-th-action"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="alertsBody">
+                                <tr><td colspan="6" class="muted">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="r-tablefoot">
+                            <span id="alertsFootLeft">8 événements · 5 non vus · 3 vus</span>
+                            <span class="r-tablefoot-right">Seuil d'alerte rouge : 10 minutes · configurable dans Settings</span>
                         </div>
                     </div>
                 </section>
@@ -198,5 +238,27 @@
     <script src="../js/alerts.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
+    <!-- REFONTE UI : compteurs/pied purement decoratifs (aucune logique metier modifiee) -->
+    <script>
+    (function(){
+        var body = document.getElementById('alertsBody');
+        if(!body) return;
+        function pad(n){ return String(n).padStart(2,'0'); }
+        function refresh(){
+            var rows = Array.prototype.filter.call(body.querySelectorAll('tr'), function(tr){ return tr.children.length > 1; });
+            var total = rows.length;
+            var unseen = rows.filter(function(tr){ return /non\s*vu/i.test(tr.textContent); }).length;
+            var late = rows.filter(function(tr){ return /hors\s*piste|10\s*min/i.test(tr.textContent); }).length;
+            var t = document.getElementById('rCountTotal'), u = document.getElementById('rCountUnseen'), l = document.getElementById('rCountLate'), f = document.getElementById('alertsFootLeft');
+            if(t) t.textContent = pad(total);
+            if(u) u.textContent = pad(unseen);
+            if(l) l.textContent = pad(late);
+            if(f) f.textContent = total + ' événements · ' + unseen + ' non vus · ' + (total - unseen) + ' vus';
+        }
+        new MutationObserver(refresh).observe(body, { childList: true, subtree: true });
+        refresh();
+    })();
+    </script>
 </body>
 </html>
+
