@@ -35,20 +35,7 @@
     <div class="app">
         <!-- TOP MENU BAR -->
                 <header class="menu-bar">
-            <div class="menu-left">
-                <span class="r-crumb-app">ORE TRACKING</span>
-                <span class="r-crumb-sep2">/</span>
-                <span class="r-crumb-space">Espace opérations</span>
-            </div>
-            <div class="menu-right">
-                <span class="r-net-pill" title="Liaison cloud"><i class="fas fa-cloud"></i> Cloud</span>
-                <span class="r-net-pill" title="Liaison réseau local"><i class="fas fa-network-wired"></i> LAN</span>
-                <span class="r-net-pill" title="Liaison bureau"><i class="fas fa-building"></i> Office</span>
-                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
-                <button class="r-bell" type="button" title="Alertes" aria-label="Alertes"><i class="fas fa-bell"></i></button>
-                <span class="r-site-chip"><i class="fas fa-map-marker-alt"></i> Lafigué</span>
-                <span class="app-version">V2.0</span>
-            </div>
+            <!-- topbar generee par js/navbar.js -->
         </header>
 
         <div class="app-body">
@@ -60,75 +47,7 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <div class="sidebar-brand">
-                    <span class="sidebar-brand-mark"><i class="fas fa-industry"></i></span>
-                    <span class="sidebar-brand-txt">
-                        <span class="sidebar-brand-name">ORE TRACKING</span>
-                        <span class="sidebar-brand-sub">Console opérateur</span>
-                    </span>
-                </div>
-                <nav class="sidebar-nav">
-                    <div class="nav-top">
-                        <span class="nav-section-label">Opérations</span>
-                        <a class="sidebar-link active" data-page="home" href="home.html">
-                            <i class="fas fa-home"></i>
-                            <span>Home</span>
-                            <i class="fas fa-chevron-right sidebar-link-chev"></i>
-                        </a>
-                        <a class="sidebar-link" data-page="live" href="live.html">
-                            <i class="fas fa-satellite-dish"></i>
-                            <span>Live</span>
-                        </a>
-                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
-                            <i class="fas fa-bell"></i>
-                            <span>Alerts</span>
-                            <span class="sidebar-badge" id="sidebarAlertBadge">08</span>
-                        </a>
-                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
-                            <i class="fas fa-inbox"></i>
-                            <span>Inbox</span>
-                        </a>
-                    </div>
-                    <div class="nav-bottom">
-                        <span class="nav-section-label">Outils &amp; métier</span>
-                        <a class="sidebar-link" data-page="settings" href="settings.html">
-                            <i class="fas fa-cog"></i>
-                            <span data-i18n>Settings</span>
-                        </a>
-                        <a class="sidebar-link" data-page="sync" href="sync.html">
-                            <i class="fas fa-sync-alt"></i>
-                            <span data-i18n>Sync</span>
-                        </a>
-                        <a class="sidebar-link" data-page="senor" href="senor.html">
-                            <i class="fas fa-layer-group"></i>
-                            <span data-i18n>Senor</span>
-                        </a>
-                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
-                            <i class="fas fa-map"></i>
-                            <span data-i18n>Dig Plan</span>
-                        </a>
-                        <a class="sidebar-link" data-page="aide" href="#">
-                            <i class="fas fa-question-circle"></i>
-                            <span>Aide &amp; raccourcis</span>
-                        </a>
-                    </div>
-                </nav>
-
-                <div class="sidebar-user">
-                    <div class="user-info">
-                        <span class="user-name">Gaston Albert</span>
-                        <span class="user-email">Superviseur</span>
-                    </div>
-                    <button class="btn-logout" title="Déconnexion">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </button>
-                </div>
-
-                <div class="sidebar-mine">
-                    <span class="sidebar-mine-brand">Endeavour</span>
-                    <span class="sidebar-mine-name">LAFIGUÉ MINE</span>
-                    <span class="sidebar-mine-sub">CÔTE D'IVOIRE</span>
-                </div>
+                <!-- navbar generee par js/navbar.js -->
             </aside>
 
             <!-- MAIN CONTENT AREA -->
@@ -138,7 +57,7 @@
                 <section class="page active" id="page-home">
                     <div class="r-pagehead">
                         <div class="r-breadcrumb">Opérations <span class="r-crumb-sep">/</span> Home</div>
-                        <h1 class="r-title">Bonjour, Gaston.</h1>
+                        <h1 class="r-title" id="homeGreeting">Tableau de bord</h1>
                         <p class="r-subtitle">L'essentiel du site, les événements prioritaires et les opérations en cours.</p>
                     </div>
 
@@ -164,28 +83,28 @@
                                     <div class="stat-label">Engins suivis en direct</div>
                                     <div class="stat-value" id="statEngins">—</div>
                                     <span class="stat-rule"></span>
-                                    <div class="stat-note">Passerelle locale connectée</div>
+                                    <div class="stat-note" id="statEnginsNote">Passerelle locale connectée</div>
                                 </div>
                                 <div class="stat-card">
                                     <i class="fas fa-exclamation-triangle"></i>
                                     <div class="stat-label">Alertes à traiter</div>
                                     <div class="stat-value" id="statAlertes">—</div>
                                     <span class="stat-rule"></span>
-                                    <div class="stat-note">8 alertes sur la journée</div>
+                                    <div class="stat-note" id="statAlertesNote">Alertes de la journee</div>
                                 </div>
                                 <div class="stat-card">
                                     <i class="fas fa-route"></i>
                                     <div class="stat-label">Missions en cours</div>
                                     <div class="stat-value" id="statMissions">—</div>
                                     <span class="stat-rule"></span>
-                                    <div class="stat-note">Équipes Alpha et Bravo</div>
+                                    <div class="stat-note" id="statMissionsNote">Missions actives</div>
                                 </div>
                                 <div class="stat-card">
                                     <i class="fas fa-weight-hanging"></i>
                                     <div class="stat-label">Tonnes du jour</div>
                                     <div class="stat-value" id="statTonnage">—</div>
                                     <span class="stat-rule"></span>
-                                    <div class="stat-note">Tous secteurs · site de Lafigué</div>
+                                    <div class="stat-note" id="statTonnageNote">Voyages du jour</div>
                                 </div>
                             </div>
 
@@ -275,6 +194,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="../js/navbar.js"></script>
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>
