@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -52,8 +53,16 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
+                <div class="sidebar-brand">
+                    <span class="sidebar-brand-mark"><i class="fas fa-mountain"></i></span>
+                    <span class="sidebar-brand-txt">
+                        <span class="sidebar-brand-name">ORE TRACKING</span>
+                        <span class="sidebar-brand-sub">Bureau mineral</span>
+                    </span>
+                </div>
+<nav class="sidebar-nav">
                     <div class="nav-top">
+                        <span class="nav-section-label">Operations</span>
                         <a class="sidebar-link" data-page="home" href="home.html">
                             <i class="fas fa-home"></i>
                             <span>Home</span>
@@ -72,6 +81,7 @@
                         </a>
                     </div>
                     <div class="nav-bottom">
+                        <span class="nav-section-label">Administration</span>
                         <a class="sidebar-link" data-page="settings" href="settings.html">
                             <i class="fas fa-cog"></i>
                             <span data-i18n>Settings</span>
@@ -110,40 +120,64 @@
 
 <!-- PAGE: INBOX -->
                 <section class="page active" id="page-inbox">
-                    <div class="panel panel-full">
-                        <div class="panel-label">Inbox</div>
-                        <div class="panel-content">
-                            <div class="inbox-description">
-                                <p>Ici on affiche la liste de tous les voyages des DT. Le dumping est classifie par <strong class="highlight-green">Rompad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
+                    <div class="r-pagehead">
+                        <nav class="r-breadcrumb" aria-label="Fil d'ariane">
+                            <a href="home.html">Opérations</a>
+                            <span class="r-breadcrumb-sep">/</span>
+                            <span class="r-breadcrumb-current">Inbox</span>
+                        </nav>
+                        <h1 class="r-title">Journal des voyages</h1>
+                        <p class="r-subtitle">Tous les voyages des DT, classifiés par <strong class="highlight-green">ROM Pad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
+                    </div>
+
+                    <!-- CARTE DE FILTRES (maquette : MATÉRIAU + puces + date/shift) -->
+                    <div class="r-filtercard">
+                        <div class="r-filtercard-main">
+                            <div class="r-filter-label">Matériau</div>
+                            <div class="r-chips" role="group" aria-label="Filtre matériau">
+                                <button type="button" class="r-chip is-active" data-chip="" >Tous <span class="r-chip-count">&nbsp;</span></button>
+                                <button type="button" class="r-chip" data-chip="ore">Ore · Minéral <span class="r-chip-count">&nbsp;</span></button>
+                                <button type="button" class="r-chip" data-chip="waste">Waste · Stérile <span class="r-chip-count">&nbsp;</span></button>
                             </div>
-                            <div class="alerts-filtres">
-                                <label>Materiel
-                                    <select id="inboxFiltreMateriel" class="form-select-sm">
-                                        <option value="">Tous</option>
-                                        <option value="ore">Ore (minerai)</option>
-                                        <option value="waste">Waste (sterile)</option>
-                                    </select></label>
-                                <span class="alerts-compteur" id="inboxCompteur"></span>
-                            </div>
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Engin</th>
-                                        <th>Heure</th>
-                                        <th>Orebloc</th>
-                                        <th>Rompad</th>
-                                        <th>Tonnage</th>
-                                        <th>Grade</th>
-                                        <th>Conformite</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="inboxVoyages">
-                                    <tr><td colspan="8" class="muted">Chargement...</td></tr>
-                                </tbody>
-                            </table>
-                            <div class="inbox-recap" id="inboxRecap"></div>
+                            <!-- Select conservé pour la logique existante (masqué visuellement) -->
+                            <select id="inboxFiltreMateriel" class="r-sr-select" aria-hidden="true" tabindex="-1">
+                                <option value="" selected>Tous</option>
+                                <option value="ore">Ore (minerai)</option>
+                                <option value="waste">Waste (sterile)</option>
+                            </select>
                         </div>
+                        <div class="r-filtercard-aside">
+                            <span class="r-filtercard-date" id="statusDate">17 novembre 2026</span>
+                            <span class="r-filtercard-shift">Shift de jour · Tous les engins</span>
+                        </div>
+                    </div>
+
+                    <!-- EN-TÊTE DE LISTE : grand compteur + légende -->
+                    <div class="r-listhead">
+                        <h2 class="r-bigcount"><span class="r-bigcount-num" id="inboxCompteur">00</span> voyages</h2>
+                        <p class="r-listhead-note">Un journal complet, distinct de la liste des alertes.</p>
+                        <span class="r-listhead-legend">Classification du déchargement par ROM Pad</span>
+                    </div>
+
+                    <div class="r-panel">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Engin</th>
+                                    <th>Heure</th>
+                                    <th>Orebloc</th>
+                                    <th>Rompad</th>
+                                    <th>Tonnage</th>
+                                    <th>Grade</th>
+                                    <th>Conformité</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inboxVoyages">
+                                <tr><td colspan="8" class="muted">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="r-recapband" id="inboxRecap"></div>
                     </div>
                 </section>
 
@@ -193,5 +227,26 @@
     <script src="../js/inbox.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
+    <!-- REFONTE UI : pont visuel puces -> select existant (aucune logique metier modifiee) -->
+    <script>
+    (function(){
+        var sel = document.getElementById('inboxFiltreMateriel');
+        if(!sel) return;
+        document.querySelectorAll('#page-inbox .r-chip').forEach(function(chip){
+            chip.addEventListener('click', function(){
+                document.querySelectorAll('#page-inbox .r-chip').forEach(function(c){ c.classList.remove('is-active'); });
+                chip.classList.add('is-active');
+                sel.value = chip.getAttribute('data-chip') || '';
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+        sel.addEventListener('change', function(){
+            document.querySelectorAll('#page-inbox .r-chip').forEach(function(c){
+                c.classList.toggle('is-active', (c.getAttribute('data-chip') || '') === sel.value);
+            });
+        });
+    })();
+    </script>
 </body>
 </html>
+

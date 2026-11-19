@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -52,8 +53,16 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
+                <div class="sidebar-brand">
+                    <span class="sidebar-brand-mark"><i class="fas fa-mountain"></i></span>
+                    <span class="sidebar-brand-txt">
+                        <span class="sidebar-brand-name">ORE TRACKING</span>
+                        <span class="sidebar-brand-sub">Bureau mineral</span>
+                    </span>
+                </div>
+<nav class="sidebar-nav">
                     <div class="nav-top">
+                        <span class="nav-section-label">Operations</span>
                         <a class="sidebar-link" data-page="home" href="home.html">
                             <i class="fas fa-home"></i>
                             <span>Home</span>
@@ -72,6 +81,7 @@
                         </a>
                     </div>
                     <div class="nav-bottom">
+                        <span class="nav-section-label">Administration</span>
                         <a class="sidebar-link" data-page="settings" href="settings.html">
                             <i class="fas fa-cog"></i>
                             <span data-i18n>Settings</span>
@@ -110,61 +120,90 @@
 
 <!-- PAGE: SYNC — tableau de bord de sante de la synchronisation -->
                 <section class="page active" id="page-sync">
-                    <div class="panel panel-full">
-                        <div class="panel-label" data-i18n>Sante de la synchronisation</div>
-                        <div class="panel-content">
-                            <p class="panel-hint">La synchronisation est automatique : ce tableau de bord montre son etat en temps reel. Les boutons ne servent qu'en cas de panne.</p>
+                    <div class="r-pagehead">
+                        <div class="r-breadcrumb">Administration <span class="r-crumb-sep">/</span> Sync</div>
+                        <h1 class="r-title">Santé de la synchronisation</h1>
+                        <p class="r-subtitle">Trois liaisons complémentaires. Une seule vue sur la cohérence des données.</p>
+                    </div>
 
-                            <!-- etat global : gros badge de coherence -->
-                            <div class="sync-sante" id="syncSante">
-                                <span class="sync-sante-dot"></span>
-                                <span class="sync-sante-txt" id="syncSanteTxt">Verification...</span>
+                    <!-- BANDEAU D'ÉTAT GLOBAL -->
+                    <div class="r-statusband" id="syncSante">
+                        <span class="r-statusband-dot"></span>
+                        <div class="r-statusband-body">
+                            <div class="r-statusband-eyebrow">Données cohérentes</div>
+                            <div class="r-statusband-title" id="syncSanteTxt">Vérification...</div>
+                            <div class="r-statusband-meta">
+                                <span>Cloud 5 s</span>
+                                <span>LAN temps réel</span>
+                                <span>Relais Office toujours actif</span>
                             </div>
+                        </div>
+                        <button class="r-btn-dark" id="btnSyncNow" type="button" title="Normalement inutile : la synchro est automatique toutes les 5 s">
+                            Actualiser l'état
+                        </button>
+                    </div>
 
-                            <div class="sync-status">
-                                <div class="sync-card" id="syncCardTime">
-                                    <i class="fas fa-check-circle"></i>
-                                    <span id="syncTime">Derniere sync: -</span>
-                                </div>
-                                <div class="sync-card" id="syncCardServer">
-                                    <i class="fas fa-cloud"></i>
-                                    <span id="syncServer">Serveur: -</span>
-                                </div>
-                                <div class="sync-card" id="syncCardDb">
-                                    <i class="fas fa-database"></i>
-                                    <span id="syncDb">Base de donnees: -</span>
-                                </div>
-                            </div>
-
-                            <div class="sync-table-wrap" style="margin-top:16px">
-                                <table class="sync-table" id="syncDatasets">
-                                    <thead>
-                                        <tr>
-                                            <th data-i18n>Entite</th>
-                                            <th data-i18n>Local</th>
-                                            <th data-i18n>En ligne</th>
-                                            <th data-i18n>Etat</th>
-                                            <th data-i18n>Dernier echange</th>
-                                            <th data-i18n>Details</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr><td colspan="6" class="muted">Verification...</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div class="sync-actions" style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-                                <button class="btn-sync-now" id="btnSyncNow" type="button" title="Normalement inutile : la synchro est automatique toutes les 5 s">
-                                    Forcer une recuperation
-                                </button>
-                                <button class="btn-sync-now" id="btnPushGas" type="button" title="Secours : la synchro automatique pousse deja les modifications locales vers le cloud">
-                                    <i class="fas fa-cloud-upload-alt"></i> Forcer l'envoi vers le cloud (secours)
-                                </button>
-                            </div>
-                            <div class="account-status" id="pushGasStatus"></div>
+                    <!-- TROIS MÉTRIQUES -->
+                    <div class="r-metrics">
+                        <div class="r-metric" id="syncCardTime">
+                            <div class="r-metric-label">Dernière synchro</div>
+                            <div class="r-metric-value" id="syncTime">—</div>
+                            <div class="r-metric-sub">Échange réussi</div>
+                        </div>
+                        <div class="r-metric" id="syncCardServer">
+                            <div class="r-metric-label">Serveur</div>
+                            <div class="r-metric-value" id="syncServer">—</div>
+                            <div class="r-metric-sub">Server_OT · Google Apps Script</div>
+                        </div>
+                        <div class="r-metric" id="syncCardDb">
+                            <div class="r-metric-label">Base de données</div>
+                            <div class="r-metric-value" id="syncDb">—</div>
+                            <div class="r-metric-sub">Google Sheets · référentiel partagé</div>
                         </div>
                     </div>
+
+                    <!-- TABLEAU PAR ENTITÉ -->
+                    <div class="r-tablehead">
+                        <h2 class="r-tablesubtitle">Cohérence par entité</h2>
+                        <span class="r-tablehead-note">Lecture seule en fonctionnement normal</span>
+                    </div>
+
+                    <div class="r-panel">
+                        <table class="sync-table r-table" id="syncDatasets">
+                            <thead>
+                                <tr>
+                                    <th data-i18n>Entité</th>
+                                    <th data-i18n>Local</th>
+                                    <th data-i18n>En ligne</th>
+                                    <th data-i18n>État</th>
+                                    <th data-i18n>Dernier échange</th>
+                                    <th data-i18n>Détails</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="6" class="muted">Vérification...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- ACTIONS DE SECOURS -->
+                    <div class="r-secours">
+                        <div class="r-secours-body">
+                            <h3 class="r-secours-title">Actions de secours</h3>
+                            <p class="r-secours-desc">À utiliser uniquement en cas de désynchronisation.</p>
+                            <p class="r-secours-warn">Ces actions peuvent remplacer des données locales ou distantes.</p>
+                        </div>
+                        <div class="r-secours-actions">
+                            <button class="r-btn-ghost" id="btnSyncNowGhost" type="button" hidden></button>
+                            <button class="r-btn-ghost" type="button" onclick="document.getElementById('btnSyncNow').click()">
+                                Forcer la récupération
+                            </button>
+                            <button class="r-btn-dark" id="btnPushGas" type="button" title="Secours : la synchro automatique pousse deja les modifications locales vers le cloud">
+                                Forcer l'envoi cloud
+                            </button>
+                        </div>
+                    </div>
+                    <div class="account-status" id="pushGasStatus"></div>
                 </section>
 
             </main>
@@ -213,3 +252,4 @@
     <script src="../js/app.js"></script>
 </body>
 </html>
+

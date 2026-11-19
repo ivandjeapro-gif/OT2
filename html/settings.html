@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -52,8 +53,16 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
+                <div class="sidebar-brand">
+                    <span class="sidebar-brand-mark"><i class="fas fa-mountain"></i></span>
+                    <span class="sidebar-brand-txt">
+                        <span class="sidebar-brand-name">ORE TRACKING</span>
+                        <span class="sidebar-brand-sub">Bureau mineral</span>
+                    </span>
+                </div>
+<nav class="sidebar-nav">
                     <div class="nav-top">
+                        <span class="nav-section-label">Operations</span>
                         <a class="sidebar-link" data-page="home" href="home.html">
                             <i class="fas fa-home"></i>
                             <span>Home</span>
@@ -72,6 +81,7 @@
                         </a>
                     </div>
                     <div class="nav-bottom">
+                        <span class="nav-section-label">Administration</span>
                         <a class="sidebar-link active" data-page="settings" href="settings.html">
                             <i class="fas fa-cog"></i>
                             <span data-i18n>Settings</span>
@@ -110,9 +120,18 @@
 
 <!-- PAGE: SETTINGS -->
                 <section class="page active" id="page-settings">
+                    <div class="r-pagehead">
+                        <nav class="r-breadcrumb" aria-label="Fil d'ariane">
+                            <span class="r-breadcrumb-cat">Administration</span>
+                            <span class="r-breadcrumb-sep">/</span>
+                            <span class="r-breadcrumb-current">Settings</span>
+                        </nav>
+                        <h1 class="r-title" data-i18n>Paramètres</h1>
+                        <p class="r-subtitle" data-i18n>Un environnement cohérent, du bureau jusqu'au terrain.</p>
+                    </div>
 
                     <!-- Bandeau de synchronisation : etat du lien cloud, toujours visible -->
-                    <div class="sync-bandeau" id="syncBandeau">
+                    <div class="sync-bandeau r-syncband" id="syncBandeau">
                         <span class="sync-dot" id="syncDot"></span>
                         <span id="syncTexte">Verification de la synchronisation...</span>
                         <span class="sync-action">
@@ -123,7 +142,7 @@
                     </div>
 
                     <!-- Onglets de navigation -->
-                    <div class="settings-onglets" id="settingsOnglets">
+                    <div class="settings-onglets r-onglets" id="settingsOnglets">
                         <button class="onglet actif" data-onglet="connexion"><i class="fas fa-plug"></i> Connexion</button>
                         <button class="onglet" data-onglet="flotte"><i class="fas fa-truck"></i> Flotte</button>
                         <button class="onglet" data-onglet="equipes"><i class="fas fa-users"></i> Equipes</button>
@@ -826,3 +845,4 @@
     <script src="../js/app.js"></script>
 </body>
 </html>
+
