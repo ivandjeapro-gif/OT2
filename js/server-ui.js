@@ -639,8 +639,12 @@
     const cfg = EQUIP_TYPES[type];
     const box = $('#' + cfg.container);
     if (!box) return;
-    const machines = (rows || []).filter((r) => cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0
-      || (type === 'truck' && /^DT-/i.test(String(r.code || ''))));
+    // Un DT (code « DT-… » ou famille 1500 / 785 / ADT) n'est JAMAIS une excavatrice, meme en famille « Autre »
+    // (« AUTRE » figure dans les deux listes : sans ce garde-fou, un DT apparaissait dans les deux colonnes).
+    const estDT = (r) => /^DT-/i.test(String(r.code || '')) || FAMILLES_DT.indexOf(String(r.famille || '').toUpperCase()) >= 0;
+    const machines = (rows || []).filter((r) => type === 'truck'
+      ? estDT(r) || cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0
+      : !estDT(r) && cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0);
     machines.sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), undefined, { numeric: true }));
     dernieresLignes[type] = machines;
     const cpt = $(type === 'truck' ? '#cptTrucks' : '#cptExcavators');
