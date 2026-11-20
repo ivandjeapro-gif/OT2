@@ -771,9 +771,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     applyServerParams();   setInterval(applyServerParams, 60000);
     refreshKpi();          setInterval(refreshKpi, 5000);
-    refreshOffroad();      setInterval(() => unAUnSeul('offroad', refreshOffroad), 500);
+    refreshOffroad();      setInterval(() => unAUnSeul('offroad', refreshOffroad), 1000);
     refreshAlertes();      setInterval(refreshAlertes, 8000);
-    refreshTablettes();    setInterval(() => unAUnSeul('tablettes', refreshTablettes), 500);
+    refreshTablettes();    setInterval(() => unAUnSeul('tablettes', refreshTablettes), 2000);
     refreshMeteo();        setInterval(refreshMeteo, 600000);
     refreshLiens();        setInterval(refreshLiens, 15000);
     setTimeout(afficherAlerte, 1500);

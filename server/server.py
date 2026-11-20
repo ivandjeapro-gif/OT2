@@ -551,6 +551,42 @@ def auth_context(authorizer):
     return None
 
 
+# --------------------------- profil de l'utilisateur (admin / senor / geologue) ---
+# Le profil vit dans Firestore (users/{uid}.role, base « ot-test »), pas dans le jeton Firebase.
+# Lecture par l'API REST de Firestore AVEC le jeton de l'utilisateur (comme le fait la page : il lit
+# son propre document), mis en cache 60 s. Sert a la passerelle (:8101) pour autoriser ses ecritures.
+FIRESTORE_DOC = "https://firestore.googleapis.com/v1/projects/ot-test-3c6df/databases/ot-test/documents/users/"
+_ROLE_CACHE = {}          # uid -> (role, expire)
+
+
+def normaliser_role(r):
+    r = str(r or "").strip().lower()
+    if r == "admin":
+        return "admin"
+    if r in ("senor", "senor_geology", "senorgeology"):
+        return "senor"
+    return "geologue"         # viewer / inconnu : le plus restreint des profils d'usage
+
+
+def role_firestore(jeton, uid):
+    """Profil de l'utilisateur ; None si illisible (reseau, regle Firestore) ou compte desactive."""
+    c = _ROLE_CACHE.get(uid)
+    if c and c[1] > time.time():
+        return c[0]
+    role = None
+    try:
+        req = urllib.request.Request(FIRESTORE_DOC + uid, headers={"Authorization": "Bearer " + jeton})
+        with urllib.request.urlopen(req, timeout=6) as rep:
+            champs = (json.loads(rep.read().decode("utf-8")) or {}).get("fields") or {}
+        if not (champs.get("desactive") or {}).get("booleanValue"):
+            role = normaliser_role((champs.get("role") or {}).get("stringValue"))
+    except Exception as e:
+        print("  ROLE: lecture Firestore impossible pour %s (%s)" % (uid, e))
+        return None
+    _ROLE_CACHE[uid] = (role, time.time() + 60)
+    return role
+
+
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = get_conn()
@@ -1930,6 +1966,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"user": {
                     "id": s["compte_id"], "nom": s["nom"],
                     "email": s["email"], "role": s["role"]}})
+
+            # Profil de l'appelant (jeton Firebase ou session) : lu par la passerelle pour autoriser ses ecritures
+            if path == "/api/auth/role" and method == "GET":
+                ctx = auth_context(self)
+                if ctx["via"] == "firebase":
+                    role = role_firestore(self._token(), ctx["uid"])
+                    if role is None:
+                        return self._json(403, {"error": "profil illisible ou compte desactive"})
+                    return self._json(200, {"role": role, "email": ctx.get("email", ""), "uid": ctx["uid"]})
+                return self._json(200, {"role": normaliser_role(ctx.get("role")), "email": ctx.get("email", "")})
 
             # ---- COMPTES (panneau Securite) ----
             if path == "/api/comptes":

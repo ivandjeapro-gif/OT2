@@ -3009,6 +3009,17 @@ def verifier_offroad(conn, dt_code, instant=None):
     return evenement
 
 
+def alertes_liste(conn, depuis="", jusqua=""):
+    """Alertes (200 dernieres) ; depuis / jusqua (heure locale AAAA-MM-JJ HH:MM:SS) bornent UNE journee
+    ou UN shift ; sans borne, tout l'historique (page Alertes). created_at est en UTC."""
+    if depuis:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM alertes WHERE datetime(created_at, 'localtime') >= ? "
+            "AND (? = '' OR datetime(created_at, 'localtime') < ?) ORDER BY id DESC LIMIT 200",
+            (depuis, jusqua, jusqua))]
+    return [dict(r) for r in conn.execute("SELECT * FROM alertes ORDER BY id DESC LIMIT 200")]
+
+
 def etat_offroad(conn):
     """Synthese pour le dashboard : DT actuellement hors piste."""
     reglages = offroad_reglages()
@@ -5064,6 +5075,84 @@ def enregistrer_alerte_office(conn, evenement):
         _office_reveil.set()               # sans attendre (jamais d'appel reseau ici : on est sous le verrou)
 
 
+# ------------------------------------------------ authentification des ecritures ---
+# 20/11 : la passerelle n'avait AUCUNE authentification : toute machine du reseau pouvait
+# changer les reglages (sortie de route, liaisons, MQTT...). Les LECTURES restent ouvertes
+# (dashboard, cartes) ; toute ECRITURE (POST / PUT / DELETE) exige un jeton Firebase de
+# l'application dont le profil (admin / senor / geologue, Firestore) est assez eleve.
+# Le jeton est verifie par le SaaS de CE poste (:8100, /api/auth/role) : meme verification
+# des signatures que pour ses propres API, role lu dans Firestore, mis en cache 60 s.
+# Exemptions : le poste de la passerelle lui-meme (127.0.0.1 : script, console, XBee) ;
+# AUTH_ECRITURES=0 coupe le controle (depannage).
+RANG_ROLE = {"geologue": 1, "senor": 2, "admin": 3}
+# Prefixes d'ecritures : le plus restrictif d'abord. Ecriture inconnue = admin (refus par defaut).
+ECRITURES_ADMIN = ("/api/relais", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
+                   "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
+                   "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
+                   "/api/missions/", "/api/engins", "/api/mission_fin")
+ECRITURES_SENOR = ("/api/oreblocs", "/api/dumping_area", "/api/teneur", "/api/sources", "/api/checkpoints",
+                   "/api/travels_roads", "/api/geographic_system", "/api/minage_declare")
+ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts")
+_roles_cache = {}                       # jeton -> (role | None, expire)
+
+
+def auth_ecritures_active():
+    return str(param_lire("AUTH_ECRITURES", "1")).strip().lower() not in ("0", "non", "false", "off")
+
+
+def role_requis(path):
+    """Profil minimal pour ECRIRE sur ce chemin."""
+    for prefixes, role in ((ECRITURES_ADMIN, "admin"), (ECRITURES_SENOR, "senor"), (ECRITURES_TOUS, "geologue")):
+        if any(path == p or path.startswith(p) for p in prefixes):
+            return role
+    return "admin"
+
+
+def role_du_jeton(jeton):
+    """Profil (admin / senor / geologue) du porteur du jeton, ou None. Verifie aupres du SaaS local."""
+    if not jeton:
+        return None
+    maintenant = time.time()
+    c = _roles_cache.get(jeton)
+    if c and c[1] > maintenant:
+        return c[0]
+    role = None
+    try:
+        base = param_lire("SAAS_URL", "http://127.0.0.1:8100").rstrip("/")
+        req = urllib.request.Request(base + "/api/auth/role", headers={"Authorization": "Bearer " + jeton})
+        with urllib.request.urlopen(req, timeout=6) as rep:
+            d = json.loads(rep.read().decode("utf-8", "replace"))
+        r = str(d.get("role") or "")
+        role = r if r in RANG_ROLE else None
+    except Exception as e:
+        print("AUTH: verification du jeton impossible (%s)" % e)
+        return None                      # SaaS injoignable : pas de mise en cache d'un refus
+    if len(_roles_cache) > 200:
+        _roles_cache.clear()
+    _roles_cache[jeton] = (role, maintenant + (60 if role else 10))
+    return role
+
+
+def ecriture_autorisee(adresse, path, entete_authorization):
+    """(autorise, code, message)."""
+    if not auth_ecritures_active():
+        return True, 200, ""
+    if adresse in ("127.0.0.1", "::1", "localhost"):
+        return True, 200, ""
+    requis = role_requis(path)
+    jeton = ""
+    if entete_authorization and entete_authorization.lower().startswith("bearer "):
+        jeton = entete_authorization[7:].strip()
+    if not jeton:
+        return False, 401, "authentification requise : connectez-vous a l'application"
+    role = role_du_jeton(jeton)
+    if role is None:
+        return False, 401, "jeton refuse ou verification impossible"
+    if RANG_ROLE[role] < RANG_ROLE[requis]:
+        return False, 403, "profil insuffisant : %s requis (vous etes %s)" % (requis, role)
+    return True, 200, ""
+
+
 # --------------------------------------------------------------- handler HTTP ---
 class Handler(BaseHTTPRequestHandler):
     server_version = "SenorGeology/1.0"
@@ -5077,7 +5166,7 @@ class Handler(BaseHTTPRequestHandler):
             # page SAAS sur :8100 -> API SG sur :8101 : CORS ouvert (LAN)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Connection", "close")
             self.end_headers()
@@ -5089,7 +5178,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -5141,7 +5230,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def route_api(self, method, path):
-        print("ROUTE_API:", method, path)
+        if method != "GET":                  # les lectures sondees chaque seconde ne polluent plus la console
+            print("ROUTE_API:", method, path)
+        if method in ("POST", "PUT", "DELETE"):
+            ok, code, message = ecriture_autorisee(self.client_address[0], path, self.headers.get("Authorization", ""))
+            if not ok:
+                print("AUTH: refus %s %s depuis %s (%s)" % (method, path, self.client_address[0], message))
+                return self._send_json(code, {"error": message})
         # Sante SANS verrou : aucune base lue. Derriere LOCK, elle disait la
         # passerelle « injoignable » des qu'une autre route le gardait.
         if path == "/api/health" and method == "GET":
@@ -5181,6 +5276,26 @@ class Handler(BaseHTTPRequestHandler):
             if not re.match(r"^[A-Za-z0-9_-]{2,40}$", code):
                 return self._send_json(400, {"error": "code de DT invalide"})
             return self._send_json(200, renouveler_mdp_mqtt(code))
+        # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;
+        # sous le verrou global elles se disputaient la place des positions (donc des alertes).
+        # Lecture seule : hors verrou, comme /api/suivi_dt et /api/kpi.
+        if path == "/api/offroad" and method == "GET":
+            conn = get_conn()
+            try:
+                return self._send_json(200, etat_offroad(conn))
+            finally:
+                conn.close()
+        if path == "/api/alertes" and method == "GET":
+            depuis = (self._qs().get("depuis") or [""])[0]
+            jusqua = (self._qs().get("jusqua") or [""])[0]
+            for v in (depuis, jusqua):
+                if v and not _RE_HORODATAGE.match(v):
+                    return self._send_json(400, {"error": "depuis / jusqua attendus au format AAAA-MM-JJ HH:MM:SS"})
+            conn = get_conn()
+            try:
+                return self._send_json(200, {"alertes": alertes_liste(conn, depuis, jusqua)})
+            finally:
+                conn.close()
         # Suivi des DT (19/11) : lecture seule, HORS verrou (sondee toutes les
         # 2-3 s par chaque carte ouverte). ?depuis=&jusqua= (AAAA-MM-JJ HH:MM:SS)
         # ajoute les trajets de la periode.
@@ -6754,24 +6869,6 @@ class Handler(BaseHTTPRequestHandler):
                         ecrits.append(champ)
                     return self._send_json(200, {"ok": True, "enregistres": ecrits,
                                                  "reglages": offroad_reglages()})
-
-                if path == "/api/alertes" and method == "GET":
-                    # depuis / jusqua (heure locale, AAAA-MM-JJ HH:MM:SS) : alertes d'UNE journee ou
-                    # d'UN shift ; sans parametre, tout l'historique (page Alertes).
-                    depuis = (self._qs().get("depuis") or [""])[0]
-                    jusqua = (self._qs().get("jusqua") or [""])[0]
-                    for v in (depuis, jusqua):
-                        if v and not _RE_HORODATAGE.match(v):
-                            return self._send_json(400, {"error": "depuis / jusqua attendus au format AAAA-MM-JJ HH:MM:SS"})
-                    if depuis:
-                        rows = [dict(r) for r in conn.execute(
-                            "SELECT * FROM alertes WHERE datetime(created_at, 'localtime') >= ? "
-                            "AND (? = '' OR datetime(created_at, 'localtime') < ?) ORDER BY id DESC LIMIT 200",
-                            (depuis, jusqua, jusqua))]
-                    else:
-                        rows = [dict(r) for r in conn.execute(
-                            "SELECT * FROM alertes ORDER BY id DESC LIMIT 200")]
-                    return self._send_json(200, {"alertes": rows})
 
                 if path == "/api/alertes" and method == "POST":
                     # acquittement : {"id": N} ou {"tous": true}
