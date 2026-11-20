@@ -2832,3 +2832,68 @@ body {
 .status-bar {
     flex-shrink: 0;
 }
+
+/* ============================================================
+   30. NAVBAR — rapprocher le profil du logo LA FIGUE MINE
+   Le profil doit etre colle au-dessus du bloc noir, sans vide.
+   ============================================================ */
+
+/* le menu reste compressible : c'est lui qui laisse la place */
+.sidebar-nav {
+    flex: 0 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+}
+
+/* le profil est colle au-dessus du bloc noir : aucun espace */
+.sidebar-user {
+    margin-top: auto !important;
+    flex: 0 0 auto !important;
+    padding-bottom: 16px !important;
+    border-bottom: none !important;
+}
+
+/* aucun espace entre le profil et le bloc noir */
+.sidebar-mine {
+    margin-top: 0 !important;
+    flex: 0 0 auto !important;
+}
+
+/* ============================================================
+   31. NAVBAR — groupes distincts + badge rectangulaire
+   ============================================================ */
+
+/* --- libellés de groupe : plus présents, très espacés --- */
+.nav-section-label {
+    padding: 22px 12px 8px !important;
+    font-size: 8px !important;
+    font-weight: 800 !important;
+    letter-spacing: 2.2px !important;
+    color: var(--r-text-3) !important;
+}
+
+.nav-bottom .nav-section-label:nth-child(1) { padding-top: 4px !important; }
+
+/* le premier libellé après un groupe commence plus bas */
+.nav-section-label:not(:first-child) {
+    padding-top: 22px !important;
+}
+
+/* --- badge Alerts : rectangle discret, aligné à droite --- */
+.sidebar-badge {
+    margin-left: auto !important;
+    min-width: 24px !important;
+    padding: 3px 8px !important;
+    border-radius: 6px !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    background: rgba(30, 34, 28, 0.14) !important;
+    color: var(--r-text-2) !important;
+    flex-shrink: 0 !important;
+    order: 3;
+}
+
+.sidebar-link.active .sidebar-badge {
+    background: rgba(255, 255, 255, 0.18) !important;
+    color: #fff !important;
+}
