@@ -4564,72 +4564,314 @@ def lancer_video(depuis, jusqua, vitesse=120):
     return True, nom, "generation lancee"
 
 
-# Bouton « REC » de la carte (dashboard / Live) : le NAVIGATEUR filme la carte telle qu'elle s'affiche (DT en
-# mouvement, zones, pistes) et envoie le flux par morceaux a la passerelle, qui l'assemble en un fichier WebM.
-# L'etat « enregistrement en cours » est tenu ici : un seul a la fois pour tout le site, visible sur toutes les
-# pages ; « arreter » ferme le fichier avec ce qui a ete recu (meme si la page qui filmait a ete fermee).
+# Bouton « REC » (dashboard / Live) : la PASSERELLE filme, en arriere-plan, la carte REELLE du dashboard.
+# Un navigateur sans ecran (Edge / Chrome, installe sur ce PC) ouvre la page du dashboard, la passerelle prend
+# une capture de la zone « carte » toutes les REC_INTERVALLE_S secondes et les range dans une video WebM
+# (accelere : un cliche = 1/REC_FPS s de video). « Arreter » ferme le fichier. Aucune autorisation a donner,
+# rien a laisser ouvert : l'enregistrement continue meme si la page du bouton est fermee.
 RECORD_FICHIER = os.path.join(DATA_DIR, "record_en_cours.json")
 RECORD_PARTIE = os.path.join(ENREGISTREMENTS_DIR, "record_en_cours.part.webm")
-RECORD_MIN_S = 5
-RECORD_MORCEAU_MAX = 40 * 1024 * 1024         # un morceau (5 s de flux) reste tres en dessous
+RECORD_MIN_IMAGES = 3
+RECORD_MAX_H = 26
+RECORD_CLES_PAGE = ("oreTrackingConfig", "oreTrackingTrails", "oreTrackingFiltres", "oreTrackingDiffusion")
 _record_verrou = threading.Lock()
+_record = {"fil": None, "arret": None, "images": 0, "erreur": ""}
 
 
 def record_etat():
-    """{"debut": "AAAA-MM-JJ HH:MM:SS"} si un enregistrement est en cours, sinon None."""
+    """{"debut": ..., "images": n, "erreur": ""} si un enregistrement est en cours, sinon None."""
     try:
         with open(RECORD_FICHIER, encoding="utf-8") as fh:
             d = json.load(fh)
         if _RE_HORODATAGE.match(str(d.get("debut") or "")):
-            return {"debut": d["debut"]}
+            return {"debut": d["debut"], "images": _record["images"], "erreur": _record["erreur"]}
     except (OSError, ValueError, AttributeError):
         pass
     return None
 
 
-def record_morceau(corps):
-    """Ajoute un morceau de flux au fichier en cours. Rend (code HTTP, reponse)."""
-    with _record_verrou:
-        if not record_etat():
-            return 409, {"ok": False, "error": "aucun enregistrement en cours"}
-        if not corps or len(corps) > RECORD_MORCEAU_MAX:
-            return 400, {"ok": False, "error": "morceau vide ou trop gros"}
-        os.makedirs(ENREGISTREMENTS_DIR, exist_ok=True)
-        with open(RECORD_PARTIE, "ab") as fh:
-            fh.write(corps)
-        return 200, {"ok": True, "octets": os.path.getsize(RECORD_PARTIE)}
+def record_nettoyer():
+    """Au demarrage de la passerelle : un enregistrement laisse par un arret brutal est inexploitable."""
+    for f in (RECORD_FICHIER, RECORD_PARTIE):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
 
 
-def record_action(action):
+def _navigateur_sans_ecran():
+    """Chemin d'Edge / Chrome (REC_NAVIGATEUR pour forcer), ou None."""
+    forces = str(param_lire("REC_NAVIGATEUR", "")).strip()
+    if forces and os.path.isfile(forces):
+        return forces
+    racines = [os.environ.get(v, "") for v in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
+    for rel in (r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe"):
+        for r in racines:
+            if r and os.path.isfile(os.path.join(r, rel)):
+                return os.path.join(r, rel)
+    return None
+
+
+class _WebSocketCDP:
+    """Client WebSocket minimal (texte, sans bibliotheque) vers le protocole DevTools du navigateur."""
+
+    def __init__(self, url, delai=40):
+        import socket as _socket
+        u = urlparse(url)
+        self.sock = _socket.create_connection((u.hostname, u.port), 10)
+        self.sock.settimeout(delai)
+        cle = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall(("GET %s HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                           "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n"
+                           % (u.path or "/", u.hostname, u.port, cle)).encode())
+        tete = b""
+        while b"\r\n\r\n" not in tete:
+            morceau = self.sock.recv(4096)
+            if not morceau:
+                raise RuntimeError("poignee de main WebSocket refusee")
+            tete += morceau
+        if b" 101 " not in tete.split(b"\r\n", 1)[0]:
+            raise RuntimeError("WebSocket refuse : " + tete.split(b"\r\n", 1)[0].decode("latin-1"))
+        self._tampon = tete.split(b"\r\n\r\n", 1)[1]
+        self._id = 0
+
+    def _lire(self, n):
+        while len(self._tampon) < n:
+            morceau = self.sock.recv(65536)
+            if not morceau:
+                raise RuntimeError("connexion DevTools fermee")
+            self._tampon += morceau
+        sortie, self._tampon = self._tampon[:n], self._tampon[n:]
+        return sortie
+
+    def _envoyer(self, opcode, donnees):
+        masque = os.urandom(4)
+        n = len(donnees)
+        tete = bytes([0x80 | opcode])
+        if n < 126:
+            tete += bytes([0x80 | n])
+        elif n < 65536:
+            tete += bytes([0x80 | 126]) + n.to_bytes(2, "big")
+        else:
+            tete += bytes([0x80 | 127]) + n.to_bytes(8, "big")
+        self.sock.sendall(tete + masque + bytes(b ^ masque[i % 4] for i, b in enumerate(donnees)))
+
+    def _message(self):
+        texte = b""
+        while True:
+            b1, b2 = self._lire(2)
+            opcode, fin, n = b1 & 0x0F, b1 & 0x80, b2 & 0x7F
+            if n == 126:
+                n = int.from_bytes(self._lire(2), "big")
+            elif n == 127:
+                n = int.from_bytes(self._lire(8), "big")
+            donnees = self._lire(n)
+            if opcode == 8:
+                raise RuntimeError("DevTools a ferme la connexion")
+            if opcode == 9:
+                self._envoyer(10, donnees)
+                continue
+            if opcode in (0, 1, 2):
+                texte += donnees
+                if fin:
+                    return texte.decode("utf-8", "replace")
+
+    def appel(self, methode, params=None):
+        self._id += 1
+        mon_id = self._id
+        self._envoyer(1, json.dumps({"id": mon_id, "method": methode, "params": params or {}}).encode())
+        while True:
+            m = json.loads(self._message())
+            if m.get("id") == mon_id:
+                if "error" in m:
+                    raise RuntimeError("%s : %s" % (methode, m["error"].get("message")))
+                return m.get("result") or {}
+
+    def fermer(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def _filmer_carte(arret, etat_page, sortie_partie):
+    """Boucle d'enregistrement (fil de la passerelle) : ouvre le dashboard dans un navigateur sans ecran, photographie
+    la zone carte toutes les REC_INTERVALLE_S s et ecrit la video WebM. Se termine quand `arret` est leve."""
+    import shutil
+    import socket as _socket
+    import tempfile
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        _record["erreur"] = "OpenCV et NumPy sont requis (pip install opencv-python numpy)"
+        return
+    exe = _navigateur_sans_ecran()
+    if not exe:
+        _record["erreur"] = "Edge ou Chrome introuvable sur ce PC (REC_NAVIGATEUR pour indiquer le chemin)"
+        return
+    intervalle = max(1.0, float(param_lire("REC_INTERVALLE_S", "3") or 3))
+    fps = max(1, int(float(param_lire("REC_FPS", "10") or 10)))
+    saas = str(param_lire("SAAS_URL", "http://127.0.0.1:8100")).rstrip("/")
+    profil = tempfile.mkdtemp(prefix="ot-rec-")
+    with _socket.socket() as s_:
+        s_.bind(("127.0.0.1", 0))
+        port = s_.getsockname()[1]
+    drapeaux = (0x08000000 if os.name == "nt" else 0)
+    proc = subprocess.Popen(
+        [exe, "--headless=new", "--remote-debugging-port=%d" % port, "--user-data-dir=" + profil, "--hide-scrollbars",
+         "--no-first-run", "--no-default-browser-check", "--mute-audio", "--disable-extensions", "--window-size=1600,900",
+         "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=drapeaux)
+    ws, ecr = None, None
+    try:
+        cible = None
+        for _ in range(60):                                   # le navigateur demarre (jusqu'a 30 s)
+            if arret.is_set():
+                return
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:%d/json/list" % port, timeout=2) as rep:
+                    pages = [p for p in json.loads(rep.read().decode()) if p.get("type") == "page"]
+                if pages:
+                    cible = pages[0]["webSocketDebuggerUrl"]
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+        if not cible:
+            _record["erreur"] = "le navigateur sans ecran ne repond pas"
+            return
+        ws = _WebSocketCDP(cible)
+        ws.appel("Page.enable")
+        ws.appel("Emulation.setDeviceMetricsOverride", {"width": 1600, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        # reglages de carte de l'utilisateur (filtres, pistes, fond...) : injectes avant le chargement de la page
+        injection = "".join("try{localStorage.setItem(%s,%s)}catch(e){}" % (json.dumps(k), json.dumps(v))
+                            for k, v in (etat_page or {}).items())
+        # le bouton REC lui-meme n'apparait pas dans le film
+        injection += ("document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');"
+                      "s.textContent='#btnRec,#recMsg{display:none!important}';document.head.appendChild(s)});")
+        ws.appel("Page.addScriptToEvaluateOnNewDocument", {"source": injection})
+        ws.appel("Page.navigate", {"url": saas + "/html/dashboard.html"})
+        zone_js = ("(function(){var e=document.getElementById('map');if(!e)return null;var r=e.getBoundingClientRect();"
+                   "return JSON.stringify({x:r.left,y:r.top,w:r.width,h:r.height,t:document.querySelectorAll("
+                   "'#map .leaflet-tile-loaded').length})})()")
+        zone = None
+        for _ in range(80):                                   # page + premieres tuiles (jusqu'a 40 s)
+            if arret.is_set():
+                return
+            try:
+                v = ws.appel("Runtime.evaluate", {"expression": zone_js}).get("result", {}).get("value")
+                zone = json.loads(v) if v else None
+            except Exception:
+                zone = None
+            if zone and zone["w"] > 100 and zone["h"] > 100 and zone["t"] > 3:
+                time.sleep(2.0)                               # laisse la carte se poser (zoom, marqueurs)
+                break
+            time.sleep(0.5)
+        if not zone:
+            _record["erreur"] = "dashboard illisible (le SaaS repond-il sur %s ?)" % saas
+            return
+        debut_mono = time.time()
+        k = 0
+        while not arret.is_set():
+            t_prevu = debut_mono + k * intervalle
+            attente = t_prevu - time.time()
+            if attente > 0 and arret.wait(attente):
+                break
+            k += 1
+            if time.time() - debut_mono > RECORD_MAX_H * 3600:
+                break
+            try:
+                v = ws.appel("Runtime.evaluate", {"expression": zone_js}).get("result", {}).get("value")
+                zone = json.loads(v) if v else zone
+                rep = ws.appel("Page.captureScreenshot", {"format": "jpeg", "quality": 80, "clip": {
+                    "x": zone["x"], "y": zone["y"], "width": zone["w"], "height": zone["h"], "scale": 1}})
+                img = cv2.imdecode(np.frombuffer(base64.b64decode(rep["data"]), np.uint8), cv2.IMREAD_COLOR)
+            except Exception as e:
+                _record["erreur"] = "capture interrompue : %s" % e
+                break
+            if img is None:
+                continue
+            if ecr is None:
+                h0, w0 = img.shape[:2]
+                taille = (w0 - w0 % 2, h0 - h0 % 2)
+                ecr = cv2.VideoWriter(sortie_partie, cv2.VideoWriter_fourcc(*"VP80"), fps, taille)
+                if not ecr.isOpened():
+                    _record["erreur"] = "encodeur video indisponible (OpenCV / VP8)"
+                    break
+            img = cv2.resize(img, taille) if (img.shape[1], img.shape[0]) != taille else img
+            etiquette = datetime.now().strftime("%d/%m/%Y  %H:%M:%S")      # heure reelle du cliche
+            cv2.rectangle(img, (0, 0), (190, 24), (22, 24, 21), -1)
+            cv2.putText(img, etiquette, (8, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (240, 240, 232), 1, cv2.LINE_AA)
+            ecr.write(img)
+            _record["images"] += 1
+    except Exception as e:
+        _record["erreur"] = "%s: %s" % (type(e).__name__, e)
+    finally:
+        if ecr is not None:
+            ecr.release()
+        if ws is not None:
+            ws.fermer()
+        try:
+            proc.terminate()
+            proc.wait(10)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        shutil.rmtree(profil, ignore_errors=True)
+
+
+def record_action(action, etat_page=None):
     """Demarre / arrete l'enregistrement. Rend (code HTTP, reponse)."""
     with _record_verrou:
         en_cours = record_etat()
         if action == "start":
             if en_cours:
                 return 200, {"ok": True, "record": en_cours, "message": "deja en cours"}
+            if not _navigateur_sans_ecran():
+                return 503, {"ok": False, "error": "Edge ou Chrome introuvable sur le PC de la passerelle"}
             os.makedirs(ENREGISTREMENTS_DIR, exist_ok=True)
             try:
                 os.remove(RECORD_PARTIE)
             except OSError:
                 pass
+            propre = {}
+            for cle in RECORD_CLES_PAGE:                       # reglages de carte transmis par la page : bornes et filtres
+                v = (etat_page or {}).get(cle)
+                if isinstance(v, str) and 0 < len(v) < 600000:
+                    propre[cle] = v
+            _record.update(images=0, erreur="", arret=threading.Event())
+            _record["fil"] = threading.Thread(target=_filmer_carte, args=(_record["arret"], propre, RECORD_PARTIE), daemon=True)
             d = {"debut": now_iso()}
             with open(RECORD_FICHIER, "w", encoding="utf-8") as fh:
                 json.dump(d, fh)
-            return 200, {"ok": True, "record": d, "message": "enregistrement demarre"}
+            _record["fil"].start()
+            return 200, {"ok": True, "record": record_etat(), "message": "enregistrement demarre"}
         if action == "stop":
             if not en_cours:
                 return 409, {"ok": False, "error": "aucun enregistrement en cours"}
             debut, fin = en_cours["debut"], now_iso()
+            if _record["arret"] is not None:
+                _record["arret"].set()
+            if _record["fil"] is not None:
+                _record["fil"].join(60)                        # le fichier est ferme ici : la video est « bouclee »
+            erreur, images = _record["erreur"], _record["images"]
             try:
                 os.remove(RECORD_FICHIER)
             except OSError:
                 pass
             taille = os.path.getsize(RECORD_PARTIE) if os.path.isfile(RECORD_PARTIE) else 0
-            if not taille:
-                return 422, {"ok": False, "error": "aucune image recue (la page qui filme a ete fermee trop tot ?)"}
+            if images < RECORD_MIN_IMAGES or not taille:
+                try:
+                    os.remove(RECORD_PARTIE)
+                except OSError:
+                    pass
+                return 422, {"ok": False, "error": erreur or "enregistrement trop court (moins de %d images)" % RECORD_MIN_IMAGES}
             nom = nom_video(debut, fin)
             os.replace(RECORD_PARTIE, os.path.join(ENREGISTREMENTS_DIR, nom))
-            return 200, {"ok": True, "fichier": nom, "message": "enregistrement termine (%.1f Mo)" % (taille / 1048576.0),
+            msg = "enregistrement termine : %d images, %.1f Mo" % (images, taille / 1048576.0)
+            return 200, {"ok": True, "fichier": nom, "message": msg + (" (arret anticipe : %s)" % erreur if erreur else ""),
                          "debut": debut, "fin": fin}
     return 400, {"ok": False, "error": "action : start ou stop"}
 
@@ -5848,7 +6090,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def route_api(self, method, path):
-        if method != "GET" and path != "/api/enregistrements/morceau":   # ni les lectures sondees, ni les morceaux de flux
+        if method != "GET":                  # les lectures sondees chaque seconde ne polluent plus la console
             print("ROUTE_API:", method, path)
         if method in ("POST", "PUT", "DELETE"):
             ok, code, message = ecriture_autorisee(self.client_address[0], path, self.headers.get("Authorization", ""))
@@ -5935,10 +6177,7 @@ class Handler(BaseHTTPRequestHandler):
                                       plage=(debut, fin, taille) if code == 206 else None)
         if path == "/api/enregistrements/record" and method == "POST":
             b = json.loads(self._read_body() or b"{}")
-            code, rep = record_action(str(b.get("action") or ""))
-            return self._send_json(code, rep)
-        if path == "/api/enregistrements/morceau" and method == "POST":
-            code, rep = record_morceau(self._read_body())
+            code, rep = record_action(str(b.get("action") or ""), b.get("etat") if isinstance(b.get("etat"), dict) else None)
             return self._send_json(code, rep)
         if path == "/api/enregistrements/video" and method == "POST":
             b = json.loads(self._read_body() or b"{}")
@@ -7840,6 +8079,7 @@ def main():
     # statuts WEX/OMEX/WDT/SBDT/ODT recalcules toutes les 30 s (positions fraiches seulement, 20/11)
     threading.Thread(target=boucle_statuts, daemon=True).start()
     # video automatique de chaque shift termine (20/11)
+    record_nettoyer()
     threading.Thread(target=boucle_video_auto, daemon=True).start()
     # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
     threading.Thread(target=boucle_comptes_mqtt, daemon=True).start()
