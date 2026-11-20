@@ -4584,7 +4584,8 @@ def record_etat():
         with open(RECORD_FICHIER, encoding="utf-8") as fh:
             d = json.load(fh)
         if _RE_HORODATAGE.match(str(d.get("debut") or "")):
-            return {"debut": d["debut"], "images": _record["images"], "erreur": _record["erreur"]}
+            return {"debut": d["debut"], "images": _record["images"], "erreur": _record["erreur"],
+                    "vitesse": d.get("vitesse", 1), "qualite": d.get("qualite", "haute")}
     except (OSError, ValueError, AttributeError):
         pass
     return None
@@ -4694,7 +4695,11 @@ class _WebSocketCDP:
             pass
 
 
-def _filmer_carte(arret, etat_page, sortie_partie):
+# qualite choisie dans l'interface : (definition des captures, debit VP8 en kbit/s, qualite JPEG)
+RECORD_QUALITES = {"standard": (1.0, 3000, 90), "haute": (1.5, 6000, 95), "maximale": (2.0, 14000, 98)}
+
+
+def _filmer_carte(arret, etat_page, sortie_partie, vitesse=1.0, qualite="haute"):
     """Boucle d'enregistrement (fil de la passerelle) : ouvre le dashboard dans un navigateur sans ecran, photographie
     la zone carte toutes les REC_INTERVALLE_S s et ecrit la video WebM. Se termine quand `arret` est leve."""
     import shutil
@@ -4712,9 +4717,8 @@ def _filmer_carte(arret, etat_page, sortie_partie):
         return
     intervalle = max(0.0, float(param_lire("REC_INTERVALLE_S", "0.2") or 0.2))     # pause entre deux captures
     fps = max(1, int(float(param_lire("REC_FPS", "10") or 10)))
-    vitesse = max(1.0, float(param_lire("REC_VITESSE", "1") or 1))                  # 1 = temps reel
-    echelle = max(1.0, min(2.0, float(param_lire("REC_NETTETE", "1.5") or 1.5)))    # definition des captures
-    debit = int(float(param_lire("REC_DEBIT_KBPS", "6000") or 6000)) * 1000
+    echelle, kbps, jpeg = RECORD_QUALITES.get(qualite, RECORD_QUALITES["haute"])    # definition / debit / jpeg
+    debit = kbps * 1000
     # encodeur VP8 : debit eleve (le defaut d'OpenCV, ~200 kbit/s, donnait une image baveuse) et qualite maximale
     os.environ["OPENCV_FFMPEG_WRITER_OPTIONS"] = "b;%d|crf;6|quality;good|cpu-used;3" % debit
     saas = str(param_lire("SAAS_URL", "http://127.0.0.1:8100")).rstrip("/")
@@ -4778,7 +4782,7 @@ def _filmer_carte(arret, etat_page, sortie_partie):
         k = 0
         ecrites, precedente = 0, None
         while not arret.is_set():
-            t_prevu = debut_mono + k * intervalle
+            t_prevu = debut_mono + k * max(intervalle, vitesse / float(fps))
             attente = t_prevu - time.time()
             if attente > 0 and arret.wait(attente):
                 break
@@ -4788,7 +4792,7 @@ def _filmer_carte(arret, etat_page, sortie_partie):
             try:
                 v = ws.appel("Runtime.evaluate", {"expression": zone_js}).get("result", {}).get("value")
                 zone = json.loads(v) if v else zone
-                rep = ws.appel("Page.captureScreenshot", {"format": "jpeg", "quality": 95, "clip": {
+                rep = ws.appel("Page.captureScreenshot", {"format": "jpeg", "quality": jpeg, "clip": {
                     "x": zone["x"], "y": zone["y"], "width": zone["w"], "height": zone["h"], "scale": echelle}})
                 img = cv2.imdecode(np.frombuffer(base64.b64decode(rep["data"]), np.uint8), cv2.IMREAD_COLOR)
             except Exception as e:
@@ -4842,7 +4846,7 @@ def _filmer_carte(arret, etat_page, sortie_partie):
         shutil.rmtree(profil, ignore_errors=True)
 
 
-def record_action(action, etat_page=None):
+def record_action(action, etat_page=None, vitesse=1, qualite="haute"):
     """Demarre / arrete l'enregistrement. Rend (code HTTP, reponse)."""
     with _record_verrou:
         en_cours = record_etat()
@@ -4862,8 +4866,13 @@ def record_action(action, etat_page=None):
                 if isinstance(v, str) and 0 < len(v) < 600000:
                     propre[cle] = v
             _record.update(images=0, erreur="", arret=threading.Event())
-            _record["fil"] = threading.Thread(target=_filmer_carte, args=(_record["arret"], propre, RECORD_PARTIE), daemon=True)
-            d = {"debut": now_iso()}
+            try:
+                vitesse = max(1.0, min(120.0, float(vitesse)))   # 1 = temps reel ; 10 = film accelere x10
+            except (TypeError, ValueError):
+                vitesse = 1.0
+            _record["fil"] = threading.Thread(target=_filmer_carte, args=(_record["arret"], propre, RECORD_PARTIE, vitesse,
+                                                                       qualite if qualite in RECORD_QUALITES else "haute"), daemon=True)
+            d = {"debut": now_iso(), "vitesse": vitesse, "qualite": qualite if qualite in RECORD_QUALITES else "haute"}
             with open(RECORD_FICHIER, "w", encoding="utf-8") as fh:
                 json.dump(d, fh)
             _record["fil"].start()
@@ -6197,7 +6206,8 @@ class Handler(BaseHTTPRequestHandler):
                                       plage=(debut, fin, taille) if code == 206 else None)
         if path == "/api/enregistrements/record" and method == "POST":
             b = json.loads(self._read_body() or b"{}")
-            code, rep = record_action(str(b.get("action") or ""), b.get("etat") if isinstance(b.get("etat"), dict) else None)
+            code, rep = record_action(str(b.get("action") or ""), b.get("etat") if isinstance(b.get("etat"), dict) else None,
+                                      b.get("vitesse") or 1, str(b.get("qualite") or "haute"))
             return self._send_json(code, rep)
         if path == "/api/enregistrements/video" and method == "POST":
             b = json.loads(self._read_body() or b"{}")

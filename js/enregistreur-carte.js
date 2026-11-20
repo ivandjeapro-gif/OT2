@@ -5,7 +5,7 @@
  * le chrono ; il transmet les reglages de carte de ce navigateur (filtres, pistes, fond) pour que la video
  * montre la meme carte que celle que tu regardes.
  *
- *   EnregistreurCarte.attacher({ bouton, chrono, passerelle: () => 'http://hote:8101', message: (texte, ok) => {} })
+ *   EnregistreurCarte.attacher({ bouton, chrono, vitesse: () => 1, passerelle: () => 'http://hote:8101', message: (texte, ok) => {} })
  */
 (function (global) {
     'use strict';
@@ -26,7 +26,8 @@
             }
             const r = await fetch(base() + '/api/enregistrements/record', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: action, etat: etat }),
+                body: JSON.stringify({ action: action, etat: etat, vitesse: opts.vitesse ? Number(opts.vitesse()) || 1 : 1,
+                    qualite: opts.qualite ? opts.qualite() : 'haute' }),
             });
             const d = await r.json().catch(() => ({}));
             if (!r.ok) {
@@ -45,6 +46,7 @@
             bouton.textContent = actif ? '■ Arrêter' : '● REC';
             bouton.title = actif ? 'Arrêter et créer la vidéo de la carte' : 'Enregistrer la carte en vidéo';
             if (chrono) chrono.hidden = !actif;
+            (opts.selecteurs || []).forEach((s) => { s.disabled = actif; });      // vitesse et qualite se choisissent avant de demarrer
             clearInterval(minuteur); minuteur = null;
             if (actif) {
                 const tic = () => {
@@ -62,6 +64,8 @@
                 const d = await fetch(base() + '/api/enregistrements', { cache: 'no-store' }).then((r) => r.json());
                 const nouveau = d.record && d.record.debut ? new Date(d.record.debut.replace(' ', 'T')) : null;
                 if ((nouveau && nouveau.getTime()) !== (debut && debut.getTime())) { debut = nouveau; afficher(); }
+                if (d.record && d.record.vitesse && opts.selVitesse) opts.selVitesse.value = String(d.record.vitesse);
+                if (d.record && d.record.qualite && opts.selQualite) opts.selQualite.value = d.record.qualite;
                 if (d.record && d.record.erreur) dire('Enregistrement : ' + d.record.erreur, false);
             } catch (e) { /* passerelle injoignable : on garde l'affichage */ }
         }

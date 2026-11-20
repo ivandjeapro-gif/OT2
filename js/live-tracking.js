@@ -455,7 +455,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // bouton REC (section Enregistrements) : la passerelle filme la carte du dashboard en arriere-plan (js/enregistreur-carte.js)
     if (window.EnregistreurCarte) {
         EnregistreurCarte.attacher({
-            bouton: $('btnEnregRec'), chrono: $('enregChrono'), passerelle: PASSERELLE,
+            bouton: $('btnEnregRec'), chrono: $('enregChrono'), passerelle: PASSERELLE, vitesse: () => $('enregVitesse').value, qualite: () => $('enregQualite').value,
+            selecteurs: [$('enregVitesse'), $('enregQualite')], selVitesse: $('enregVitesse'), selQualite: $('enregQualite'),
             message: (t) => texte($('enregEtat'), t),
         });
     }

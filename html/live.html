@@ -297,6 +297,21 @@
                                         <span class="lv-enreg-periode" id="enregPeriode">--</span>
                                         <a class="lv-btn-sombre" id="btnEnregCsv" href="#" download>Télécharger le CSV</a>
                                         <span class="lv-enreg-chrono" id="enregChrono" hidden>00:00:00</span>
+                                        <label class="lv-champ lv-enreg-vitesse"><span class="lbl">Vitesse de la vidéo</span>
+                                            <select id="enregVitesse">
+                                                <option value="1" selected>×1 — temps réel</option>
+                                                <option value="2">×2</option>
+                                                <option value="5">×5</option>
+                                                <option value="10">×10</option>
+                                                <option value="30">×30</option>
+                                                <option value="60">×60</option>
+                                            </select></label>
+                                        <label class="lv-champ lv-enreg-vitesse"><span class="lbl">Qualité</span>
+                                            <select id="enregQualite">
+                                                <option value="standard">Standard (léger)</option>
+                                                <option value="haute" selected>Haute</option>
+                                                <option value="maximale">Maximale (lourd)</option>
+                                            </select></label>
                                         <button type="button" class="lv-btn-jaune lv-btn-rec" id="btnEnregRec">● REC</button>
                                     </div>
                                     <p class="lv-aide" id="enregEtat"></p>
