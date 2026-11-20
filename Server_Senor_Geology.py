@@ -4105,6 +4105,7 @@ def rattraper_blasts_ot(conn):
 # arrivee, carte du dashboard), avec l'heure de chaque observation.
 # Au premier demarrage on part de la fin : l'historique ne declenche rien.
 REMONTEES_INTERVALLE_DEFAUT = 10
+REMONTEES_PAQUET = 2               # lignes rejouees par prise de verrou (~0,06 s)
 _remontees_etat = {"actif": False, "derniere_lecture": "", "derniere_erreur": "",
                    "lignes_traitees": 0, "derniere_position": ""}
 
@@ -4196,9 +4197,14 @@ def remontees_un_passage():
         lots.sort(key=lambda r: str(r.get("horodatage") or ""))
         n = 0
         if lots:
-            LOCK.route("remontees (%d ligne(s))" % len(lots))
-            with LOCK:
-                n = traiter_remontees(conn, lots)
+            # PAR PAQUETS : rejouer une ligne coute ~27 ms (ecritures SQLite) ; 300 lignes tenaient le
+            # verrou 8 s, et une position MQTT en direct (donc une ALERTE) attendait la fin du lot.
+            # Le verrou est rendu entre deux paquets : une alerte n'attend jamais plus d'un paquet.
+            for i in range(0, len(lots), REMONTEES_PAQUET):
+                LOCK.route("remontees (%d-%d / %d)" % (i + 1, min(i + REMONTEES_PAQUET, len(lots)), len(lots)))
+                with LOCK:
+                    n += traiter_remontees(conn, lots[i:i + REMONTEES_PAQUET])
+                time.sleep(0.005)          # laisse la main aux positions MQTT en attente (verrou non equitable)
         for cle, valeur in pointeurs.items():
             param_ecrire(conn, cle, valeur)
         if n:
@@ -4957,7 +4963,9 @@ def vider_file_office(conn):
     entrees = [dict(r) for r in conn.execute(
         "SELECT * FROM office_sync WHERE statut IN ('en_attente', 'echec') "
         "AND COALESCE(tentatives, 0) < ? "
-        "AND created_at >= datetime('now', ?) ORDER BY id LIMIT ?",
+        "AND created_at >= datetime('now', ?) "
+        # les notifications au chauffeur d'abord, meme derriere un long arriere
+        "ORDER BY (payload LIKE '%\"chauffeur\"%') DESC, id LIMIT ?",
         (OFFICE_TENTATIVES_MAX, "-%d hours" % OFFICE_FENETRE_REESSAI_H, OFFICE_LOT_MAX))]
     for e in entrees:
         if e["statut"] == "echec" and e.get("derniere_tentative"):
@@ -5044,11 +5052,16 @@ def message_chauffeur(evenement):
 def enregistrer_alerte_office(conn, evenement):
     """Enfile l'evenement type pour OT, puis la notification au chauffeur
     (entree separee : un echec de l'une ne bloque ni ne rejoue l'autre)."""
-    enregistrer_pour_office(conn, {"alerte": evenement, "action": evenement["type"]})
+    # 20/11 : le CHAUFFEUR d'abord. Avant, l'evenement du bureau partait en premier (un appel Apps
+    # Script de 3 a 6 s) puis la notification ; et rien ne reveillait le thread d'envoi (attente
+    # jusqu'a 30 s). Maintenant : notification en tete de file, envoi declenche immediatement.
     message = message_chauffeur(evenement)
     if message and alertes_chauffeur_actives():
         enregistrer_pour_office(conn, {"chauffeur": {
             "profil": evenement["dt_code"], "message": message, "type": evenement["type"]}})
+    enregistrer_pour_office(conn, {"alerte": evenement, "action": evenement["type"]})
+    if _office_thread_actif["oui"]:
+        _office_reveil.set()               # sans attendre (jamais d'appel reseau ici : on est sous le verrou)
 
 
 # --------------------------------------------------------------- handler HTTP ---
