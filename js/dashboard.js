@@ -304,12 +304,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===== ENVIRONNEMENT =====
-    // Aucune sonde meteo n'est branchee : on affiche l'absence de mesure.
+    // Donnees en ligne : meteo Open-Meteo (gratuit, sans cle) au centre de la
+    // carte du site. Pluviometrie = cumul du jour. Aucune source en ligne pour
+    // le niveau sonore (pas de sonde) : on affiche l'absence de mesure.
+    // Hors ligne, la derniere mesure reste affichee.
+    const meteo = { temp: null, humid: null, pluie: null };
     function renderEnvironnement() {
-        $('envTemp').textContent = '-- °C';
-        $('envHumid').textContent = '-- %';
-        $('envRain').textContent = '-- mm';
+        const f = (v, u, d) => v === null ? '-- ' + u
+            : v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }) + ' ' + u;
+        $('envTemp').textContent = f(meteo.temp, '°C', 0);
+        $('envHumid').textContent = f(meteo.humid, '%', 0);
+        $('envRain').textContent = f(meteo.pluie, 'mm', 1);
         $('envNoise').textContent = '-- dB';
+    }
+
+    function refreshMeteo() {
+        let cfg = {};
+        try { cfg = JSON.parse(localStorage.getItem('oreTrackingConfig')) || {}; } catch (e) {}
+        const lat = (cfg.center && cfg.center.lat) || 8.2626;
+        const lng = (cfg.center && cfg.center.lng) || -4.6301;
+        getJSON('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+                '&current=temperature_2m,relative_humidity_2m&daily=precipitation_sum&timezone=auto&forecast_days=1')
+            .then((d) => {
+                const c = d.current || {};
+                const num = (v) => (typeof v === 'number' && isFinite(v)) ? v : null;
+                meteo.temp = num(c.temperature_2m);
+                meteo.humid = num(c.relative_humidity_2m);
+                meteo.pluie = num(d.daily && d.daily.precipitation_sum && d.daily.precipitation_sum[0]);
+                renderEnvironnement();
+            })
+            .catch(() => { /* hors ligne : on garde la derniere mesure */ });
     }
 
     // ===== TABLETTES =====
@@ -646,6 +670,7 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshOffroad();      setInterval(refreshOffroad, 500);
     refreshAlertes();      setInterval(refreshAlertes, 8000);
     refreshTablettes();    setInterval(refreshTablettes, 500);
+    refreshMeteo();        setInterval(refreshMeteo, 600000);
     refreshLiens();        setInterval(refreshLiens, 15000);
     setTimeout(afficherAlerte, 1500);
     setInterval(afficherAlerte, 6000);
