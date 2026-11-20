@@ -2480,3 +2480,98 @@ textarea:focus {
 .home-file .file-item.u2:first-child {
     margin: 0 !important;
 }
+
+/* ============================================================
+   25. MISE EN PAGE — sidebar fixe, seul le contenu scrolle
+   La sidebar ne doit jamais défiler ni s'allonger avec la page :
+   hauteur = viewport - topbar, le contenu défile à côté.
+   ============================================================ */
+
+/* le document ne défile plus : c'est le contenu qui scrolle */
+html,
+body {
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}
+
+/* l'application occupe exactement la fenêtre */
+.app {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100vh !important;
+    min-height: 0 !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+}
+
+.app-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    display: flex !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+}
+
+/* --- la sidebar : colonne fixe, jamais plus haute que l'écran --- */
+.sidebar {
+    align-self: stretch !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    flex: 0 0 220px !important;
+    width: 220px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    position: static !important;
+}
+
+.sidebar-brand,
+.sidebar-user,
+.sidebar-mine {
+    flex: 0 0 auto !important;
+}
+
+.sidebar-mine {
+    margin-top: auto !important;
+}
+
+/* le menu défile EN INTERNE si l'écran est trop petit, mais la
+   sidebar elle-même garde une hauteur fixe */
+.sidebar-nav {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    scrollbar-width: thin;
+}
+
+/* --- le contenu de la page scrolle, pas la page --- */
+.content {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    align-self: stretch !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+.content > .page.active,
+.page.active {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 22px 26px 34px !important;
+}
+
+/* la barre de statut reste en bas de la fenêtre */
+.status-bar {
+    flex-shrink: 0 !important;
+}
+
+/* le panneau SHIFT suit le haut de la zone de contenu */
+.panel-side {
+    position: sticky !important;
+    top: 0 !important;
+}
