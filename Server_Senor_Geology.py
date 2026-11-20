@@ -2340,15 +2340,15 @@ def generer_affectation(conn, dt_code):
     dt = conn.execute("SELECT * FROM engins WHERE code=? AND type='DT'", (dt_code,)).fetchone()
     if not dt or dt["statut"] != "ODT":
         return None
-
-    oreblocs = [dict(r) for r in conn.execute("SELECT * FROM oreblocs WHERE actif=1")]
-    # trouver l'orebloc contenant (ou le plus proche, meme marge que le
-    # passage ODT) le DT
     # idempotence : un DT n'a qu'une mission en cours (comme genererAffectation
     # cote Serveur_SG) ; l'appel manuel /api/affecter passe aussi par ici.
     if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours'",
                     (dt_code,)).fetchone():
         return None
+
+    oreblocs = [dict(r) for r in conn.execute("SELECT * FROM oreblocs WHERE actif=1")]
+    # trouver l'orebloc contenant (ou le plus proche, meme marge que le
+    # passage ODT) le DT
     orebloc_id = 0
     for ob in oreblocs:
         poly = json.loads(ob["sommets"] or "[]")
@@ -2807,7 +2807,10 @@ def etat_offroad(conn):
     dts = [dict(r) for r in conn.execute(
         "SELECT code, x, y, offroad_distance AS distance_m, offroad_depuis AS depuis, "
         "derniere_maj FROM engins WHERE type='DT' AND actif=1 AND offroad=1 "
-        "ORDER BY offroad_depuis")]
+        # un DT muet depuis plus de SUIVI_SIGNAL_PERDU_S n'est plus « hors piste en
+        # ce moment » : sa position date, la carte de Live le montre « signal perdu »
+        "AND (julianday('now', 'localtime') - julianday(derniere_maj)) * 86400 <= ? "
+        "ORDER BY offroad_depuis", (SUIVI_SIGNAL_PERDU_S,))]
     return {"actif": not motif, "motif": motif, "count": len(dts), "dts": dts,
             "reglages": reglages, "aretes": len(aretes)}
 
@@ -2960,6 +2963,21 @@ def alerte_rouge_minutes():
     return v if v > 0 else 10
 
 
+def debut_sg_local(valeur):
+    """Heure de debut renvoyee par SG -> heure locale « AAAA-MM-JJ HH:MM:SS ».
+    SG renvoie soit « 2026-11-18T17:56:36.000Z » (UTC), soit une chaine locale ;
+    illisible : maintenant."""
+    v = str(valeur or "").strip()
+    try:
+        if "T" in v:
+            return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        if re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", v):
+            return v
+    except ValueError:
+        pass
+    return now_iso()
+
+
 def ingerer_missions_sg(conn, missions):
     """Recopie en local les missions decidees par Serveur_SG.
 
@@ -2973,6 +2991,13 @@ def ingerer_missions_sg(conn, missions):
         code = str(m.get("dt_code") or "").strip()
         if not code:
             continue
+        try:
+            id_sg = int(m.get("id"))
+        except (TypeError, ValueError):
+            id_sg = None
+        if id_sg is not None and conn.execute(
+                "SELECT 1 FROM missions WHERE id_sg=?", (id_sg,)).fetchone():
+            continue                              # deja recopiee
         deja = conn.execute(
             "SELECT id FROM missions WHERE dt_code=? AND statut='en_cours'",
             (code,)).fetchone()
@@ -3003,10 +3028,13 @@ def ingerer_missions_sg(conn, missions):
 
         cur = conn.execute(
             "INSERT INTO missions (dt_code, orebloc_id, destination_x, "
-            "destination_y, dumping_area_id, chemin, statut) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'en_cours')",
+            "destination_y, dumping_area_id, chemin, statut, id_sg, cle_sg, debut) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'en_cours', ?, ?, ?)",
             (code, orebloc_id, float(m.get("destination_x") or 0),
-             float(m.get("destination_y") or 0), da_id, json.dumps(chemin)))
+             float(m.get("destination_y") or 0), da_id, json.dumps(chemin),
+             id_sg, str(m.get("cle") or "").strip(),
+             # heure de debut de SG quand elle est lisible (sinon : maintenant)
+             debut_sg_local(m.get("debut"))))
         conn.commit()
 
         # La publication MQTT reste la responsabilite de la passerelle : le
@@ -3023,6 +3051,165 @@ def ingerer_missions_sg(conn, missions):
     if enregistrees:
         print("SG: %d mission(s) recue(s) du cloud" % len(enregistrees))
     return enregistrees
+
+
+def verifier_conformite_dumping(conn, mission, position=None, strict=False):
+    """Dumping Instruction : la teneur du bloc impose une dumping area.
+    Retourne "conforme", "non_conforme" ou "" (pas de verdict) et cree
+    l'alerte `non_conforme` quand il y a ecart.
+
+    Dumping area ATTENDUE : celle que la table `teneurs` impose pour la teneur
+    du bloc, quand cette table est renseignee ; sinon celle affectee a la
+    mission (Serveur_SG l'a choisie d'apres sa consigne teneur -> zone). Le
+    controle de cloture compare donc ou le DT a REELLEMENT decharge (le
+    polygone qui contient sa `position`) a ce qui etait attendu.
+    `position` absente : on compare l'attendu a la zone affectee (ancien
+    comportement de /api/mission_fin, sans verdict si aucune regle teneurs).
+    `strict` : sans position dans une dumping area, pas de verdict (cloture
+    vue chez SG : le DT a pu abandonner sa mission en route)."""
+    attendue, teneur = 0, None
+    if mission["orebloc_id"]:
+        ob = conn.execute("SELECT * FROM oreblocs WHERE id=?", (mission["orebloc_id"],)).fetchone()
+        if ob:
+            teneur = float(ob["grade_cutoff"]) if ob["grade_cutoff"] is not None else DEFAULT_CUTOFF_GRADE
+            instr = conn.execute(
+                "SELECT dumping_area_id FROM teneurs WHERE valeur_min <= ? AND ? <= valeur_max "
+                "AND dumping_area_id > 0 LIMIT 1", (teneur, teneur)).fetchone()
+            if instr:
+                attendue = instr["dumping_area_id"]
+    regle = "teneur %.1f" % teneur if attendue else "consigne de Serveur_SG"
+    if not attendue:
+        if position is None:
+            return ""
+        attendue = mission["dumping_area_id"]
+    reelle = mission["dumping_area_id"]
+    if position is not None:
+        trouvee = 0
+        for da in conn.execute("SELECT id, sommets FROM dumping_areas WHERE actif=1"):
+            try:
+                if point_in_polygon(position[0], position[1], json.loads(da["sommets"] or "[]")):
+                    trouvee = da["id"]
+                    break
+            except (TypeError, ValueError):
+                continue
+        if trouvee:
+            reelle = trouvee
+        elif strict:
+            return ""
+    if not attendue or not reelle:
+        return ""
+    if attendue == reelle:
+        return "conforme"
+    def nom(i):
+        r = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (i,)).fetchone()
+        return r["nom"] if r else "DA #%d" % i
+    creer_alerte(
+        conn, "non_conforme", mission["dt_code"],
+        "Dumping non conforme : %s devait decharger en %s (%s), a decharge en %s" % (
+            mission["dt_code"], nom(attendue), regle, nom(reelle)))
+    return "non_conforme"
+
+
+# ------------------------------------------------ alignement missions / SG ---
+# 20/11 : la copie locale des missions ne se refermait jamais. Serveur_SG
+# termine / abandonne les missions (la tablette lui envoie mission_fin) ; la
+# passerelle n'en savait rien. Resultat : des missions « en_cours » vieilles
+# de plusieurs semaines, et la regle « un DT = une mission en cours » refusait
+# d'enregistrer les vraies missions du jour. On compare donc regulierement la
+# liste « en_cours » de SG a la base locale :
+#   - mission locale liee a SG (id_sg) absente de SG   -> 'termine'
+#   - mission locale sans lien (ancienne, ou creee ici)  -> 'abandonnee',
+#     sauf mode « local » et DT inconnu de SG
+#   - mission SG inconnue localement                      -> importee
+# Un SG injoignable ne ferme RIEN (liste None).
+def sg_lire_missions_en_cours():
+    """Missions « en_cours » chez Serveur_SG ; None si SG injoignable/refuse."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return None
+    url = "%s?action=missions&statut=en_cours&token=%s" % (sg_url, quote(sg_token))
+    try:
+        with urllib.request.urlopen(url, timeout=30) as rep:
+            d = json.loads(rep.read().decode("utf-8", "replace"))
+    except Exception as e:
+        print("MISSIONS: lecture de Serveur_SG impossible (%s)" % e)
+        return None
+    if not isinstance(d, dict) or d.get("ok") is False or not isinstance(d.get("missions"), list):
+        return None
+    return d["missions"]
+
+
+def reconcilier_missions(conn, missions_sg):
+    """Aligne les missions locales sur la liste « en_cours » de SG.
+    Retourne {"fermees": n, "abandonnees": n, "importees": n}."""
+    res = {"fermees": 0, "abandonnees": 0, "importees": 0}
+    if missions_sg is None:
+        return res
+    par_dt, ids_sg = {}, set()
+    for m in missions_sg:
+        try:
+            i = int(m.get("id"))
+        except (TypeError, ValueError):
+            continue
+        code = str(m.get("dt_code") or "").strip()
+        if not code:
+            continue
+        ids_sg.add(i)
+        if code not in par_dt or i > int(par_dt[code]["id"]):
+            par_dt[code] = m                       # la plus recente gagne
+    local = missions_source() == "local"
+    maintenant = now_iso()
+    for l in [dict(r) for r in conn.execute(
+            "SELECT id, dt_code, id_sg FROM missions WHERE statut='en_cours'")]:
+        if l["id_sg"]:
+            if l["id_sg"] in ids_sg:
+                continue
+            # le DT a decharge : la dumping area ATTEINTE (position) est-elle celle que
+            # la teneur impose ? (avant : ce controle n'existait que dans /api/mission_fin,
+            # que personne n'appelle)
+            mission = conn.execute("SELECT * FROM missions WHERE id=?", (l["id"],)).fetchone()
+            dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (l["dt_code"],)).fetchone()
+            try:
+                verifier_conformite_dumping(conn, mission, (dt["x"], dt["y"]) if dt else None, strict=True)
+            except Exception as e:
+                print("MISSIONS: controle de conformite impossible (%s)" % e)
+            conn.execute("UPDATE missions SET statut='termine', fin=? WHERE id=?", (maintenant, l["id"]))
+            res["fermees"] += 1
+        else:
+            if local and l["dt_code"] not in par_dt:
+                continue                           # decision d'ici, SG ne la connait pas encore
+            conn.execute("UPDATE missions SET statut='abandonnee', fin=? WHERE id=?", (maintenant, l["id"]))
+            res["abandonnees"] += 1
+    conn.commit()
+    a_importer = [m for m in par_dt.values()
+                  if not conn.execute("SELECT 1 FROM missions WHERE id_sg=?", (int(m["id"]),)).fetchone()]
+    if a_importer:
+        res["importees"] = len(ingerer_missions_sg(conn, a_importer))
+    if any(res.values()):
+        print("MISSIONS: alignement sur Serveur_SG : %(fermees)d terminee(s), %(abandonnees)d abandonnee(s), "
+              "%(importees)d importee(s)" % res)
+    return res
+
+
+def boucle_missions_sg():
+    while True:
+        try:
+            if sg_conf()[0]:
+                conn = get_conn()
+                try:
+                    reconcilier_missions(conn, sg_lire_missions_en_cours())
+                finally:
+                    conn.close()
+        except Exception as e:
+            print("MISSIONS: alignement impossible (%s)" % e)
+        try:
+            pause = max(1, int(float(param_lire("MISSIONS_SYNC_S", "6"))))
+        except ValueError:
+            pause = 6
+        time.sleep(pause)
+
+
+_sg_avert_local = False
 
 
 def sg_relayer_position(code, typ, x, y):
@@ -3045,6 +3232,12 @@ def sg_vider_file(force=False):
     sg_url, sg_token, sg_intervalle = sg_conf()
     if not sg_url:
         return False
+    global _sg_avert_local
+    if missions_source() == "local" and not _sg_avert_local:
+        _sg_avert_local = True
+        print("ATTENTION : MISSIONS_SOURCE=local mais les positions partent encore vers Serveur_SG, "
+              "qui cree ses propres missions (la tablette lit celles de Serveur_SG). "
+              "Deux jeux de missions divergent : utiliser MISSIONS_SOURCE=cloud, ou vider SG_URL.")
     maintenant = time.time()
     if not force and (maintenant - _sg_dernier_envoi) < sg_intervalle:
         return False
@@ -3198,9 +3391,6 @@ def blast_corps_ot(conn, blast_id):
             corps[champ] = b[champ]
     # La carte voyage avec le blast : Serveur_OT la depose sur Drive et rend
     # une URL que les tablettes peuvent reellement ouvrir. On ne joint le
-_sg_avert_local = False
-
-
     # binaire que si la map_url pointe encore sur ce poste.
     url = str(b.get("map_url") or "")
     if url and ("localhost" in url or "127.0.0.1" in url or url.startswith("/")):
@@ -3221,12 +3411,6 @@ def blast_a_une_carte(corps):
     """Vrai si le blast porte une carte joignable par le cloud : binaire
     joint (map_contenu) ou URL deja publiee (Drive, http distant)."""
     if corps.get("map_contenu"):
-    global _sg_avert_local
-    if missions_source() == "local" and not _sg_avert_local:
-        _sg_avert_local = True
-        print("ATTENTION : MISSIONS_SOURCE=local mais les positions partent encore vers Serveur_SG, "
-              "qui cree ses propres missions (la tablette lit celles de Serveur_SG). "
-              "Deux jeux de missions divergent : utiliser MISSIONS_SOURCE=cloud, ou vider SG_URL.")
         return True
     url = str(corps.get("map_url") or "").strip()
     return bool(url) and not ("localhost" in url or "127.0.0.1" in url
@@ -5627,6 +5811,7 @@ class Handler(BaseHTTPRequestHandler):
                                           derniere_ligne=param_lire("REMONTEES_DERNIERE_LIGNE", ""),
                                           derniere_ligne_trajet=param_lire("TRAJET_DERNIERE_LIGNE", "")),
                         "alerte_rouge_min": alerte_rouge_minutes(),
+                        "missions_source": missions_source(),
                         "surcharge_env": [c for c in _PARAMS_RELAIS
                                           if os.environ.get(c, "")],
                     })
@@ -5639,6 +5824,7 @@ class Handler(BaseHTTPRequestHandler):
                               "sg_token": "SG_TOKEN",
                               "sg_intervalle_s": "SG_INTERVALLE_S",
                               "alerte_rouge_min": "ALERTE_ROUGE_MIN",
+                              "missions_source": "MISSIONS_SOURCE",
                               "remontees_intervalle_s": "REMONTEES_INTERVALLE_S",
                               "chargements_intervalle_s": "CHARGEMENTS_INTERVALLE_S"}
                     ecrits = []
@@ -5646,6 +5832,10 @@ class Handler(BaseHTTPRequestHandler):
                         if champ not in body:
                             continue          # absent = inchange, "" = efface
                         valeur = str(body[champ] or "").strip()
+                        if cle == "MISSIONS_SOURCE":
+                            valeur = valeur.lower()
+                            if valeur not in ("cloud", "local"):
+                                return self._send_json(400, {"error": "missions_source : cloud ou local"})
                         if cle.endswith("_URL"):
                             valeur = valeur.rstrip("/")
                         param_ecrire(conn, cle, valeur)
@@ -5804,7 +5994,6 @@ class Handler(BaseHTTPRequestHandler):
                     cur = conn.execute(
                         "INSERT INTO teneurs (source_id, nom, valeur_min, valeur_max, codes) "
                         "VALUES (?, ?, ?, ?, ?)",
-                        "missions_source": missions_source(),
                         (sid, nom, valeur_min, valeur_max, codes))
                     conn.commit()
                     return self._send_json(201, {"id": cur.lastrowid, "ok": True,
@@ -5817,7 +6006,6 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send_json(400, {"error": "id requis"})
                     conn.execute("UPDATE teneurs SET actif=0 WHERE id=?", (tid,))
                     conn.commit()
-                              "missions_source": "MISSIONS_SOURCE",
                     return self._send_json(200, {"ok": True, "id": tid})
 
                 # Dumping Instruction : affecte (ou modifie) la Dumping Area
@@ -5825,10 +6013,6 @@ class Handler(BaseHTTPRequestHandler):
                 # consigne appliquee par le serveur en ligne pour instruire les DT.
                 # Mise a jour d'une teneur : nom, bornes, et surtout `codes`.
                 # Les teneurs du site existaient avant ce champ : sans
-                        if cle == "MISSIONS_SOURCE":
-                            valeur = valeur.lower()
-                            if valeur not in ("cloud", "local"):
-                                return self._send_json(400, {"error": "missions_source : cloud ou local"})
                 # endpoint de maj, impossible de les renseigner autrement
                 # qu'en les supprimant et en les recreant.
                 if path == "/api/teneur_maj" and method == "POST":
@@ -6055,39 +6239,7 @@ class Handler(BaseHTTPRequestHandler):
                     volume_t = chargement_moyen_t(conn) * truck_factor
 
                     # --- Conformite dumping (Dumping Instruction) -----------
-                    # La teneur du bloc doit correspondre a la dumping area
-                    # efectivement utilisee par la mission. La reference est
-                    # la table teneurs : chaque famille de teneur a sa DA
-                    # obligatoire (Dumping Instruction, page Senor).
-                    conformite = ""
-                    if mission["dumping_area_id"]:
-                        # famille de teneur dont l'intervalle contient la teneur
-                        # du bloc (min <= teneur <= max), DA attendue = sa DA
-                        instr = conn.execute(
-                            "SELECT dumping_area_id FROM teneurs "
-                            "WHERE valeur_min <= ? AND ? <= valeur_max "
-                            "AND dumping_area_id > 0 LIMIT 1",
-                            (teneur, teneur)).fetchone()
-                        if instr:
-                            attendue = instr["dumping_area_id"]
-                            if attendue == mission["dumping_area_id"]:
-                                conformite = "conforme"
-                            else:
-                                conformite = "non_conforme"
-                                da_attendue = conn.execute(
-                                    "SELECT nom FROM dumping_areas WHERE id=?",
-                                    (attendue,)).fetchone()
-                                da_reelle = conn.execute(
-                                    "SELECT nom FROM dumping_areas WHERE id=?",
-                                    (mission["dumping_area_id"],)).fetchone()
-                                creer_alerte(
-                                    conn, "non_conforme", mission["dt_code"],
-                                    "Dumping non conforme : %s devait decharger en %s "
-                                    "(teneur %.1f), a decharge en %s" % (
-                                        mission["dt_code"],
-                                        da_attendue["nom"] if da_attendue else "DA #%d" % attendue,
-                                        teneur,
-                                        da_reelle["nom"] if da_reelle else "DA #%d" % mission["dumping_area_id"]))
+                    conformite = verifier_conformite_dumping(conn, mission)
 
                     conn.execute(
                         "UPDATE missions SET statut='termine', fin=? WHERE id=?",
@@ -6225,11 +6377,27 @@ class Handler(BaseHTTPRequestHandler):
                         "ORDER BY v.id DESC LIMIT 500")]
                     return self._send_json(200, {"voyages": rows})
 
+                # Alignement immediat des missions sur Serveur_SG (la boucle le fait
+                # deja toutes les 6 s) ; sert au diagnostic.
+                if path == "/api/missions/synchroniser" and method == "POST":
+                    liste = sg_lire_missions_en_cours()
+                    if liste is None:
+                        return self._send_json(502, {"error": "Serveur_SG injoignable ou non configure : rien n'a ete modifie"})
+                    res = reconcilier_missions(conn, liste)
+                    res["missions_sg_en_cours"] = len(liste)
+                    return self._send_json(200, res)
+
                 if path == "/api/affecter" and method == "POST":
                     body = json.loads(self._read_body() or b"{}")
                     dt_code = body.get("dt_code")
                     if not dt_code:
                         return self._send_json(400, {"error": "dt_code requis"})
+                    if missions_source() == "cloud":
+                        return self._send_json(409, {"error": "Les missions sont decidees par Serveur_SG "
+                                                     "(MISSIONS_SOURCE=cloud) : affectation locale refusee"})
+                    if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours'",
+                                    (dt_code,)).fetchone():
+                        return self._send_json(409, {"error": "ce DT a deja une mission en cours"})
                     mission = generer_affectation(conn, dt_code)
                     if not mission:
                         return self._send_json(400, {"error": "DT non trouve ou pas en statut ODT"})
@@ -6407,12 +6575,6 @@ def main():
     for colonne, definition in (("ot_sync", "INTEGER DEFAULT 0"),
                                 ("ot_erreur", "TEXT DEFAULT ''"),
                                 ("ot_maj_le", "TEXT DEFAULT ''"),
-                    if missions_source() == "cloud":
-                        return self._send_json(409, {"error": "Les missions sont decidees par Serveur_SG "
-                                                     "(MISSIONS_SOURCE=cloud) : affectation locale refusee"})
-                    if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours'",
-                                    (dt_code,)).fetchone():
-                        return self._send_json(409, {"error": "ce DT a deja une mission en cours"})
                                 # 18/11 : etat CLOS, pose par le client
                                 # (bouton Clore de Dig Plan) ; clos_ot = 1
                                 # quand Serveur_OT l'a enregistre.
@@ -6448,6 +6610,10 @@ def main():
                       ("devie_depuis", "TEXT DEFAULT ''"),
                       ("devie_candidat_depuis", "TEXT DEFAULT ''"),
                       ("ecart_m", "REAL DEFAULT 0")):
+        if nom not in cols:
+            conn.execute("ALTER TABLE missions ADD COLUMN %s %s" % (nom, decl))
+    # missions : lien avec la mission de Serveur_SG (alignement 20/11)
+    for nom, decl in (("id_sg", "INTEGER"), ("cle_sg", "TEXT DEFAULT ''")):
         if nom not in cols:
             conn.execute("ALTER TABLE missions ADD COLUMN %s %s" % (nom, decl))
     # Les missions 'devoie' de l'ancienne detection restent telles quelles
@@ -6571,6 +6737,8 @@ def main():
     threading.Thread(target=boucle_remontees, daemon=True).start()
     # chargements de SG pour les KPI du dashboard, toutes les 5 s (19/11)
     threading.Thread(target=boucle_chargements, daemon=True).start()
+    # alignement des missions locales sur Serveur_SG (20/11)
+    threading.Thread(target=boucle_missions_sg, daemon=True).start()
     # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
     threading.Thread(target=boucle_comptes_mqtt, daemon=True).start()
     threading.Thread(target=boucle_suivi_mqtt, daemon=True).start()

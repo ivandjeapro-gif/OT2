@@ -167,6 +167,8 @@
     en_cours: { lbl: 'En cours', cls: 'status-progress' },
     termine: { lbl: 'Termine', cls: 'status-done' },
     devoie: { lbl: 'Devie', cls: 'sev-high' },
+    // abandonnee : le DT a recommence un cycle (Serveur_SG) ou la mission n'a jamais abouti
+    abandonnee: { lbl: 'Abandonnee', cls: 'status-pending' },
   };
   const CONFORMITE = {
     conforme: { lbl: 'Conforme', cls: 'status-done' },

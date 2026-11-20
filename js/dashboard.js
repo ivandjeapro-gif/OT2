@@ -19,7 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const $ = (id) => document.getElementById(id);
-    const PASSERELLE = 'http://' + (window.location.hostname || 'localhost') + ':8101';
+    // adresse reglee dans Parametres (ot-config.js) ; par defaut : cette machine, :8101
+    const PASSERELLE = (window.OTCFG && OTCFG.passerelle)
+        ? OTCFG.passerelle() : 'http://' + (window.location.hostname || 'localhost') + ':8101';
     const getJSON = (url) => fetch(url, { cache: 'no-store' }).then((r) => {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
