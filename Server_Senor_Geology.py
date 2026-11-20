@@ -2497,13 +2497,21 @@ def verifier_affectations_auto(conn):
             enregistrer_pour_office(conn, {"mission": mission, "action": "affectation_auto"})
 
 
+def mission_a_surveiller(conn, dt_code):
+    """Mission en cours du DT QUI A UNE DESTINATION (dumping area ou coordonnees d'arrivee), ou None.
+    Sans affectation il n'y a ni destination ni dumping area : rien a surveiller, donc aucune alerte
+    (sortie de route, deviation, checkpoint, arrivee). Une mission sans destination n'est pas suivie."""
+    return conn.execute(
+        "SELECT * FROM missions WHERE dt_code=? AND statut='en_cours' "
+        "AND (COALESCE(dumping_area_id, 0) > 0 OR (COALESCE(destination_x, 0) <> 0 AND COALESCE(destination_y, 0) <> 0)) "
+        "ORDER BY id DESC LIMIT 1", (dt_code,)).fetchone()
+
+
 def verifier_arrivee_da(conn, dt_code):
     """Geofencing dumping area : des que le DT entre dans le polygone de la
     dumping area de sa mission en cours, la mission est marquee "arrivee"
     (une seule fois) et une alerte "vous etes arrive" part au camion."""
-    mission = conn.execute(
-        "SELECT * FROM missions WHERE dt_code=? AND statut='en_cours' ORDER BY id DESC LIMIT 1",
-        (dt_code,)).fetchone()
+    mission = mission_a_surveiller(conn, dt_code)
     if not mission or mission["arrivee"] or not mission["dumping_area_id"]:
         return None
     da = conn.execute(
@@ -2581,11 +2589,9 @@ def verifier_deviation(conn, dt_code, instant=None):
     reglages = deviation_reglages()
     if not reglages["actif"]:
         return None
-    mission = conn.execute(
-        "SELECT * FROM missions WHERE dt_code=? AND statut='en_cours' ORDER BY id DESC LIMIT 1",
-        (dt_code,)).fetchone()
+    mission = mission_a_surveiller(conn, dt_code)
     if not mission or mission["arrivee"]:
-        return None     # pas de mission, ou deja arrive dans la dumping area
+        return None     # pas de mission (ou sans destination), ou deja arrive dans la dumping area
     dt = conn.execute("SELECT * FROM engins WHERE code=?", (dt_code,)).fetchone()
     if not dt:
         return None
@@ -2756,9 +2762,7 @@ def verifier_checkpoints(conn, dt_code, instant=None):
     _cp_derniere_pos[dt_code] = pos
     if not checkpoints_actif():
         return None
-    mission = conn.execute(
-        "SELECT * FROM missions WHERE dt_code=? AND statut='en_cours' ORDER BY id DESC LIMIT 1",
-        (dt_code,)).fetchone()
+    mission = mission_a_surveiller(conn, dt_code)
     if not mission:
         return None
     try:
@@ -2942,9 +2946,7 @@ def verifier_offroad(conn, dt_code, instant=None):
     # Serveur_SG depuis un chargement). Sans mission : les positions remontent,
     # rien n'est verifie, rien n'est notifie. Un etat hors piste laisse par une
     # mission terminee est efface sans alerte.
-    mission = conn.execute(
-        "SELECT id FROM missions WHERE dt_code=? AND statut='en_cours' LIMIT 1",
-        (dt_code,)).fetchone()
+    mission = mission_a_surveiller(conn, dt_code)
     if not mission:
         if dt["offroad"] or dt["offroad_candidat_depuis"]:
             conn.execute("UPDATE engins SET offroad=0, offroad_depuis='', "
