@@ -102,7 +102,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .brand {
     display: flex; align-items: center; justify-content: center; gap: 8px;
     align-self: stretch; background: var(--graphite);
-    margin: -9px 0 -13px calc(-1 * (var(--gap) + 8px)); padding: 0 26px 0 calc(var(--gap) + 8px);
+    margin: -9px 0 -13px calc(-1 * (var(--gap) + 8px)); padding: 0 48px 0 calc(var(--gap) + 8px);
 }
 .title { display: flex; flex-direction: column; gap: 4px; padding-left: clamp(8px, 1vw, 20px); border-left: 1px solid #d9d4c1; }
 .title .kicker {
@@ -427,7 +427,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .maj.secours { color: #8C6A00; }
 .date { justify-self: end; font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
 .site-logo { height: 46px; width: auto; display: block; }   /* logo Lafigue : blanc, sur fond graphite (haut) */
-.foot-logo { height: 64px; width: auto; display: block; align-self: center; margin: -8px 0; }                                                   /* logo Ore Tracking : sombre, sur fond creme (bas) */
+.foot-logo { height: 64px; width: auto; display: block; align-self: center; margin: -14px 0 2px; }                                                   /* logo Ore Tracking : sombre, sur fond creme (bas) */
 
 [hidden] { display: none !important; }
 
