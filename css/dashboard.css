@@ -99,15 +99,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     color: var(--graphite);
 }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand-mark { width: 30px; height: 36px; }
-.brand-word { display: flex; flex-direction: column; line-height: .9; }
-.brand-word b {
-    font-weight: 900; font-size: 22px; letter-spacing: .02em;
-    font-stretch: 125%; color: var(--graphite);
-}
-.brand-word span {
-    font-family: var(--mono); font-size: 7.5px; letter-spacing: .42em; color: var(--graphite);
-}
 .title { display: flex; flex-direction: column; gap: 4px; padding-left: clamp(8px, 1vw, 20px); border-left: 1px solid #d9d4c1; }
 .title .kicker {
     font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
@@ -239,6 +230,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     content: 'PLAN'; position: absolute; left: 6px; top: -3px;
     font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--text-3);
 }
+.gauge { margin-bottom: 11px; }
+/* echelle : toute la longueur = 125 % de l'objectif ; PLAN (trait) = 100 % ; un tiret = 10 % */
+.gauge .echelle i {
+    position: absolute; top: 15px; font: normal 8.5px var(--mono); letter-spacing: .06em; color: var(--text-3);
+}
+.gauge .echelle i:nth-child(1) { left: 0; }
+.gauge .echelle i:nth-child(2) { left: 40%; transform: translateX(-50%); }
+.gauge .echelle i:nth-child(3) { right: 0; }
+.gauge .plan::after { content: 'PLAN 100 %'; white-space: nowrap; }
 .gauge.empty .plan, .gauge.empty .fill { opacity: .25; }
 .kpi.ok   .gauge .fill { background: var(--ok); }
 .kpi.warn .gauge .fill { background: var(--warn); }
@@ -419,7 +419,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .maj { font-family: var(--mono); color: var(--text-3); }
 .maj.secours { color: #8C6A00; }
 .date { justify-self: end; font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
-.site-logo { height: 34px; width: auto; padding: 5px 10px; background: var(--graphite); }
+.site-logo { height: 40px; width: auto; padding: 5px 12px; background: var(--graphite); display: block; }   /* logo Lafigue : blanc, sur fond graphite (haut) */
+.foot-logo { height: 46px; width: auto; display: block; }                                                   /* logo Ore Tracking : sombre, sur fond creme (bas) */
 
 [hidden] { display: none !important; }
 
