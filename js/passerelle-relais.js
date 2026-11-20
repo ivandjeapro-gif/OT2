@@ -44,6 +44,19 @@
     return d;
   }
 
+  // Un seul des deux serveurs doit creer les missions : deux missions
+  // concurrentes pour le meme camion sinon.
+  function aideMissions(sgActif) {
+    const local = $('#relaisMissionsSource').value === 'local';
+    $('#relaisMissionsAide').textContent = local
+      ? 'Mode local : la passerelle cree les missions. ' + (sgActif === false
+          ? "Serveur_SG n'est pas configure : pas de doublon."
+          : "ATTENTION : Serveur_SG est configure et cree aussi ses missions (la tablette lit les siennes). " +
+            "Videz l'URL de Serveur_SG ou repassez en « Serveur_SG decide ».")
+      : "Serveur_SG cree les missions ; la passerelle les recopie et n'en cree pas.";
+  }
+  document.addEventListener('change', (e) => { if (e.target && e.target.id === 'relaisMissionsSource') aideMissions(!!$('#relaisSgUrl').value.trim()); });
+
   async function charger() {
     try {
       const d = await appel('GET', '/api/relais');
@@ -51,6 +64,8 @@
       $('#relaisSgUrl').value = d.sg_url || '';
       $('#relaisSgIntervalle').value = d.sg_intervalle_s || 60;
       $('#relaisAlerteRouge').value = d.alerte_rouge_min || 10;
+      $('#relaisMissionsSource').value = d.missions_source || 'cloud';
+      aideMissions(d.sg_actif);
       $('#relaisRemonteesIntervalle').value = d.remontees_intervalle_s || 10;
       const r = d.remontees || {};
       $('#relaisRemonteesEtat').textContent = !r.actif
@@ -95,6 +110,7 @@
       sg_url: $('#relaisSgUrl').value.trim(),
       sg_intervalle_s: $('#relaisSgIntervalle').value.trim(),
       alerte_rouge_min: $('#relaisAlerteRouge').value.trim(),
+      missions_source: $('#relaisMissionsSource').value,
       remontees_intervalle_s: $('#relaisRemonteesIntervalle').value.trim(),
       chargements_intervalle_s: $('#relaisChargementsIntervalle').value.trim(),
     };

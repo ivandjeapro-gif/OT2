@@ -197,6 +197,9 @@ document.addEventListener('DOMContentLoaded', () => {
         remplirFormulaire(f);
         if (suivi) suivi.appliquerFiltres(f);
     }
+    // chaque changement de filtre s'applique tout de suite (le bouton reste un secours)
+    ['fltType', 'fltStatut', 'fltZone', 'fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => appliquer(lireFormulaire())));
+    document.querySelectorAll('[data-flt-teneur]').forEach((c) => c.addEventListener('change', () => appliquer(lireFormulaire())));
     $('btnFltAppliquer').addEventListener('click', () => appliquer(lireFormulaire()));
     $('btnFltReset').addEventListener('click', () => appliquer(JSON.parse(JSON.stringify(CS.FILTRES_DEFAUT))));
     $('fltDate').max = new Date().toISOString().slice(0, 10);

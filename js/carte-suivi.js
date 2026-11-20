@@ -289,6 +289,12 @@
 
         return { map, zones, segments, fond, centre, zoom, afficher,
                  recentrer: () => map.setView(centre, zoom),
+                 // zoom sur une zone (filtre Zone) ; « toutes » = retour a la vue d'ensemble
+                 centrerSur: (nom) => {
+                     const z = nom && nom !== 'toutes' ? zones.find((x) => x.name === nom) : null;
+                     if (!z) { map.setView(centre, zoom); return; }
+                     map.fitBounds(L.latLng(z.lat, z.lng).toBounds(RAYON_ZONE_M * 2), { maxZoom: 18, animate: true });
+                 },
                  detruire: () => map.remove() };
     }
 
@@ -324,6 +330,7 @@
         const marqueurs = {};               // code -> L.marker
         const coucheTrajets = L.layerGroup().addTo(map);
         let filtres = lireFiltres();
+        let zoneCentree = 'toutes';         // derniere zone sur laquelle la carte a zoome
         let dernier = null;                 // derniere reponse /api/suivi_dt
         let choisi = null;                  // code suivi par la camera
         let minuteurs = [];
@@ -455,6 +462,7 @@
 
         function appliquerFiltres(f) {
             filtres = Object.assign({}, FILTRES_DEFAUT, f);
+            if (filtres.zone !== zoneCentree && carte.centrerSur) { zoneCentree = filtres.zone; carte.centrerSur(filtres.zone); }
             if (choisi && dernier) {
                 const e = dernier.engins.find((x) => x.code === choisi);
                 if (e && !correspond(e, filtres, carte.zones)) choisi = null;

@@ -101,7 +101,7 @@ MQTT_PASS = os.environ.get("MQTT_PASS", "")
 # relancer le service. Ils sont desormais persistes dans la table `params`,
 # l'environnement restant prioritaire pour surcharger un poste ponctuellement.
 _PARAMS_RELAIS = ("OFFICE_URL", "OFFICE_TOKEN", "SG_URL", "SG_TOKEN",
-                  "SG_INTERVALLE_S")
+                  "SG_INTERVALLE_S", "MISSIONS_SOURCE")
 _params_cache = {}
 _params_verrou = threading.Lock()
 
@@ -2344,6 +2344,11 @@ def generer_affectation(conn, dt_code):
     oreblocs = [dict(r) for r in conn.execute("SELECT * FROM oreblocs WHERE actif=1")]
     # trouver l'orebloc contenant (ou le plus proche, meme marge que le
     # passage ODT) le DT
+    # idempotence : un DT n'a qu'une mission en cours (comme genererAffectation
+    # cote Serveur_SG) ; l'appel manuel /api/affecter passe aussi par ici.
+    if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours'",
+                    (dt_code,)).fetchone():
+        return None
     orebloc_id = 0
     for ob in oreblocs:
         poly = json.loads(ob["sommets"] or "[]")
@@ -3193,6 +3198,9 @@ def blast_corps_ot(conn, blast_id):
             corps[champ] = b[champ]
     # La carte voyage avec le blast : Serveur_OT la depose sur Drive et rend
     # une URL que les tablettes peuvent reellement ouvrir. On ne joint le
+_sg_avert_local = False
+
+
     # binaire que si la map_url pointe encore sur ce poste.
     url = str(b.get("map_url") or "")
     if url and ("localhost" in url or "127.0.0.1" in url or url.startswith("/")):
@@ -3213,6 +3221,12 @@ def blast_a_une_carte(corps):
     """Vrai si le blast porte une carte joignable par le cloud : binaire
     joint (map_contenu) ou URL deja publiee (Drive, http distant)."""
     if corps.get("map_contenu"):
+    global _sg_avert_local
+    if missions_source() == "local" and not _sg_avert_local:
+        _sg_avert_local = True
+        print("ATTENTION : MISSIONS_SOURCE=local mais les positions partent encore vers Serveur_SG, "
+              "qui cree ses propres missions (la tablette lit celles de Serveur_SG). "
+              "Deux jeux de missions divergent : utiliser MISSIONS_SOURCE=cloud, ou vider SG_URL.")
         return True
     url = str(corps.get("map_url") or "").strip()
     return bool(url) and not ("localhost" in url or "127.0.0.1" in url
@@ -5790,6 +5804,7 @@ class Handler(BaseHTTPRequestHandler):
                     cur = conn.execute(
                         "INSERT INTO teneurs (source_id, nom, valeur_min, valeur_max, codes) "
                         "VALUES (?, ?, ?, ?, ?)",
+                        "missions_source": missions_source(),
                         (sid, nom, valeur_min, valeur_max, codes))
                     conn.commit()
                     return self._send_json(201, {"id": cur.lastrowid, "ok": True,
@@ -5802,6 +5817,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send_json(400, {"error": "id requis"})
                     conn.execute("UPDATE teneurs SET actif=0 WHERE id=?", (tid,))
                     conn.commit()
+                              "missions_source": "MISSIONS_SOURCE",
                     return self._send_json(200, {"ok": True, "id": tid})
 
                 # Dumping Instruction : affecte (ou modifie) la Dumping Area
@@ -5809,6 +5825,10 @@ class Handler(BaseHTTPRequestHandler):
                 # consigne appliquee par le serveur en ligne pour instruire les DT.
                 # Mise a jour d'une teneur : nom, bornes, et surtout `codes`.
                 # Les teneurs du site existaient avant ce champ : sans
+                        if cle == "MISSIONS_SOURCE":
+                            valeur = valeur.lower()
+                            if valeur not in ("cloud", "local"):
+                                return self._send_json(400, {"error": "missions_source : cloud ou local"})
                 # endpoint de maj, impossible de les renseigner autrement
                 # qu'en les supprimant et en les recreant.
                 if path == "/api/teneur_maj" and method == "POST":
@@ -6387,6 +6407,12 @@ def main():
     for colonne, definition in (("ot_sync", "INTEGER DEFAULT 0"),
                                 ("ot_erreur", "TEXT DEFAULT ''"),
                                 ("ot_maj_le", "TEXT DEFAULT ''"),
+                    if missions_source() == "cloud":
+                        return self._send_json(409, {"error": "Les missions sont decidees par Serveur_SG "
+                                                     "(MISSIONS_SOURCE=cloud) : affectation locale refusee"})
+                    if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours'",
+                                    (dt_code,)).fetchone():
+                        return self._send_json(409, {"error": "ce DT a deja une mission en cours"})
                                 # 18/11 : etat CLOS, pose par le client
                                 # (bouton Clore de Dig Plan) ; clos_ot = 1
                                 # quand Serveur_OT l'a enregistre.

@@ -555,7 +555,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.addEventListener('storage', (e) => {
-        if (e.key === 'oreTrackingKpi') { appliquerAffichageKpi(); return; }
+        if (e.key === 'oreTrackingKpi' || e.key === 'oreTrackingFiltres') { appliquerAffichageKpi(); return; }
         if (e.key === 'oreTrackingKpiPlan') { appliquerObjectifs(); renderKpis(); return; }
         if (e.key === 'oreTrackingConfig' || e.key === 'oreTrackingTrails') {
             setTimeout(() => location.reload(), 300);
@@ -590,6 +590,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const actifs = CarteSuivi.filtresActifs(r.filtres);
                 const el = $('filtreActif');
                 el.hidden = !actifs.length;
+        // filtre « Teneurs » du Perimetre de suivi (Live) : masque aussi le bloc grade
+        let flt = {};
+        try { flt = (JSON.parse(localStorage.getItem('oreTrackingFiltres')) || {}).teneurs || {}; } catch (e) {}
+        const TENEUR_KPI = { high: 'hg', medium: 'mg', low: 'lg', marginal: 'mo' };
+        Object.entries(TENEUR_KPI).forEach(([t, k]) => { if (flt[t] === false) vis[k] = false; });
                 el.textContent = actifs.length ? 'Filtre : ' + actifs.join(' · ') : '';
             },
         });

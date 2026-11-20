@@ -366,6 +366,14 @@
                                     </div>
                                     <div class="relais-aide" id="relaisChargementsEtat"></div>
                                     <div class="form-row">
+                                        <label for="relaisMissionsSource">Création des missions</label>
+                                        <select class="form-input" id="relaisMissionsSource">
+                                            <option value="cloud">Serveur_SG décide (recommandé)</option>
+                                            <option value="local">La passerelle décide</option>
+                                        </select>
+                                    </div>
+                                    <div class="relais-aide" id="relaisMissionsAide"></div>
+                                    <div class="form-row">
                                         <label for="relaisAlerteRouge">Alerte non vue en rouge apres (min)</label>
                                         <input type="number" class="form-input" id="relaisAlerteRouge" min="1" max="1440" step="1" />
                                     </div>

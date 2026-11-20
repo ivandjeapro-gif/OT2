@@ -990,12 +990,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (btnUnlock) btnUnlock.addEventListener('click', () => setMapConfigLocked(false));
+    // « Annuler » restaure l'etat d'avant « Modifier » (champs, zones, trails manuels)
+    let instantane = null;
+    function prendreInstantane() {
+        const champs = [...mapConfig.querySelectorAll('input, select')]
+            .filter(el => !el.closest('#zoneList') && !el.closest('#trailList') && el.type !== 'file')
+            .map(el => ({ el, value: el.value, checked: el.checked }));
+        const zones = [...zoneList.querySelectorAll('.zone-item')].map(i => ({
+            name: i.querySelector('.zone-name').value, lat: i.querySelector('.zone-lat').value,
+            lng: i.querySelector('.zone-lng').value, color: i.querySelector('.zone-color').value }));
+        const trails = [...trailList.querySelectorAll('.trail-item')].map(i => ({
+            from: i.querySelector('.trail-from').value, to: i.querySelector('.trail-to').value,
+            color: i.querySelector('.trail-color').value }));
+        return { champs, zones, trails };
+    }
+    function restaurerInstantane(st) {
+        st.champs.forEach(c => { c.el.value = c.value; c.el.checked = c.checked; });
+        zoneList.innerHTML = ''; trailList.innerHTML = '';
+        st.zones.forEach(z => addZone(z.name, z.lat, z.lng, z.color));
+        st.trails.forEach(t => addTrail(t.from, t.to, t.color));
+    }
+    if (btnUnlock) btnUnlock.addEventListener('click', () => { instantane = prendreInstantane(); setMapConfigLocked(false); });
     if (btnConfirm) btnConfirm.addEventListener('click', () => {
         setMapConfigLocked(true);
         if (window.LiveCarte) window.LiveCarte.signaler();
     });
-    if (btnCancel) btnCancel.addEventListener('click', () => setMapConfigLocked(true));
+    if (btnCancel) btnCancel.addEventListener('click', () => {
+        if (instantane) { restaurerInstantane(instantane); instantane = null; }
+        setMapConfigLocked(true);
+    });
     setMapConfigLocked(true);
 
     // Restaurer les couches sauvegardees
