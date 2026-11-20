@@ -2147,6 +2147,10 @@ def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=Tru
             verifier_offroad(conn, code, instant)
         except Exception as e:      # ne jamais perdre une position pour ca
             print("OFFROAD: verification impossible pour %s: %s" % (code, e))
+        try:
+            verifier_checkpoints(conn, code, instant)
+        except Exception as e:
+            print("CHECKPOINT: verification impossible pour %s: %s" % (code, e))
         # apres l'offroad : un DT hors piste n'est pas aussi signale devie
         try:
             verifier_deviation(conn, code, instant)
@@ -2600,6 +2604,162 @@ def verifier_deviation(conn, dt_code, instant=None):
 
     if evenement:
         enregistrer_alerte_office(conn, evenement)
+    return evenement
+
+
+# ------------------------------------------------ checkpoints sautes (19/11) ---
+# Serveur_SG decide de la mission et de son itineraire (liste ORDONNEE de
+# checkpoints, lignes de passage a 2 extremites). La passerelle, qui recoit les
+# positions en temps reel, controle le passage dans l'ordre PENDANT la mission
+# seulement :
+#   - un checkpoint est franchi si la trace du DT (position precedente ->
+#     position courante) coupe la ligne, ou passe a moins de CHECKPOINT_RAYON_M ;
+#   - si le DT franchit un checkpoint alors qu'un precedent n'a pas ete franchi,
+#     ou arrive dans la dumping area avec des checkpoints restants :
+#     alerte « checkpoint » (une fois par checkpoint saute), voix + bandeau chez le DT.
+# Sans mission, ou sans checkpoints connus pour l'itineraire : rien n'est verifie.
+CHECKPOINT_RAYON_M = 15.0
+_cp_derniere_pos = {}      # code DT -> (x, y) precedent
+
+
+def checkpoints_actif():
+    return str(param_lire("CHECKPOINT_ACTIF", "1")).strip().lower() not in ("0", "false", "non", "off")
+
+
+def _orientation(ax, ay, bx, by, cx, cy):
+    v = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    return 0 if abs(v) < 1e-9 else (1 if v > 0 else -1)
+
+
+def segments_se_coupent(a, b, c, d):
+    """Les segments [a,b] et [c,d] (points (x, y)) se croisent-ils ?"""
+    o1 = _orientation(*a, *b, *c)
+    o2 = _orientation(*a, *b, *d)
+    o3 = _orientation(*c, *d, *a)
+    o4 = _orientation(*c, *d, *b)
+    return o1 != o2 and o3 != o4
+
+
+def checkpoint_franchi(cp, prec, pos):
+    ax, ay, bx, by = cp["x1"], cp["y1"], cp["x2"], cp["y2"]
+    if distance_point_segment(pos[0], pos[1], ax, ay, bx, by) <= CHECKPOINT_RAYON_M:
+        return True
+    return bool(prec) and segments_se_coupent(prec, pos, (ax, ay), (bx, by))
+
+
+def sg_lire_itineraires():
+    """GET ?action=missions&statut=en_cours chez Serveur_SG ->
+    {dt_code: [segments ordonnes]} (champ `itineraire.checkpoints`)."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return {}
+    url = "%s?action=missions&statut=en_cours&token=%s" % (sg_url, quote(sg_token))
+    with urllib.request.urlopen(url, timeout=30) as rep_:
+        d = json.loads(rep_.read().decode("utf-8", "replace"))
+    res = {}
+    for m in d.get("missions") or []:
+        cps = ((m.get("itineraire") or {}).get("checkpoints")) or []
+        propres = []
+        for c in cps:
+            try:
+                propres.append({"nom": str(c["nom"]), "x1": float(c["x1"]), "y1": float(c["y1"]),
+                                "x2": float(c["x2"]), "y2": float(c["y2"])})
+            except (KeyError, TypeError, ValueError):
+                continue
+        if propres:
+            res[str(m.get("dt_code") or "").strip()] = propres
+    return res
+
+
+def charger_checkpoints_missions():
+    """Une passe : les missions en cours sans checkpoints les recoivent."""
+    conn = get_conn()
+    try:
+        sans = [dict(r) for r in conn.execute(
+            "SELECT id, dt_code FROM missions WHERE statut='en_cours' "
+            "AND (cp_json IS NULL OR cp_json IN ('', '[]'))")]
+        if not sans:
+            return 0
+        par_dt = sg_lire_itineraires()
+        n = 0
+        for m in sans:
+            cps = par_dt.get(m["dt_code"])
+            if cps:
+                conn.execute("UPDATE missions SET cp_json=?, cp_etat='{}' WHERE id=?",
+                             (json.dumps(cps), m["id"]))
+                n += 1
+        conn.commit()
+        return n
+    finally:
+        conn.close()
+
+
+def boucle_checkpoints():
+    while True:
+        try:
+            if checkpoints_actif():
+                charger_checkpoints_missions()
+        except Exception as e:
+            print("CHECKPOINT: lecture des itineraires impossible (%s)" % e)
+        time.sleep(20)
+
+
+def verifier_checkpoints(conn, dt_code, instant=None):
+    """A chaque position : franchissements + checkpoint saute. Retourne
+    l'evenement `checkpoint` s'il y en a un nouveau, sinon None."""
+    dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (dt_code,)).fetchone()
+    if not dt:
+        return None
+    pos = (dt["x"], dt["y"])
+    prec = _cp_derniere_pos.get(dt_code)
+    _cp_derniere_pos[dt_code] = pos
+    if not checkpoints_actif():
+        return None
+    mission = conn.execute(
+        "SELECT * FROM missions WHERE dt_code=? AND statut='en_cours' ORDER BY id DESC LIMIT 1",
+        (dt_code,)).fetchone()
+    if not mission:
+        return None
+    try:
+        cps = json.loads(mission["cp_json"] or "[]")
+        etat = json.loads(mission["cp_etat"] or "{}")
+    except ValueError:
+        return None
+    if not cps:
+        return None                      # itineraire inconnu : on ne devine pas
+    franchis = set(etat.get("franchis") or [])
+    sautes = set(etat.get("sautes") or [])
+    noms = [c["nom"] for c in cps]
+    manque = []
+
+    if mission["arrivee"]:
+        # arrive dans la DA : ce qui n'a pas ete franchi est saute (une seule fois)
+        if etat.get("clos"):
+            return None
+        manque = [n for n in noms if n not in franchis and n not in sautes]
+        etat["clos"] = True
+    else:
+        for i, c in enumerate(cps):
+            if c["nom"] in franchis or c["nom"] in sautes:
+                continue
+            if checkpoint_franchi(c, prec, pos):
+                # tout ce qui precede et n'est pas franchi est saute
+                manque = [n for n in noms[:i] if n not in franchis and n not in sautes]
+                franchis.add(c["nom"])
+                break
+
+    sautes.update(manque)
+    etat["franchis"], etat["sautes"] = sorted(franchis), sorted(sautes)
+    conn.execute("UPDATE missions SET cp_etat=? WHERE id=?", (json.dumps(etat), mission["id"]))
+    conn.commit()
+    if not manque:
+        return None
+    message = "CHECKPOINT SAUTE : %s n'a pas franchi %s%s." % (
+        dt_code, manque[0], " (+%d autre(s))" % (len(manque) - 1) if len(manque) > 1 else "")
+    creer_alerte(conn, "checkpoint", dt_code, message)
+    evenement = {"type": "checkpoint", "dt_code": dt_code, "x": pos[0], "y": pos[1],
+                 "mission_id": mission["id"], "checkpoints": manque, "message": message}
+    enregistrer_alerte_office(conn, evenement)
     return evenement
 
 
@@ -4737,7 +4897,7 @@ def enregistrer_pour_office(conn, payload_dict):
 # Serveur_OT, `profil` = code du DT, `message` = "[type] TEXTE ASCII". L'app
 # DT lit ?action=notifications, garde les lignes de son code et les dit a
 # voix haute. Pas d'accuse de lecture. Desactivable : ALERTES_CHAUFFEUR=0.
-TYPES_ALERTE_CHAUFFEUR = ("offroad", "deviation", "retour_piste", "retour_trajet")
+TYPES_ALERTE_CHAUFFEUR = ("offroad", "deviation", "retour_piste", "retour_trajet", "checkpoint")
 
 
 def alertes_chauffeur_actives():
@@ -6616,6 +6776,11 @@ def main():
     for nom, decl in (("id_sg", "INTEGER"), ("cle_sg", "TEXT DEFAULT ''")):
         if nom not in cols:
             conn.execute("ALTER TABLE missions ADD COLUMN %s %s" % (nom, decl))
+    # missions : checkpoints de l'itineraire (lus chez Serveur_SG) et leur suivi
+    for nom, decl in (("cp_json", "TEXT DEFAULT '[]'"),
+                      ("cp_etat", "TEXT DEFAULT '{}'")):
+        if nom not in cols:
+            conn.execute("ALTER TABLE missions ADD COLUMN %s %s" % (nom, decl))
     # Les missions 'devoie' de l'ancienne detection restent telles quelles
     # (historique) : les reactiver pourrait bloquer l'affectation d'un DT.
     conn.commit()
@@ -6737,6 +6902,7 @@ def main():
     threading.Thread(target=boucle_remontees, daemon=True).start()
     # chargements de SG pour les KPI du dashboard, toutes les 5 s (19/11)
     threading.Thread(target=boucle_chargements, daemon=True).start()
+    threading.Thread(target=boucle_checkpoints, daemon=True).start()
     # alignement des missions locales sur Serveur_SG (20/11)
     threading.Thread(target=boucle_missions_sg, daemon=True).start()
     # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
