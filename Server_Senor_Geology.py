@@ -2764,7 +2764,7 @@ def verifier_checkpoints(conn, dt_code, instant=None):
 
 
 # ---------------------------------------------------- sortie de route ----
-# "Offroad" = le DT roule hors de TOUTE piste (independant de sa mission).
+# "Offroad" = le DT roule hors de TOUTE piste, pendant une mission seulement (19/11).
 # A ne pas confondre avec la deviation (sur une piste, mais pas la sienne).
 #
 # Decision, a chaque position recue d'un DT :
@@ -2896,6 +2896,19 @@ def verifier_offroad(conn, dt_code, instant=None):
         "SELECT * FROM engins WHERE code=? AND type='DT' AND actif=1",
         (dt_code,)).fetchone()
     if not dt:
+        return None
+    # 19/11 : on ne surveille un DT que pendant une MISSION (mission creee par
+    # Serveur_SG depuis un chargement). Sans mission : les positions remontent,
+    # rien n'est verifie, rien n'est notifie. Un etat hors piste laisse par une
+    # mission terminee est efface sans alerte.
+    mission = conn.execute(
+        "SELECT id FROM missions WHERE dt_code=? AND statut='en_cours' LIMIT 1",
+        (dt_code,)).fetchone()
+    if not mission:
+        if dt["offroad"] or dt["offroad_candidat_depuis"]:
+            conn.execute("UPDATE engins SET offroad=0, offroad_depuis='', "
+                         "offroad_candidat_depuis='' WHERE code=?", (dt_code,))
+            conn.commit()
         return None
     aretes = offroad_aretes(conn)
     if not aretes or pistes_en_degres(aretes):
