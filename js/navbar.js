@@ -26,11 +26,15 @@
       { page: 'alerts', href: 'alerts.html', icon: 'fa-bell',           label: 'Alerts', badge: true },
       { page: 'inbox',  href: 'inbox.html',  icon: 'fa-inbox',          label: 'Inbox' }
     ],
+    // Métier : les modules d'expertise géologique / plan d'extraction
+    metier: [
+      { page: 'senor',   href: 'senor.html',   icon: 'fa-layer-group', label: 'Senor' },
+      { page: 'digplan', href: 'digplan.html', icon: 'fa-map',         label: 'Dig Plan' }
+    ],
+    // Outils : administration et assistance
     outils: [
       { page: 'settings', href: 'settings.html', icon: 'fa-cog',             label: 'Settings' },
       { page: 'sync',     href: 'sync.html',     icon: 'fa-sync-alt',        label: 'Sync' },
-      { page: 'senor',    href: 'senor.html',    icon: 'fa-layer-group',     label: 'Senor' },
-      { page: 'digplan',  href: 'digplan.html',  icon: 'fa-map',             label: 'Dig Plan' },
       { page: 'aide',     href: '#',             icon: 'fa-question-circle', label: 'Aide & raccourcis' }
     ]
   };
@@ -64,7 +68,9 @@
           ENTRÉES.operations.map(function (it) { return lien(it, it.page === actif); }).join('') +
         '</div>' +
         '<div class="nav-bottom">' +
-          '<span class="nav-section-label">Outils &amp; métier</span>' +
+          '<span class="nav-section-label">Métier</span>' +
+          ENTRÉES.metier.map(function (it) { return lien(it, it.page === actif); }).join('') +
+          '<span class="nav-section-label">Outils</span>' +
           ENTRÉES.outils.map(function (it) { return lien(it, it.page === actif); }).join('') +
         '</div>' +
       '</nav>' +

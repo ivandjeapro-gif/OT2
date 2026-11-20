@@ -2575,3 +2575,12 @@ body {
     position: sticky !important;
     top: 0 !important;
 }
+
+/* ============================================================
+   26. NAVBAR — groupe Métier séparé du groupe Outils
+   Deux libellés distincts dans la même colonne du bas.
+   ============================================================ */
+
+.nav-bottom .nav-section-label:not(:first-child) {
+    padding-top: 16px !important;
+}
