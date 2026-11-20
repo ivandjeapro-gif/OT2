@@ -401,11 +401,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 $('tabletList').textContent = 'Suivi temps réel non installé';
                 return;
             }
-            const enLigne = (d.comptes || []).filter((c) => c.en_ligne).map((c) => c.code);
+            const enLigne = (d.comptes || []).filter((c) => c.en_ligne).map((c) => c.code + (c.mqtt_en_ligne === false ? ' (4G)' : ''));
             $('tabletCount').textContent = deux(enLigne.length);
             $('tabletList').textContent = enLigne.length
                 ? enLigne.join(' · ')
                 : 'Aucune tablette en ligne (' + (d.comptes || []).length + ' DT équipés)';
+            const sansMqtt = (d.comptes || []).filter((c) => c.en_ligne && c.mqtt_en_ligne === false).map((c) => c.code);
+            if (sansMqtt.length) $('tabletList').title = 'Sans MQTT (positions reçues par 4G uniquement) : ' + sansMqtt.join(', ');
         }).catch(() => {
             $('tabletCount').textContent = '--';
             $('tabletList').textContent = 'Passerelle injoignable';
@@ -741,6 +743,11 @@ document.addEventListener('DOMContentLoaded', () => {
         $('zoomIn').addEventListener('click', () => carte.map.zoomIn());
         $('zoomOut').addEventListener('click', () => carte.map.zoomOut());
         $('zoomCenter').addEventListener('click', () => carte.recentrer());
+        // chip de filtre : un clic remet tous les filtres a zero (type, matiere, statut, zone, teneurs)
+        $('filtreActif').addEventListener('click', () => {
+            CarteSuivi.ecrireFiltres(Object.assign({}, CarteSuivi.FILTRES_DEFAUT));
+            location.reload();
+        });
 
         const diffusion = CarteSuivi.lireDiffusion();
         CarteSuivi.suivre(carte, {
@@ -752,7 +759,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const actifs = CarteSuivi.filtresActifs(r.filtres);
                 const el = $('filtreActif');
                 el.hidden = !actifs.length;
-                el.textContent = actifs.length ? 'Filtre : ' + actifs.join(' · ') : '';
+                const vide = actifs.length && r.total > 0 && r.affiches === 0;
+                el.classList.toggle('vide', !!vide);
+                el.textContent = actifs.length
+                    ? (vide ? 'Aucun engin ne passe le filtre : ' : 'Filtre : ') + actifs.join(' · ') + '  ✕ réinitialiser'
+                    : '';
+                el.title = 'Cliquer pour afficher tous les engins (réinitialise les filtres du dashboard et de Live)';
             },
         });
         return carte.map;

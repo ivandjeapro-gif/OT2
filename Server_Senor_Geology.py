@@ -5144,10 +5144,15 @@ def comptes_mqtt_etat():
     try:
         lignes = [dict(r) for r in conn.execute(
             "SELECT code, famille, numero, actif, mdp_applique, cree_le, maj_le FROM mqtt_comptes ORDER BY code")]
+        # derniere position recue par N'IMPORTE QUEL canal (MQTT ou HTTP/SG 4G) : une tablette dont
+        # MQTT est tombe mais qui emet encore ses positions est bel et bien connectee.
+        maj_engins = {r["code"]: r["derniere_maj"] for r in conn.execute(
+            "SELECT code, derniere_maj FROM engins WHERE actif=1")}
     finally:
         conn.close()
     maintenant = time.time()
     for l in lignes:
+        l["position_recente"] = age_position_s(maj_engins.get(l["code"])) <= POSITION_FRAICHE_S
         pres = _mqtt_etat["presence"].get(l["code"]) or {}
         pos = _mqtt_etat["derniere_position"].get(l["code"])
         recent = pos is not None and maintenant - pos < MQTT_EN_LIGNE_S
@@ -5157,6 +5162,9 @@ def comptes_mqtt_etat():
         # la position, meme recente, ne compte plus.
         deconnecte = pres.get("etat") == "hors_ligne" and (pos is None or pres.get("t", 0) >= pos)
         l["en_ligne"] = pres_recente or (recent and not deconnecte)
+        l["mqtt_en_ligne"] = l["en_ligne"]
+        # connectee = MQTT OU position fraiche (tous canaux) ; mqtt_en_ligne dit si le canal temps reel est vivant
+        l["en_ligne"] = l["en_ligne"] or l["position_recente"]
         l["presence"] = pres.get("etat", "")
         l["derniere_position_s"] = None if pos is None else int(maintenant - pos)
     conf = mqtt_conf() or {}

@@ -309,6 +309,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .map-bar b { color: var(--cream); font-weight: 600; }
 .map-bar i { color: #807D71; margin: 0 .5em; }
 .map-basemap { color: var(--yellow); font-size: 13px; }
+.map-filtre { cursor: pointer; }
+.map-filtre.vide { background: rgba(220, 70, 50, .28); color: #ffd7cf; }
 .map-filtre {
     margin-left: auto; margin-right: 18px; padding: 3px 10px; border-radius: 2px;
     background: rgba(252, 213, 37, .16); color: var(--yellow); font-family: var(--mono); font-size: 12px;
