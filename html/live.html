@@ -515,11 +515,12 @@
                                             <option value="encours">Shift en cours</option>
                                             <option value="jour">Jour (06h-18h)</option>
                                             <option value="nuit">Nuit (18h-06h)</option>
-                                            <option value="journee">Journée entière</option>
+                                            <option value="journee">Journée (06h-06h)</option>
                                         </select></label>
-                                    <label class="lv-champ"><span class="lbl">Date</span>
-                                        <input type="date" id="fltDate" /></label>
+                                    <label class="lv-champ"><span class="lbl">Date de production</span>
+                                        <input type="date" id="fltDate" title="Jour de production : il commence à 06h. Vide = en cours." /></label>
                                 </div>
+                                <p class="lv-aide" id="fltAidePeriode">Jour de production : de 06h à 06h le lendemain. Date vide = en cours ; la nuit du 20/11 va du 20/11 à 18h au 21/11 à 06h. Le dashboard lit cette période (KPI et alertes).</p>
                                 <span class="lbl lv-teneurs-titre">Teneurs (chargement des DT)</span>
                                 <div class="lv-teneurs">
                                     <label class="check-item"><input type="checkbox" data-flt-teneur="high" checked /> High Grade</label>
