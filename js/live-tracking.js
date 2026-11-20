@@ -226,38 +226,141 @@ document.addEventListener('DOMContentLoaded', () => {
     ['cfgDiffMode', 'cfgDiffEcran', 'cfgDiffTrajets', 'cfgDiffAnimations', 'cfgShowAlerts']
         .forEach((id) => $(id).addEventListener('change', enregistrerDiffusion));
 
-    // ecrans disponibles (API Window Management, Chrome / Edge) : sans
-    // elle, « Automatique » seulement — la fenetre s'ouvre ou le systeme veut.
+    // ---- ecrans (API Window Management, Chrome / Edge) -------------------
+    // Comme PowerPoint / VideoPSlam : « Automatique » = le premier ecran
+    // SECONDAIRE (sinon l'ecran principal). Avec 3 ecrans ou plus, on choisit
+    // un ecran precis ou « tous les ecrans secondaires ». L'ecran est memorise
+    // par sa position/taille (stable), pas par son rang (qui change au
+    // branchement). Sans l'API : la fenetre s'ouvre ou le systeme veut.
     let ecrans = [];
+    const cleEcran = (e) => e.left + ',' + e.top + ',' + e.width + 'x' + e.height;
+    const apiEcrans = 'getScreenDetails' in window;
+    const etatEcrans = (t, ok) => { const e = $('cfgDiffEtat'); e.textContent = t; e.classList.toggle('ok', !!ok); };
+
+    function decrireEcran(e, i) {
+        const p = ecrans.find((x) => x.isPrimary);
+        let pos = 'principal';
+        if (!e.isPrimary && p) {
+            const dx = e.left - p.left, dy = e.top - p.top;
+            pos = (Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'à droite' : 'à gauche') : (dy > 0 ? 'en dessous' : 'au-dessus')) + ' du principal';
+        }
+        return 'Écran ' + (i + 1) + (e.label ? ' · ' + e.label : '') + ' · ' + e.width + '×' + e.height + ' · ' + pos;
+    }
+    function remplirEcrans() {
+        const sel = $('cfgDiffEcran'), val = CS.lireDiffusion().ecran;
+        const sec = ecrans.filter((e) => !e.isPrimary);
+        const opts = [new Option(sec.length ? 'Automatique : premier écran secondaire' : 'Automatique : écran principal', 'auto')];
+        if (sec.length > 1) opts.push(new Option('Tous les écrans secondaires (' + sec.length + ')', 'tous'));
+        ecrans.forEach((e, i) => opts.push(new Option(decrireEcran(e, i), cleEcran(e))));
+        sel.replaceChildren(...opts);
+        sel.value = [...sel.options].some((o) => o.value === val) ? val : 'auto';
+    }
     async function listerEcrans(demander) {
-        if (!('getScreenDetails' in window)) return;
+        if (!apiEcrans) return false;
         try {
             if (!demander && navigator.permissions) {
                 const st = await navigator.permissions.query({ name: 'window-management' }).catch(() => null);
-                if (!st || st.state !== 'granted') return;
+                if (!st || st.state !== 'granted') return false;
             }
             const d = await window.getScreenDetails();
-            ecrans = d.screens;
-            const sel = $('cfgDiffEcran'), val = CS.lireDiffusion().ecran;
-            sel.replaceChildren(new Option('Automatique', 'auto'),
-                ...ecrans.map((s, i) => new Option('Écran ' + (i + 1) + (s.isPrimary ? ' (principal)' : '') + ' · ' + s.width + '×' + s.height, String(i))));
-            sel.value = ecrans[val] ? val : 'auto';
-        } catch (e) { /* refuse par l'utilisateur */ }
+            const maj = () => {
+                ecrans = d.screens.slice().sort((a, b) => a.left - b.left || a.top - b.top);
+                remplirEcrans();
+                etatEcrans(ecrans.length + ' écran(s) détecté(s). Appliqué en direct à la salle de contrôle.', false);
+            };
+            maj();
+            d.addEventListener('screenschange', maj);   // branchement / debranchement a chaud
+            return true;
+        } catch (e) {
+            etatEcrans("Détection des écrans refusée : autorisez « Gestion des fenêtres » dans le navigateur.", false);
+            return false;
+        }
+    }
+    function ciblesProjection() {
+        const d = CS.lireDiffusion();
+        const sec = ecrans.filter((e) => !e.isPrimary);
+        if (d.ecran === 'tous') return sec.length ? sec : ecrans.slice(0, 1);
+        const choisi = ecrans.find((e) => cleEcran(e) === d.ecran);
+        if (choisi) return [choisi];
+        // automatique : le secondaire le plus proche du principal (a egalite : a droite)
+        const p = ecrans.find((e) => e.isPrimary) || ecrans[0];
+        const dist = (e) => Math.hypot(e.left - p.left, e.top - p.top);
+        sec.sort((a, b) => dist(a) - dist(b) || b.left - a.left);
+        return sec.length ? [sec[0]] : ecrans.slice(0, 1);
+    }
+    if (!apiEcrans) {
+        $('btnDiffDetecter').disabled = $('btnDiffIdentifier').disabled = true;
+        etatEcrans("Ce navigateur ne gère pas les écrans multiples (utilisez Chrome ou Edge) : la fenêtre s'ouvre où le système le décide.", false);
     }
     listerEcrans(false);
-    $('cfgDiffEcran').addEventListener('focus', () => { if (!ecrans.length) listerEcrans(true); }, { once: true });
+    $('btnDiffDetecter').addEventListener('click', () => listerEcrans(true));
+    // identification : un grand numero sur l'ecran pendant 3 s. Le navigateur
+    // n'autorise souvent qu'UNE fenetre par clic : on affiche donc les ecrans
+    // un par un (chaque clic sur « Identifier » passe au suivant), et choisir
+    // un ecran dans la liste affiche son numero.
+    let identSuivant = 0;
+    function afficherNumero(e, i) {
+        const w = window.open('', 'ot-ident-' + i, 'left=' + e.left + ',top=' + e.top + ',width=' + e.width + ',height=' + e.height + ',popup=yes');
+        if (!w) return false;
+        w.document.write('<title>Écran ' + (i + 1) + '</title><body style="margin:0;background:#1a1a1a;color:#fcd525;font:700 22vw/100vh sans-serif;text-align:center">' + (i + 1) +
+            '<div style="position:fixed;left:0;right:0;bottom:6vh;font:400 3vw sans-serif;color:#ddd;line-height:1.2">' + (e.isPrimary ? 'principal' : 'secondaire') + ' · ' + e.width + '×' + e.height + '</div></body>');
+        try { w.moveTo(e.left, e.top); w.resizeTo(e.width, e.height); } catch (x) { /* position imposee par le systeme */ }
+        setTimeout(() => w.close(), 3000);
+        return true;
+    }
+    $('btnDiffIdentifier').addEventListener('click', async () => {
+        if (!ecrans.length && !(await listerEcrans(true))) return;
+        if (identSuivant >= ecrans.length) identSuivant = 0;
+        const montres = [];
+        while (identSuivant < ecrans.length) {
+            if (!afficherNumero(ecrans[identSuivant], identSuivant)) break;     // 2e fenetre refusee : au clic suivant
+            montres.push(identSuivant + 1);
+            identSuivant++;
+        }
+        if (identSuivant < ecrans.length) {
+            etatEcrans(montres.length
+                ? 'Écran ' + montres.join(', ') + ' affiché. Cliquez de nouveau sur « Identifier » pour l\'écran ' + (identSuivant + 1) + ' sur ' + ecrans.length + '.'
+                : 'Fenêtre bloquée par le navigateur : autorisez les pop-ups pour ce site.', false);
+        } else {
+            etatEcrans('Écran ' + montres.join(', ') + ' affiché — tous les écrans ont été identifiés.', true);
+            identSuivant = 0;
+        }
+    });
+    $('cfgDiffEcran').addEventListener('change', () => {
+        const e = ciblesProjection()[0];
+        if (e && ecrans.length > 1) afficherNumero(e, ecrans.indexOf(e));
+    });
 
     window.LiveDiffusion = {
-        ouvrir(url) {
+        /** Lance la projection ; retourne le nombre de fenetres ouvertes. */
+        async ouvrir(url) {
             const d = CS.lireDiffusion();
-            const s = ecrans[d.ecran];
             const plein = d.mode === 'etendu';
-            let traits = 'width=1920,height=1080';
-            if (s) traits = 'left=' + s.availLeft + ',top=' + s.availTop + ',width=' + s.availWidth + ',height=' + s.availHeight;
-            else if (!plein) traits = 'width=1600,height=900';
-            // plein ecran : le navigateur exige un clic dans la fenetre ouverte
-            // (dashboard : invite « cliquer pour passer en plein ecran »)
-            window.open(url + (plein ? '?plein=1' : ''), 'oreTrackingSalle', traits);
+            if (!ecrans.length && apiEcrans) await listerEcrans(true);   // 1re fois : demande d'autorisation
+            const cs = ciblesProjection();
+            const cibles = cs.length ? cs : [null];
+            let ouvertes = 0, bloquees = 0;
+            cibles.forEach((e, i) => {
+                let traits = plein ? 'width=1920,height=1080' : 'width=1600,height=900';
+                if (e) {
+                    traits = plein
+                        ? 'left=' + e.left + ',top=' + e.top + ',width=' + e.width + ',height=' + e.height
+                        : 'left=' + (e.left + Math.max(0, (e.width - 1600) / 2)) + ',top=' + (e.top + Math.max(0, (e.height - 900) / 2)) +
+                          ',width=' + Math.min(1600, e.width) + ',height=' + Math.min(900, e.height);
+                }
+                const w = window.open(url + (plein ? '?plein=1' : ''), 'oreTrackingSalle' + (cibles.length > 1 ? '-' + i : ''), traits);
+                if (!w) { bloquees++; return; }
+                ouvertes++;
+                if (e && plein) {
+                    try { w.moveTo(e.left, e.top); w.resizeTo(e.width, e.height); } catch (x) { /* fenetre deja ouverte ailleurs */ }
+                    // plein ecran sans clic quand le navigateur l'autorise ; sinon
+                    // la fenetre affiche « Cliquer pour passer en plein ecran »
+                    setTimeout(() => { try { w.document.documentElement.requestFullscreen({ screen: e }).catch(() => {}); } catch (x) { /* refuse */ } }, 900);
+                }
+            });
+            const noms = cibles.map((e) => (e ? decrireEcran(e, ecrans.indexOf(e)) : 'écran choisi par le système')).join(' | ');
+            etatEcrans(bloquees ? bloquees + ' fenêtre(s) bloquée(s) : autorisez les pop-ups, puis relancez PRESENTER.' : 'Projection lancée : ' + noms, !bloquees);
+            return ouvertes;
         },
     };
 

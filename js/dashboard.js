@@ -404,6 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('alertTrack').replaceChildren(span);
     }
 
+        document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) invite.remove(); });
     // Sortie de route en cours : pastille rouge fixe, prioritaire sur tout.
     function afficherAlerte() {
         if (!afficherAlertes) return;

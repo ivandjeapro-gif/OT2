@@ -260,6 +260,8 @@
 .lv-diffusion .lv-champ { margin-bottom: 20px; }
 .lv-diffusion .lv-champ .lbl { color: #b8bcb6; }
 .lv-diffusion .lv-champ select { background: var(--lv-sombre-2); color: #fff; }
+.lv-diff-ecrans { display: flex; gap: 10px; margin: -8px 0 20px; }
+.lv-diff-ecrans button { padding: 8px 14px; font-size: 12px; }
 .lv-diff-cases { display: flex; gap: 22px; }
 .lv-diff-cases input { accent-color: var(--lv-jaune); }
 .lv-diff-etat { margin: 14px 0 0; font-size: 11.5px; color: #8f948e; }
