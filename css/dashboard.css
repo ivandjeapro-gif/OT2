@@ -98,7 +98,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     background: var(--cream);
     color: var(--graphite);
 }
-.brand { display: flex; align-items: center; gap: 8px; }
+/* le bloc sombre du logo Lafigue remplit tout le bandeau (hauteur + bord gauche), sans marge creme autour */
+.brand {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    align-self: stretch; background: var(--graphite);
+    margin: -9px 0 -13px calc(-1 * (var(--gap) + 8px)); padding: 0 26px 0 calc(var(--gap) + 8px);
+}
 .title { display: flex; flex-direction: column; gap: 4px; padding-left: clamp(8px, 1vw, 20px); border-left: 1px solid #d9d4c1; }
 .title .kicker {
     font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
@@ -421,8 +426,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .maj { font-family: var(--mono); color: var(--text-3); }
 .maj.secours { color: #8C6A00; }
 .date { justify-self: end; font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
-.site-logo { height: 40px; width: auto; padding: 5px 12px; background: var(--graphite); display: block; }   /* logo Lafigue : blanc, sur fond graphite (haut) */
-.foot-logo { height: 46px; width: auto; display: block; }                                                   /* logo Ore Tracking : sombre, sur fond creme (bas) */
+.site-logo { height: 46px; width: auto; display: block; }   /* logo Lafigue : blanc, sur fond graphite (haut) */
+.foot-logo { height: 64px; width: auto; display: block; align-self: center; margin: -8px 0; }                                                   /* logo Ore Tracking : sombre, sur fond creme (bas) */
 
 [hidden] { display: none !important; }
 
