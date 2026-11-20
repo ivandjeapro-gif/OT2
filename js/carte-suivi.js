@@ -34,13 +34,16 @@
         attente:      { lib: 'Excavatrice en attente',     court: 'Attente',      couleur: '#B7B3A3' },
     };
     const ETATS_DT = ['chargement', 'mission', 'roulage', 'attente_loin', 'hors_piste', 'signal_perdu'];
+    /** Flux d'un DT d'apres la teneur de sa mission : « waste » (sterile) ou « minerai »
+     *  (HG / MG / LG / MO) ; '' = pas de mission (rien charge, donc ni l'un ni l'autre). */
+    const fluxDe = (e) => e.type !== 'DT' ? '' : (e.teneur === 'waste' ? 'waste' : (e.teneur ? 'minerai' : ''));
     const TENEURS = { high: 'High Grade', medium: 'Medium Grade', low: 'Low Grade', marginal: 'Marginal Ore' };
 
     // --------------------------------------------------------- filtres ---
     const LS_FILTRES = 'oreTrackingFiltres';
     const LS_DIFFUSION = 'oreTrackingDiffusion';
     const FILTRES_DEFAUT = {
-        type: 'tous', statut: 'tous', zone: 'toutes', shift: 'encours', date: '',
+        type: 'tous', flux: 'tous', statut: 'tous', zone: 'toutes', shift: 'encours', date: '',
         teneurs: { high: true, medium: true, low: true, marginal: true },
     };
     const DIFFUSION_DEFAUT = { trajets: true, animations: true, mode: 'etendu', ecran: 'auto' };
@@ -99,6 +102,7 @@
     function correspond(e, f, zones) {
         if (f.type !== 'tous' && e.type !== f.type) return false;
         if (f.statut !== 'tous' && e.etat !== f.statut) return false;
+        if (f.flux && f.flux !== 'tous' && e.type === 'DT' && fluxDe(e) !== f.flux) return false;   // Minerai / Waste
         if (e.type === 'DT' && e.teneur && f.teneurs && f.teneurs[e.teneur] === false) return false;
         if (f.zone && f.zone !== 'toutes') {
             const z = (zones || []).find((x) => x.name === f.zone);
@@ -112,6 +116,7 @@
     function filtresActifs(f) {
         const n = [];
         if (f.type !== 'tous') n.push(f.type === 'DT' ? 'DT' : 'Excavatrices');
+        if (f.flux && f.flux !== 'tous') n.push(f.flux === 'waste' ? 'Waste' : 'Minerai');
         if (f.statut !== 'tous') n.push((ETATS[f.statut] || {}).court || f.statut);
         if (f.zone && f.zone !== 'toutes') n.push(f.zone);
         const off = Object.keys(TENEURS).filter((k) => f.teneurs && f.teneurs[k] === false);
@@ -496,6 +501,6 @@
     global.CarteSuivi = {
         ETATS, ETATS_DT, TENEURS, FILTRES_DEFAUT, DIFFUSION_DEFAUT,
         lireFiltres, ecrireFiltres, lireDiffusion, ecrireDiffusion,
-        periode, correspond, filtresActifs, resumeZones, construire, suivre,
+        periode, correspond, filtresActifs, fluxDe, resumeZones, construire, suivre,
     };
 })(window);

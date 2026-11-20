@@ -129,8 +129,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return b;
         }));
         majOptionsStatut(r.compte);
+        const dts = ((suivi && suivi.etat() && suivi.etat().engins) || []).filter((x) => x.type === 'DT');
+        const nb = (k) => dts.filter((x) => CS.fluxDe(x) === k).length;
         texte($('fltEtat'), (filtre.length ? 'Filtre actif : ' + filtre.join(' · ') + ' — ' : '') +
-            fmt(r.affiches) + ' DT affiché(s) sur ' + fmt(r.total) + ', ici et sur la salle de contrôle.');
+            fmt(r.affiches) + ' DT affiché(s) sur ' + fmt(r.total) + ' (' + nb('minerai') + ' minerai · ' + nb('waste') + ' waste · ' +
+            (dts.length - nb('minerai') - nb('waste')) + ' sans chargement), ici et sur la salle de contrôle.');
     }
 
     // ------------------------------------------------- fiche du DT ---
@@ -184,11 +187,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function lireFormulaire() {
         const teneurs = {};
         document.querySelectorAll('[data-flt-teneur]').forEach((c) => { teneurs[c.dataset.fltTeneur] = c.checked; });
-        return { type: $('fltType').value, statut: $('fltStatut').value || 'tous', zone: $('fltZone').value || 'toutes',
+        return { type: $('fltType').value, flux: $('fltFlux').value, statut: $('fltStatut').value || 'tous', zone: $('fltZone').value || 'toutes',
                  shift: $('fltShift').value, date: $('fltDate').value, teneurs };
     }
     function remplirFormulaire(f) {
-        $('fltType').value = f.type; majOptionsStatut(null); $('fltStatut').value = f.statut;
+        $('fltType').value = f.type; $('fltFlux').value = f.flux || 'tous'; majOptionsStatut(null); $('fltStatut').value = f.statut;
         $('fltZone').value = f.zone; $('fltShift').value = f.shift; $('fltDate').value = f.date || '';
         document.querySelectorAll('[data-flt-teneur]').forEach((c) => { c.checked = f.teneurs[c.dataset.fltTeneur] !== false; });
     }
@@ -198,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (suivi) suivi.appliquerFiltres(f);
     }
     // chaque changement de filtre s'applique tout de suite (le bouton reste un secours)
-    ['fltType', 'fltStatut', 'fltZone', 'fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => appliquer(lireFormulaire())));
+    ['fltType', 'fltFlux', 'fltStatut', 'fltZone', 'fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => appliquer(lireFormulaire())));
     document.querySelectorAll('[data-flt-teneur]').forEach((c) => c.addEventListener('change', () => appliquer(lireFormulaire())));
     $('btnFltAppliquer').addEventListener('click', () => appliquer(lireFormulaire()));
     $('btnFltReset').addEventListener('click', () => appliquer(JSON.parse(JSON.stringify(CS.FILTRES_DEFAUT))));
