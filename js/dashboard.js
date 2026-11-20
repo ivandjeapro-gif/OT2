@@ -177,6 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
         data.grades.medium.actuel = k.grades.medium.tonnes;
         data.grades.low.actuel = k.grades.low.tonnes;
         data.grades.marginal.actuel = k.grades.marginal.tonnes;
+        // chargements lus mais exclus des totaux (bloc ou tonnage manquant / bloc inconnu)
+        data.ignores = (Number(k.sans_bloc) || 0) + (Number(k.sans_tonnage) || 0) + (Number(k.blocs_inconnus) || 0);
         data.source = source;
         data.luLe = luLe || null;
         data.derniereMaj = new Date();
@@ -269,8 +271,18 @@ document.addEventListener('DOMContentLoaded', () => {
             .finally(() => { directEnCours = false; });
     }
 
+    // Les relevés rapides (0,5 s) ne s'empilent pas : si la passerelle met plus de
+    // 0,5 s a repondre, le suivant attend (sinon N fenetres x 2 appels/s s'accumulent).
+    const enVol = {};
+    function unAUnSeul(nom, fn) {
+        if (enVol[nom]) return;
+        enVol[nom] = true;
+        Promise.resolve(fn()).finally(() => { enVol[nom] = false; });
+    }
+
     // ===== OFFROAD =====
     let codesHorsPiste = '';
+    let echecsOffroad = 0;
 
     function renderOffroad() {
         const n = data.offroad.count;
@@ -285,8 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function refreshOffroad() {
-        getJSON(PASSERELLE + '/api/offroad')
+        return getJSON(PASSERELLE + '/api/offroad')
             .then((d) => {
+                echecsOffroad = 0;
                 data.offroad.count = d.count || 0;
                 data.offroad.dts = d.dts || [];
                 renderOffroad();
@@ -300,7 +313,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 annoncerOffroad(codes !== avant && data.offroad.dts.some((x) => avant.split(',').indexOf(x.code) < 0));
             })
-            .catch(() => { /* on garde la derniere valeur */ });
+            .catch(() => {
+                // on garde la derniere valeur 3 s, puis « -- » : un « 00 » calme affiche
+                // alors que la passerelle ne repond plus serait trompeur
+                if (++echecsOffroad >= 6 && data.offroad.count !== null) {
+                    data.offroad.count = null;
+                    data.offroad.dts = [];
+                    renderOffroad();
+                }
+            });
     }
 
     // ===== ENVIRONNEMENT =====
@@ -343,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // MQTT (presence + positions recentes), lu sur la passerelle : sans
     // session, contrairement a l'ancienne liste /api/tablettes (19/11).
     function refreshTablettes() {
-        getJSON(PASSERELLE + '/api/mqtt/comptes').then((d) => {
+        return getJSON(PASSERELLE + '/api/mqtt/comptes').then((d) => {
             if (!d.configure) {
                 $('tabletCount').textContent = '--';
                 $('tabletList').textContent = 'Suivi temps réel non installé';
@@ -393,6 +414,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ev.key !== 'oreTrackingDiffusion') return;
         try { afficherAlertes = (JSON.parse(ev.newValue) || {}).alertes !== false; } catch (e) {}
         $('alertBanner').style.visibility = afficherAlertes ? '' : 'hidden';
+        const chip = $('inviteSon');
+        if (chip && !afficherAlertes) chip.remove();
     });
 
     // Diffusion « plein ecran etendu » : le navigateur n'autorise le plein
@@ -415,11 +438,51 @@ document.addEventListener('DOMContentLoaded', () => {
     let alertIndex = 0;
     let dernierIdAlerte = null;
 
+    // Son et voix : le navigateur ne les autorise qu'apres un geste dans CETTE page
+    // (fenetre ouverte par PRESENTER comprise) -> pastille « Cliquer pour activer le
+    // son » tant qu'il n'y a pas eu de clic. Suit l'interrupteur « Alertes » de Live.
+    // (prefs.js n'est pas charge ici : l'ancien code ne sonnait jamais.)
+    let audioCtx = null;
+    let sonDebloque = false;
+    function debloquerSon() {
+        if (sonDebloque) return;
+        sonDebloque = true;
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            audioCtx.resume();
+        } catch (e) { audioCtx = null; }
+        try {
+            if ('speechSynthesis' in window) {
+                const u = new SpeechSynthesisUtterance(' ');
+                u.volume = 0;
+                speechSynthesis.speak(u);
+            }
+        } catch (e) { /* synthese indisponible */ }
+        const chip = $('inviteSon');
+        if (chip) chip.remove();
+    }
+    ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, debloquerSon, { once: true }));
+    if (afficherAlertes) {
+        const chip = document.createElement('div');
+        chip.id = 'inviteSon'; chip.className = 'invite-son';
+        chip.textContent = 'Cliquer pour activer le son et la voix des alertes';
+        document.body.appendChild(chip);
+    }
+    function bip(freq, dur, delai) {
+        if (!audioCtx || audioCtx.state !== 'running') return;
+        const t0 = audioCtx.currentTime + (delai || 0);
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination);
+        o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.25, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        o.start(t0); o.stop(t0 + dur);
+    }
     function jouerSonDanger() {
-        if (!afficherAlertes || typeof PREFS === 'undefined' || !PREFS.alertSound) return;
+        if (!afficherAlertes) return;
         const now = Date.now();
         if (!jouerSonDanger._last || now - jouerSonDanger._last > 10000) {
-            PREFS.alertSound();
+            bip(880, 0.35); bip(660, 0.35, 0.4);
             jouerSonDanger._last = now;
         }
     }
@@ -487,7 +550,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const liste = nonVues.slice(0, 8).map((a) => {
                     const age = duree(secondesDepuis(a.created_at, true));
                     return {
-                        text: (a.dt_code && a.dt_code !== '-' ? a.dt_code + ' · ' : '') + (a.message || a.type) +
+                        text: (a.dt_code && a.dt_code !== '-' && String(a.message || '').indexOf(a.dt_code) < 0
+                                  ? a.dt_code + ' · ' : '') + (a.message || a.type) +
                               (age ? ' · alerte non vue depuis ' + age : ''),
                         type: 'danger'
                     };
@@ -563,6 +627,9 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (data.source === 'direct') maj.textContent = 'Production · secours direct (passerelle injoignable) · lue à ' + h(data.luLe);
         else if (data.source === 'ancienne') maj.textContent = 'Production · table locale (passerelle à mettre à jour) · ' + h(data.derniereMaj);
         else maj.textContent = 'Production · table locale (base en ligne non configurée) · ' + h(data.derniereMaj);
+        if (data.derniereMaj && data.ignores) {
+            maj.textContent += ' · ' + data.ignores + ' chargement' + (data.ignores > 1 ? 's' : '') + ' non compté' + (data.ignores > 1 ? 's' : '') + ' (bloc ou tonnage manquant)';
+        }
         maj.classList.toggle('secours', data.source === 'direct');
     }
 
@@ -574,6 +641,9 @@ document.addEventListener('DOMContentLoaded', () => {
         clock.lastChild.textContent = ':' + deux(d.getSeconds());
         $('dateDuJour').textContent = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
     }
+
+    // Cloche : ouvre la page Alertes (acquittement) dans sa propre fenetre / onglet.
+    $('notificationBell').addEventListener('click', () => { window.open('alerts.html', 'oreTrackingAlertes'); });
 
     // ← Live : la salle de controle est ouverte depuis Live dans une fenetre a part
     $('backLive').addEventListener('click', (e) => {
@@ -667,9 +737,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     applyServerParams();   setInterval(applyServerParams, 60000);
     refreshKpi();          setInterval(refreshKpi, 5000);
-    refreshOffroad();      setInterval(refreshOffroad, 500);
+    refreshOffroad();      setInterval(() => unAUnSeul('offroad', refreshOffroad), 500);
     refreshAlertes();      setInterval(refreshAlertes, 8000);
-    refreshTablettes();    setInterval(refreshTablettes, 500);
+    refreshTablettes();    setInterval(() => unAUnSeul('tablettes', refreshTablettes), 500);
     refreshMeteo();        setInterval(refreshMeteo, 600000);
     refreshLiens();        setInterval(refreshLiens, 15000);
     setTimeout(afficherAlerte, 1500);
