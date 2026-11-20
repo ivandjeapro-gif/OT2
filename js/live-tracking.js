@@ -383,7 +383,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async function listerEnreg() {
         try {
             const d = await fetch(PASSERELLE() + '/api/enregistrements', { cache: 'no-store' }).then((r) => r.json());
-            majRecord(d.record);
             const per = majEnregPeriode();
             // la liste suit le « Perimetre de suivi » : videos dont la plage recoupe la periode, CSV des jours concernes
             const noms = (re, f) => { const m = re.exec(f.nom); return m ? m : null; };
@@ -440,17 +439,6 @@ document.addEventListener('DOMContentLoaded', () => {
     lecteur.addEventListener('click', (ev) => { if (ev.target === lecteur) fermerLecteur(); });
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !lecteur.hidden) fermerLecteur(); });
 
-    // decor de la carte (zones, pistes colorees, fond) : la video reprend exactement ce que montre la carte
-    function decorCarte() {
-        if (!carte) return null;
-        return {
-            basemap: carte.basemap,
-            zones: (carte.zones || []).filter((z) => z.lat && z.lng).map((z) => ({ name: z.name, lat: z.lat, lng: z.lng })),
-            pistes: (carte.pistes || []).map((t) => ({ waypoints: t.waypoints || [], from: t.from || '', to: t.to || '',
-                                                      color: t.color || '', useColor: t.useColor !== false })),
-        };
-    }
-
     let enregMinuteur = null;
     async function surveillerEnreg() {
         clearTimeout(enregMinuteur);
@@ -464,42 +452,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // le perimetre change : la liste se met a jour tout de suite (videos et CSV de la nouvelle periode)
     ['fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => { majEnregPeriode(); surveillerEnreg(); }));
     window.addEventListener('storage', (ev) => { if (ev.key === 'oreTrackingFiltres') surveillerEnreg(); });
-    // bouton Enregistrer : un clic demarre (sur la passerelle), un second arrete et cree la video du laps de temps ecoule
-    let recDebut = null, recMinuteur = null;
-    const deux = (n) => String(n).padStart(2, '0');
-    function majRecord(rec) {
-        const bouton = $('btnEnregRec'), chrono = $('enregChrono');
-        clearInterval(recMinuteur); recMinuteur = null;
-        recDebut = rec && rec.debut ? new Date(rec.debut.replace(' ', 'T')) : null;
-        bouton.classList.toggle('en-cours', !!recDebut);
-        bouton.textContent = recDebut ? '■ Arrêter et créer la vidéo' : '● Enregistrer';
-        chrono.hidden = !recDebut;
-        if (recDebut) {
-            const tic = () => {
-                const s = Math.max(0, Math.floor((Date.now() - recDebut.getTime()) / 1000));
-                texte(chrono, deux(Math.floor(s / 3600)) + ':' + deux(Math.floor(s / 60) % 60) + ':' + deux(s % 60));
-            };
-            tic(); recMinuteur = setInterval(tic, 1000);
-        }
-    }
-    $('btnEnregRec').addEventListener('click', async () => {
-        const action = recDebut ? 'stop' : 'start';
-        texte($('enregEtat'), action === 'start' ? 'Démarrage…' : 'Arrêt et création de la vidéo…');
-        try {
-            const r = await fetch(PASSERELLE() + '/api/enregistrements/record', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: action, fond: decorCarte() }),
-            });
-            const d = await r.json().catch(() => ({}));
-            if (!r.ok) {
-                texte($('enregEtat'), r.status === 401 || r.status === 403 ? 'Connexion requise (' + (d.error || r.status) + ')' : (d.error || 'Échec (' + r.status + ')'));
-            } else if (action === 'start') {
-                texte($('enregEtat'), 'Enregistrement démarré. Il continue même si tu quittes la page.');
-            } else {
-                texte($('enregEtat'), 'Vidéo ' + d.fichier + ' : ' + d.message + '. Elle apparaît dans la liste dès qu\'elle est prête.');
-            }
-            surveillerEnreg();
-        } catch (e) { texte($('enregEtat'), 'Passerelle injoignable.'); }
+    // bouton REC de la carte : filme la carte telle qu'affichee (js/enregistreur-carte.js)
+    let effacerRec = null;
+    const rec = window.EnregistreurCarte ? EnregistreurCarte.attacher({
+        bouton: $('btnRecCarte'), chrono: $('recChrono'), element: () => $('liveTrackingMap'), passerelle: PASSERELLE,
+        message: (t, ok) => {
+            const m = $('recMsg'); m.textContent = t; m.style.color = ok ? '#3d7a2e' : '#C23B22';
+            texte($('enregEtat'), t);
+            clearTimeout(effacerRec); effacerRec = setTimeout(() => { m.textContent = ''; }, 9000);
+        },
+    }) : null;
+    document.addEventListener('enregistrements:maj', () => surveillerEnreg());
+    // onglet Enregistrements : arrete l'enregistrement en cours, ou renvoie vers la carte (on ne peut filmer qu'une carte affichee)
+    $('btnEnregRec').addEventListener('click', () => {
+        const enCours = $('btnRecCarte').classList.contains('en-cours');
+        if (enCours) { $('btnRecCarte').click(); return; }
+        const ong = document.querySelector('.lv-onglets [data-onglet="carte"]');
+        if (ong) ong.click();
+        texte($('recMsg'), 'Appuie sur ● REC pour filmer la carte.');
     });
 
     // ------------------------------------------- pied : passerelle ---

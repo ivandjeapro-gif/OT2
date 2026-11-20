@@ -315,6 +315,16 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .map-bar b { color: var(--cream); font-weight: 600; }
 .map-bar i { color: #807D71; margin: 0 .5em; }
 .map-basemap { color: var(--yellow); font-size: 13px; }
+.map-rec {
+    margin-left: auto; margin-right: 14px; padding: 3px 12px; border: 1px solid rgba(255,255,255,.28); border-radius: 2px;
+    background: none; color: var(--cream); font: 600 12px var(--mono); letter-spacing: .08em; cursor: pointer;
+}
+.map-rec:hover { border-color: #E5482F; color: #ff8b78; }
+.map-rec.en-cours { background: #E5482F; border-color: #E5482F; color: #fff; animation: rec-pulse 1.4s infinite; }
+@keyframes rec-pulse { 50% { opacity: .65; } }
+.rec-msg { font: 12px var(--mono); color: #ffb4a6; margin-left: auto; }
+.rec-msg:empty { display: none; }
+.rec-msg + .map-rec { margin-left: 14px; }
 .map-filtre { cursor: pointer; }
 .map-filtre.vide { background: rgba(220, 70, 50, .28); color: #ffd7cf; }
 .map-filtre {

@@ -95,6 +95,11 @@
                                             <button type="button" class="lv-btn-sombre" id="btnCancelMap" style="display:none">Annuler</button>
                                         </div>
                                     </div>
+                                    <div class="lv-rec-barre">
+                                        <button type="button" class="lv-btn-jaune lv-btn-rec" id="btnRecCarte" title="Enregistrer la carte en vidéo">● REC</button>
+                                        <span class="lv-enreg-chrono" id="recChrono" hidden>00:00:00</span>
+                                        <span class="lv-aide-inline" id="recMsg"></span>
+                                    </div>
                                     <div class="lv-track-carte">
                                         <div id="liveTrackingMap"></div>
                                         <div class="lv-zoom">
@@ -292,12 +297,11 @@
                             <div class="lv-volet" data-volet="enreg" role="tabpanel" hidden>
                                 <section class="lv-enreg">
                                     <h2>Enregistrements du tracking</h2>
-                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle : un fichier CSV par jour, et une vidéo générée automatiquement à la fin de chaque shift. Ici : la liste suit le « Périmètre de suivi » (Date de production et Shift) ; le bouton Enregistrer crée une vidéo de ce qui se passe entre le moment où tu l'appuies et celui où tu l'arrêtes.</p>
+                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle : un fichier CSV par jour, et une vidéo générée automatiquement à la fin de chaque shift. Ici : la liste suit le « Périmètre de suivi » (Date de production et Shift) ; la vidéo est un film de la carte telle qu'elle s'affiche (DT en mouvement) : bouton ● REC au-dessus de la carte (onglet Carte &amp; tracking), puis ■ Arrêter. Chrome ou Edge, onglet affiché pendant l'enregistrement.</p>
                                     <div class="lv-enreg-actions">
                                         <span class="lv-enreg-periode" id="enregPeriode">--</span>
                                         <a class="lv-btn-sombre" id="btnEnregCsv" href="#" download>Télécharger le CSV</a>
-                                        <span class="lv-enreg-chrono" id="enregChrono" hidden>00:00:00</span>
-                                        <button type="button" class="lv-btn-jaune lv-btn-rec" id="btnEnregRec">● Enregistrer</button>
+                                        <button type="button" class="lv-btn-jaune lv-btn-rec" id="btnEnregRec">● Enregistrer la carte</button>
                                     </div>
                                     <p class="lv-aide" id="enregEtat"></p>
                                     <div class="lv-enreg-listes">
@@ -642,6 +646,7 @@
     <script src="../js/app.js"></script>
     <script src="../js/ot-config.js"></script>
     <script src="../js/carte-suivi.js"></script>
+    <script src="../js/enregistreur-carte.js"></script>
     <script src="../js/live-tracking.js"></script>
 </body>
 </html>

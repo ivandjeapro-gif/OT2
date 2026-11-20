@@ -4564,11 +4564,14 @@ def lancer_video(depuis, jusqua, vitesse=120):
     return True, nom, "generation lancee"
 
 
-# Bouton « Enregistrer » : l'enregistrement est tenu PAR LA PASSERELLE (il survit a la fermeture de la page,
-# et un seul enregistrement a la fois pour tout le site). Arret = la video de debut -> arret est generee.
+# Bouton « REC » de la carte (dashboard / Live) : le NAVIGATEUR filme la carte telle qu'elle s'affiche (DT en
+# mouvement, zones, pistes) et envoie le flux par morceaux a la passerelle, qui l'assemble en un fichier WebM.
+# L'etat « enregistrement en cours » est tenu ici : un seul a la fois pour tout le site, visible sur toutes les
+# pages ; « arreter » ferme le fichier avec ce qui a ete recu (meme si la page qui filmait a ete fermee).
 RECORD_FICHIER = os.path.join(DATA_DIR, "record_en_cours.json")
-RECORD_MIN_S = 20
-RECORD_MAX_H = 26
+RECORD_PARTIE = os.path.join(ENREGISTREMENTS_DIR, "record_en_cours.part.webm")
+RECORD_MIN_S = 5
+RECORD_MORCEAU_MAX = 40 * 1024 * 1024         # un morceau (5 s de flux) reste tres en dessous
 _record_verrou = threading.Lock()
 
 
@@ -4584,6 +4587,19 @@ def record_etat():
     return None
 
 
+def record_morceau(corps):
+    """Ajoute un morceau de flux au fichier en cours. Rend (code HTTP, reponse)."""
+    with _record_verrou:
+        if not record_etat():
+            return 409, {"ok": False, "error": "aucun enregistrement en cours"}
+        if not corps or len(corps) > RECORD_MORCEAU_MAX:
+            return 400, {"ok": False, "error": "morceau vide ou trop gros"}
+        os.makedirs(ENREGISTREMENTS_DIR, exist_ok=True)
+        with open(RECORD_PARTIE, "ab") as fh:
+            fh.write(corps)
+        return 200, {"ok": True, "octets": os.path.getsize(RECORD_PARTIE)}
+
+
 def record_action(action):
     """Demarre / arrete l'enregistrement. Rend (code HTTP, reponse)."""
     with _record_verrou:
@@ -4591,7 +4607,11 @@ def record_action(action):
         if action == "start":
             if en_cours:
                 return 200, {"ok": True, "record": en_cours, "message": "deja en cours"}
-            os.makedirs(DATA_DIR, exist_ok=True)
+            os.makedirs(ENREGISTREMENTS_DIR, exist_ok=True)
+            try:
+                os.remove(RECORD_PARTIE)
+            except OSError:
+                pass
             d = {"debut": now_iso()}
             with open(RECORD_FICHIER, "w", encoding="utf-8") as fh:
                 json.dump(d, fh)
@@ -4600,19 +4620,17 @@ def record_action(action):
             if not en_cours:
                 return 409, {"ok": False, "error": "aucun enregistrement en cours"}
             debut, fin = en_cours["debut"], now_iso()
-            duree = (datetime.strptime(fin, "%Y-%m-%d %H:%M:%S") - datetime.strptime(debut, "%Y-%m-%d %H:%M:%S")).total_seconds()
             try:
                 os.remove(RECORD_FICHIER)
             except OSError:
                 pass
-            if duree < RECORD_MIN_S:
-                return 422, {"ok": False, "error": "enregistrement trop court (%d s) : au moins %d s" % (duree, RECORD_MIN_S)}
-            if duree > RECORD_MAX_H * 3600:                  # oubli : on garde les dernieres RECORD_MAX_H heures
-                debut = (datetime.strptime(fin, "%Y-%m-%d %H:%M:%S") - timedelta(hours=RECORD_MAX_H)).strftime("%Y-%m-%d %H:%M:%S")
-                duree = RECORD_MAX_H * 3600
-            vitesse = max(10, min(1800, int(round(duree / 90.0))))     # video de ~1 min 30 quelle que soit la duree
-            ok, nom, message = lancer_video(debut, fin, vitesse)
-            return (200 if ok else 422), {"ok": ok, "fichier": nom, "message": message, "debut": debut, "fin": fin}
+            taille = os.path.getsize(RECORD_PARTIE) if os.path.isfile(RECORD_PARTIE) else 0
+            if not taille:
+                return 422, {"ok": False, "error": "aucune image recue (la page qui filme a ete fermee trop tot ?)"}
+            nom = nom_video(debut, fin)
+            os.replace(RECORD_PARTIE, os.path.join(ENREGISTREMENTS_DIR, nom))
+            return 200, {"ok": True, "fichier": nom, "message": "enregistrement termine (%.1f Mo)" % (taille / 1048576.0),
+                         "debut": debut, "fin": fin}
     return 400, {"ok": False, "error": "action : start ou stop"}
 
 
@@ -4648,7 +4666,7 @@ def boucle_video_auto():
     """A la fin de chaque shift : video du shift termine (une fois), et menage des vieilles videos."""
     while True:
         try:
-            if str(param_lire("VIDEO_AUTO", "1")).strip().lower() not in ("0", "non", "false", "off"):
+            if str(param_lire("VIDEO_AUTO", "0")).strip().lower() in ("1", "oui", "true", "on"):
                 _, d, f = dernier_shift_termine()
                 debut, fin = d.strftime("%Y-%m-%d %H:%M:%S"), f.strftime("%Y-%m-%d %H:%M:%S")
                 if not os.path.exists(os.path.join(ENREGISTREMENTS_DIR, nom_video(debut, fin))):
@@ -5830,7 +5848,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def route_api(self, method, path):
-        if method != "GET":                  # les lectures sondees chaque seconde ne polluent plus la console
+        if method != "GET" and path != "/api/enregistrements/morceau":   # ni les lectures sondees, ni les morceaux de flux
             print("ROUTE_API:", method, path)
         if method in ("POST", "PUT", "DELETE"):
             ok, code, message = ecriture_autorisee(self.client_address[0], path, self.headers.get("Authorization", ""))
@@ -5917,12 +5935,10 @@ class Handler(BaseHTTPRequestHandler):
                                       plage=(debut, fin, taille) if code == 206 else None)
         if path == "/api/enregistrements/record" and method == "POST":
             b = json.loads(self._read_body() or b"{}")
-            if isinstance(b.get("fond"), dict):
-                try:
-                    fond_video_ecrire(b["fond"])         # decor de la carte (zones, pistes colorees) pour la video
-                except Exception as e:
-                    print("VIDEO: decor ignore (%s)" % e)
             code, rep = record_action(str(b.get("action") or ""))
+            return self._send_json(code, rep)
+        if path == "/api/enregistrements/morceau" and method == "POST":
+            code, rep = record_morceau(self._read_body())
             return self._send_json(code, rep)
         if path == "/api/enregistrements/video" and method == "POST":
             b = json.loads(self._read_body() or b"{}")

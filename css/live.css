@@ -298,6 +298,7 @@
 .lv-enreg-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-top: 22px; }
 .lv-enreg-periode { font-family: var(--lv-mono); font-size: 13px; padding: 10px 14px; background: var(--lv-beige); }
 .lv-enreg-actions a.lv-btn-sombre { display: inline-flex; align-items: center; text-decoration: none; }
+.lv-rec-barre { display: flex; align-items: center; gap: 14px; padding: 10px 0; }
 .lv-btn-rec.en-cours { background: #E5482F; color: #fff; }
 .lv-enreg-chrono { font-family: var(--lv-mono); font-size: 18px; color: #E5482F; padding: 8px 4px; }
 .lv-enreg-listes { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }

@@ -743,6 +743,17 @@ document.addEventListener('DOMContentLoaded', () => {
         $('zoomIn').addEventListener('click', () => carte.map.zoomIn());
         $('zoomOut').addEventListener('click', () => carte.map.zoomOut());
         $('zoomCenter').addEventListener('click', () => carte.recentrer());
+        // bouton REC : filme la carte telle qu'affichee (module js/enregistreur-carte.js)
+        if (window.EnregistreurCarte) {
+            let effacer = null;
+            EnregistreurCarte.attacher({
+                bouton: $('btnRec'), element: () => $('map'), passerelle: () => PASSERELLE,
+                message: (t, ok) => {
+                    $('recMsg').textContent = t; $('recMsg').style.color = ok ? '#bfe3b4' : '#ffb4a6';
+                    clearTimeout(effacer); effacer = setTimeout(() => { $('recMsg').textContent = ''; }, 9000);
+                },
+            });
+        }
         // chip de filtre : un clic remet tous les filtres a zero (type, matiere, statut, zone, teneurs)
         $('filtreActif').addEventListener('click', () => {
             CarteSuivi.ecrireFiltres(Object.assign({}, CarteSuivi.FILTRES_DEFAUT));
