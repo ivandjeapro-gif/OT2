@@ -4746,10 +4746,8 @@ def _filmer_carte(arret, etat_page, sortie_partie):
         # reglages de carte de l'utilisateur (filtres, pistes, fond...) : injectes avant le chargement de la page
         injection = "".join("try{localStorage.setItem(%s,%s)}catch(e){}" % (json.dumps(k), json.dumps(v))
                             for k, v in (etat_page or {}).items())
-        # le bouton REC lui-meme n'apparait pas dans le film
-        injection += ("document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');"
-                      "s.textContent='#btnRec,#recMsg{display:none!important}';document.head.appendChild(s)});")
-        ws.appel("Page.addScriptToEvaluateOnNewDocument", {"source": injection})
+        if injection:
+            ws.appel("Page.addScriptToEvaluateOnNewDocument", {"source": injection})
         ws.appel("Page.navigate", {"url": saas + "/html/dashboard.html"})
         zone_js = ("(function(){var e=document.getElementById('map');if(!e)return null;var r=e.getBoundingClientRect();"
                    "return JSON.stringify({x:r.left,y:r.top,w:r.width,h:r.height,t:document.querySelectorAll("
@@ -4867,7 +4865,7 @@ def record_action(action, etat_page=None):
                     os.remove(RECORD_PARTIE)
                 except OSError:
                     pass
-                return 422, {"ok": False, "error": erreur or "enregistrement trop court (moins de %d images)" % RECORD_MIN_IMAGES}
+                return 422, {"ok": False, "error": erreur or "enregistrement trop court : moins de %d images (le navigateur met ~10 s a demarrer, laisse tourner au moins 30 s)" % RECORD_MIN_IMAGES}
             nom = nom_video(debut, fin)
             os.replace(RECORD_PARTIE, os.path.join(ENREGISTREMENTS_DIR, nom))
             msg = "enregistrement termine : %d images, %.1f Mo" % (images, taille / 1048576.0)

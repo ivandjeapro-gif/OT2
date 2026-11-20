@@ -452,25 +452,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // le perimetre change : la liste se met a jour tout de suite (videos et CSV de la nouvelle periode)
     ['fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => { majEnregPeriode(); surveillerEnreg(); }));
     window.addEventListener('storage', (ev) => { if (ev.key === 'oreTrackingFiltres') surveillerEnreg(); });
-    // bouton REC de la carte : filme la carte telle qu'affichee (js/enregistreur-carte.js)
-    let effacerRec = null;
-    const rec = window.EnregistreurCarte ? EnregistreurCarte.attacher({
-        bouton: $('btnRecCarte'), chrono: $('recChrono'), element: () => $('liveTrackingMap'), passerelle: PASSERELLE,
-        message: (t, ok) => {
-            const m = $('recMsg'); m.textContent = t; m.style.color = ok ? '#3d7a2e' : '#C23B22';
-            texte($('enregEtat'), t);
-            clearTimeout(effacerRec); effacerRec = setTimeout(() => { m.textContent = ''; }, 9000);
-        },
-    }) : null;
+    // bouton REC (section Enregistrements) : la passerelle filme la carte du dashboard en arriere-plan (js/enregistreur-carte.js)
+    if (window.EnregistreurCarte) {
+        EnregistreurCarte.attacher({
+            bouton: $('btnEnregRec'), chrono: $('enregChrono'), passerelle: PASSERELLE,
+            message: (t) => texte($('enregEtat'), t),
+        });
+    }
     document.addEventListener('enregistrements:maj', () => surveillerEnreg());
-    // onglet Enregistrements : arrete l'enregistrement en cours, ou renvoie vers la carte (on ne peut filmer qu'une carte affichee)
-    $('btnEnregRec').addEventListener('click', () => {
-        const enCours = $('btnRecCarte').classList.contains('en-cours');
-        if (enCours) { $('btnRecCarte').click(); return; }
-        const ong = document.querySelector('.lv-onglets [data-onglet="carte"]');
-        if (ong) ong.click();
-        texte($('recMsg'), 'Appuie sur ● REC pour filmer la carte.');
-    });
 
     // ------------------------------------------- pied : passerelle ---
     async function majPied() {
