@@ -66,6 +66,7 @@
 .leaflet-tooltip.trk-etiquette.etat-chargement   { border-left-color: #FCD525; }
 .leaflet-tooltip.trk-etiquette.etat-mission      { border-left-color: #EE7A2A; }
 .leaflet-tooltip.trk-etiquette.etat-attente_loin { border-left-color: #B7B3A3; }
+.leaflet-tooltip.trk-etiquette.etat-arret { border-left-color: #8E9FB0; }
 .leaflet-tooltip.trk-etiquette.etat-hors_piste   { background: #E5482F; color: #fff; border-left-color: #fff; }
 .leaflet-tooltip.trk-etiquette.etat-signal_perdu { color: #9A978B; border-left-color: #6E6C66; }
 .leaflet-tooltip.trk-etiquette.etat-minage,

@@ -4680,9 +4680,13 @@ def _grade_bloc(nom, destination):
     return ""
 
 
-def etat_suivi_dt(statut, offroad, age_s, mission):
+SUIVI_ARRET_MIN = 2     # DT immobile (< SEUIL_IMMOBILISATION_M) depuis 2 min : « A l'arret » et non plus « Roulage »
+
+
+def etat_suivi_dt(statut, offroad, age_s, mission, immo_min=0):
     """Etat lisible, par priorite : signal_perdu > hors_piste > chargement >
-    mission > attente_loin > roulage."""
+    mission > attente_loin > arret > roulage. « Roulage » n'est plus le fourre-tout : un DT
+    immobile depuis SUIVI_ARRET_MIN minutes (sans chargement ni mission) est « arret »."""
     if age_s is None or age_s > SUIVI_SIGNAL_PERDU_S:
         return "signal_perdu"
     if offroad:
@@ -4693,6 +4697,8 @@ def etat_suivi_dt(statut, offroad, age_s, mission):
         return "mission"
     if statut == "SBDT":
         return "attente_loin"
+    if immo_min >= SUIVI_ARRET_MIN:
+        return "arret"
     return "roulage"
 
 
@@ -4745,7 +4751,9 @@ def suivi_engins(conn, depuis=None, jusqua=None):
                     break
             fiche["vitesse_kmh"] = round(min(vitesse, 120), 1)
             fiche["cap_deg"] = None if cap is None else round(cap)
-            fiche["etat"] = etat_suivi_dt(e["statut"], fiche["offroad"], age, m)
+            immo = _secondes_depuis(e["immobilise_depuis"]) / 60.0 if e["immobilise_depuis"] else 0
+            fiche["immobile_min"] = round(immo, 1)
+            fiche["etat"] = etat_suivi_dt(e["statut"], fiche["offroad"], age, m, immo)
             compte[fiche["etat"]] = compte.get(fiche["etat"], 0) + 1
         else:
             fiche["etat"] = "minage" if e["statut"] == "OMEX" else "attente"

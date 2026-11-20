@@ -28,12 +28,13 @@
         mission:      { lib: 'En mission (chargé)',        court: 'En mission',   couleur: '#EE7A2A' },
         roulage:      { lib: 'Roulage / attente',          court: 'Roulage',      couleur: '#4BA3DA' },
         attente_loin: { lib: 'Attente loin des pelles',    court: 'Attente loin', couleur: '#B7B3A3' },
+        arret:        { lib: "A l'arrêt (> 2 min)",        court: "A l'arrêt",   couleur: '#8E9FB0' },
         hors_piste:   { lib: 'Hors piste',                 court: 'Hors piste',   couleur: '#E5482F' },
         signal_perdu: { lib: 'Signal perdu (> 2 min)',     court: 'Signal perdu', couleur: '#6E6C66' },
         minage:       { lib: 'Excavatrice en minage',      court: 'Minage',       couleur: '#FCD525' },
         attente:      { lib: 'Excavatrice en attente',     court: 'Attente',      couleur: '#B7B3A3' },
     };
-    const ETATS_DT = ['chargement', 'mission', 'roulage', 'attente_loin', 'hors_piste', 'signal_perdu'];
+    const ETATS_DT = ['chargement', 'mission', 'roulage', 'arret', 'attente_loin', 'hors_piste', 'signal_perdu'];
     /** Flux d'un DT d'apres la teneur de sa mission : « waste » (sterile) ou « minerai »
      *  (HG / MG / LG / MO) ; '' = pas de mission (rien charge, donc ni l'un ni l'autre). */
     const fluxDe = (e) => e.type !== 'DT' ? '' : (e.teneur === 'waste' ? 'waste' : (e.teneur ? 'minerai' : ''));
