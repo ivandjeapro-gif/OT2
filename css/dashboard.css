@@ -338,6 +338,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .offroad.alert .offroad-row b { color: #C23B22; }
 .offroad.alert .beacon { background: var(--alarm); box-shadow: 0 0 0 0 rgba(229,72,47,.7); animation: beacon 1.4s infinite; }
 .offroad.calm .beacon { background: var(--ok); }
+.offroad.alert { animation: offroadBlink 1s steps(2, jump-none) infinite; }
+@keyframes offroadBlink { 0% { background: rgba(229,72,47,.38); } 100% { background: var(--panel); } }
+@media (prefers-reduced-motion: reduce) { .offroad.alert { animation-duration: 2s; } }
 @keyframes beacon { 70% { box-shadow: 0 0 0 12px rgba(229,72,47,0); } 100% { box-shadow: 0 0 0 0 rgba(229,72,47,0); } }
 
 /* teneurs : tableau « strates » */

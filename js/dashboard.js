@@ -290,6 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 data.offroad.count = d.count || 0;
                 data.offroad.dts = d.dts || [];
                 renderOffroad();
+                const avant = codesHorsPiste;
                 const codes = data.offroad.dts.map((x) => x.code).sort().join(',');
                 if (codes !== codesHorsPiste) {
                     const nouveau = data.offroad.dts.some((x) => codesHorsPiste.split(',').indexOf(x.code) < 0);
@@ -297,6 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (nouveau) jouerSonDanger();
                     afficherAlerte();
                 }
+                annoncerOffroad(codes !== avant && data.offroad.dts.some((x) => avant.split(',').indexOf(x.code) < 0));
             })
             .catch(() => { /* on garde la derniere valeur */ });
     }
@@ -396,6 +398,31 @@ document.addEventListener('DOMContentLoaded', () => {
             PREFS.alertSound();
             jouerSonDanger._last = now;
         }
+    }
+
+    // Voix off (synthese vocale du navigateur, fr). Le navigateur ne parle
+    // qu'apres un premier clic dans la page (comme pour le son d'alerte).
+    function parler(texte) {
+        if (!afficherAlertes || !('speechSynthesis' in window)) return;
+        try {
+            const u = new SpeechSynthesisUtterance(texte);
+            u.lang = 'fr-FR'; u.rate = 0.95;
+            const v = speechSynthesis.getVoices().find((x) => /^fr/i.test(x.lang));
+            if (v) u.voice = v;
+            speechSynthesis.cancel();
+            speechSynthesis.speak(u);
+        } catch (e) { /* synthese indisponible */ }
+    }
+    const dit = (code) => String(code).replace(/^DT-0*(\d+)/i, 'D T $1');
+    let dernierDit = 0;
+    function annoncerOffroad(nouveau) {
+        const dts = data.offroad.dts || [];
+        if (!dts.length) { dernierDit = 0; return; }
+        const now = Date.now();
+        if (!nouveau && now - dernierDit < 30000) return;   // rappel toutes les 30 s
+        dernierDit = now;
+        parler('Alerte. ' + dts.map((d) => dit(d.code)).join(', ') +
+               (dts.length > 1 ? ' sont hors piste.' : ' est hors piste.'));
     }
 
     function poserPastille(texte, type) {
@@ -616,9 +643,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     applyServerParams();   setInterval(applyServerParams, 60000);
     refreshKpi();          setInterval(refreshKpi, 5000);
-    refreshOffroad();      setInterval(refreshOffroad, 3000);
+    refreshOffroad();      setInterval(refreshOffroad, 500);
     refreshAlertes();      setInterval(refreshAlertes, 8000);
-    refreshTablettes();    setInterval(refreshTablettes, 5000);
+    refreshTablettes();    setInterval(refreshTablettes, 500);
     refreshLiens();        setInterval(refreshLiens, 15000);
     setTimeout(afficherAlerte, 1500);
     setInterval(afficherAlerte, 6000);
