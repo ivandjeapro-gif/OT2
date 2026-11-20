@@ -4564,9 +4564,61 @@ def lancer_video(depuis, jusqua, vitesse=120):
     return True, nom, "generation lancee"
 
 
+# Bouton « Enregistrer » : l'enregistrement est tenu PAR LA PASSERELLE (il survit a la fermeture de la page,
+# et un seul enregistrement a la fois pour tout le site). Arret = la video de debut -> arret est generee.
+RECORD_FICHIER = os.path.join(DATA_DIR, "record_en_cours.json")
+RECORD_MIN_S = 20
+RECORD_MAX_H = 26
+_record_verrou = threading.Lock()
+
+
+def record_etat():
+    """{"debut": "AAAA-MM-JJ HH:MM:SS"} si un enregistrement est en cours, sinon None."""
+    try:
+        with open(RECORD_FICHIER, encoding="utf-8") as fh:
+            d = json.load(fh)
+        if _RE_HORODATAGE.match(str(d.get("debut") or "")):
+            return {"debut": d["debut"]}
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def record_action(action):
+    """Demarre / arrete l'enregistrement. Rend (code HTTP, reponse)."""
+    with _record_verrou:
+        en_cours = record_etat()
+        if action == "start":
+            if en_cours:
+                return 200, {"ok": True, "record": en_cours, "message": "deja en cours"}
+            os.makedirs(DATA_DIR, exist_ok=True)
+            d = {"debut": now_iso()}
+            with open(RECORD_FICHIER, "w", encoding="utf-8") as fh:
+                json.dump(d, fh)
+            return 200, {"ok": True, "record": d, "message": "enregistrement demarre"}
+        if action == "stop":
+            if not en_cours:
+                return 409, {"ok": False, "error": "aucun enregistrement en cours"}
+            debut, fin = en_cours["debut"], now_iso()
+            duree = (datetime.strptime(fin, "%Y-%m-%d %H:%M:%S") - datetime.strptime(debut, "%Y-%m-%d %H:%M:%S")).total_seconds()
+            try:
+                os.remove(RECORD_FICHIER)
+            except OSError:
+                pass
+            if duree < RECORD_MIN_S:
+                return 422, {"ok": False, "error": "enregistrement trop court (%d s) : au moins %d s" % (duree, RECORD_MIN_S)}
+            if duree > RECORD_MAX_H * 3600:                  # oubli : on garde les dernieres RECORD_MAX_H heures
+                debut = (datetime.strptime(fin, "%Y-%m-%d %H:%M:%S") - timedelta(hours=RECORD_MAX_H)).strftime("%Y-%m-%d %H:%M:%S")
+                duree = RECORD_MAX_H * 3600
+            vitesse = max(10, min(1800, int(round(duree / 90.0))))     # video de ~1 min 30 quelle que soit la duree
+            ok, nom, message = lancer_video(debut, fin, vitesse)
+            return (200 if ok else 422), {"ok": ok, "fichier": nom, "message": message, "debut": debut, "fin": fin}
+    return 400, {"ok": False, "error": "action : start ou stop"}
+
+
 def enregistrements_liste():
     """CSV du tracking et videos, avec taille et etat des generations en cours."""
-    res = {"csv": [], "videos": []}
+    res = {"csv": [], "videos": [], "record": record_etat()}
     for dossier, cle, ext in ((TRACKING_DIR, "csv", ".csv"), (ENREGISTREMENTS_DIR, "videos", (".webm", ".mp4"))):
         try:
             for f in sorted(os.listdir(dossier), reverse=True):
@@ -5863,6 +5915,15 @@ class Handler(BaseHTTPRequestHandler):
             en_ligne = (self._qs().get("inline") or [""])[0] == "1"
             return self._send_fichier(code, corps, mime, nom, inline=en_ligne,
                                       plage=(debut, fin, taille) if code == 206 else None)
+        if path == "/api/enregistrements/record" and method == "POST":
+            b = json.loads(self._read_body() or b"{}")
+            if isinstance(b.get("fond"), dict):
+                try:
+                    fond_video_ecrire(b["fond"])         # decor de la carte (zones, pistes colorees) pour la video
+                except Exception as e:
+                    print("VIDEO: decor ignore (%s)" % e)
+            code, rep = record_action(str(b.get("action") or ""))
+            return self._send_json(code, rep)
         if path == "/api/enregistrements/video" and method == "POST":
             b = json.loads(self._read_body() or b"{}")
             depuis, jusqua = str(b.get("depuis") or ""), str(b.get("jusqua") or "")

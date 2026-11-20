@@ -383,6 +383,19 @@ document.addEventListener('DOMContentLoaded', () => {
     async function listerEnreg() {
         try {
             const d = await fetch(PASSERELLE() + '/api/enregistrements', { cache: 'no-store' }).then((r) => r.json());
+            majRecord(d.record);
+            const per = majEnregPeriode();
+            // la liste suit le « Perimetre de suivi » : videos dont la plage recoupe la periode, CSV des jours concernes
+            const noms = (re, f) => { const m = re.exec(f.nom); return m ? m : null; };
+            const recoupe = (f) => {
+                const m = noms(/^tracking-(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})-(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})\./, f);
+                if (!m) return true;
+                const deb = m[1] + ' ' + m[2] + ':' + m[3] + ':00', fin = m[4] + ' ' + m[5] + ':' + m[6] + ':00';
+                return deb < per.jusqua && fin > per.depuis;
+            };
+            const jourCsv = (f) => { const m = /^(\d{4}-\d{2}-\d{2})\.csv$/.exec(f.nom); return !m || (m[1] >= per.depuis.slice(0, 10) && m[1] <= per.jusqua.slice(0, 10)); };
+            d.videos = (d.videos || []).filter(recoupe);
+            d.csv = (d.csv || []).filter(jourCsv);
             const lien = (f) => PASSERELLE() + '/api/enregistrements/fichier?nom=' + encodeURIComponent(f.nom);
             const remplir = (ul, liste, vide) => {
                 ul.replaceChildren(...(liste.length ? liste.map((f) => {
@@ -398,8 +411,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     li.append(a, sp); return li;
                 }) : [Object.assign(document.createElement('li'), { className: 'vide', textContent: vide })]));
             };
-            remplir($('enregVideos'), d.videos || [], 'Aucune vidéo pour l\'instant');
-            remplir($('enregCsv'), d.csv || [], 'Aucun CSV pour l\'instant');
+            remplir($('enregVideos'), d.videos || [], 'Aucune vidéo sur cette période');
+            remplir($('enregCsv'), d.csv || [], 'Aucun CSV sur cette période');
             if ((d.en_cours || []).length) texte($('enregEtat'), 'Génération en cours : ' + d.en_cours.join(', '));
             else if (/^Génération en cours/.test($('enregEtat').textContent)) texte($('enregEtat'), 'Vidéo prête : elle figure dans la liste.');
             return (d.en_cours || []).length > 0;
@@ -448,19 +461,43 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.lv-onglets [data-onglet]').forEach((b) => b.addEventListener('click', () => {
         if (b.dataset.onglet === 'enreg') { majEnregPeriode(); surveillerEnreg(); }
     }));
-    ['fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', majEnregPeriode));
-    $('btnEnregVideo').addEventListener('click', async () => {
-        const per = majEnregPeriode();
-        texte($('enregEtat'), 'Demande envoyée…');
+    // le perimetre change : la liste se met a jour tout de suite (videos et CSV de la nouvelle periode)
+    ['fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => { majEnregPeriode(); surveillerEnreg(); }));
+    window.addEventListener('storage', (ev) => { if (ev.key === 'oreTrackingFiltres') surveillerEnreg(); });
+    // bouton Enregistrer : un clic demarre (sur la passerelle), un second arrete et cree la video du laps de temps ecoule
+    let recDebut = null, recMinuteur = null;
+    const deux = (n) => String(n).padStart(2, '0');
+    function majRecord(rec) {
+        const bouton = $('btnEnregRec'), chrono = $('enregChrono');
+        clearInterval(recMinuteur); recMinuteur = null;
+        recDebut = rec && rec.debut ? new Date(rec.debut.replace(' ', 'T')) : null;
+        bouton.classList.toggle('en-cours', !!recDebut);
+        bouton.textContent = recDebut ? '■ Arrêter et créer la vidéo' : '● Enregistrer';
+        chrono.hidden = !recDebut;
+        if (recDebut) {
+            const tic = () => {
+                const s = Math.max(0, Math.floor((Date.now() - recDebut.getTime()) / 1000));
+                texte(chrono, deux(Math.floor(s / 3600)) + ':' + deux(Math.floor(s / 60) % 60) + ':' + deux(s % 60));
+            };
+            tic(); recMinuteur = setInterval(tic, 1000);
+        }
+    }
+    $('btnEnregRec').addEventListener('click', async () => {
+        const action = recDebut ? 'stop' : 'start';
+        texte($('enregEtat'), action === 'start' ? 'Démarrage…' : 'Arrêt et création de la vidéo…');
         try {
-            const r = await fetch(PASSERELLE() + '/api/enregistrements/video', {
+            const r = await fetch(PASSERELLE() + '/api/enregistrements/record', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ depuis: per.depuis, jusqua: per.jusqua, vitesse: Number($('enregVitesse').value), fond: decorCarte() }),
+                body: JSON.stringify({ action: action, fond: decorCarte() }),
             });
             const d = await r.json().catch(() => ({}));
-            texte($('enregEtat'), r.ok ? (d.message === 'deja genere' ? 'Cette vidéo existe déjà : ' + d.fichier
-                : 'Vidéo ' + d.fichier + ' : ' + d.message + '. Elle apparaît dans la liste dès qu\'elle est prête.')
-                : (r.status === 401 || r.status === 403 ? 'Connexion requise (' + (d.error || r.status) + ')' : (d.error || 'Échec (' + r.status + ')')));
+            if (!r.ok) {
+                texte($('enregEtat'), r.status === 401 || r.status === 403 ? 'Connexion requise (' + (d.error || r.status) + ')' : (d.error || 'Échec (' + r.status + ')'));
+            } else if (action === 'start') {
+                texte($('enregEtat'), 'Enregistrement démarré. Il continue même si tu quittes la page.');
+            } else {
+                texte($('enregEtat'), 'Vidéo ' + d.fichier + ' : ' + d.message + '. Elle apparaît dans la liste dès qu\'elle est prête.');
+            }
             surveillerEnreg();
         } catch (e) { texte($('enregEtat'), 'Passerelle injoignable.'); }
     });

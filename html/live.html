@@ -292,17 +292,12 @@
                             <div class="lv-volet" data-volet="enreg" role="tabpanel" hidden>
                                 <section class="lv-enreg">
                                     <h2>Enregistrements du tracking</h2>
-                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle : un fichier CSV par jour, et une vidéo générée automatiquement à la fin de chaque shift. Ici : récupérer le CSV ou lancer la vidéo de la période choisie dans « Périmètre de suivi » (Date de production et Shift).</p>
+                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle : un fichier CSV par jour, et une vidéo générée automatiquement à la fin de chaque shift. Ici : la liste suit le « Périmètre de suivi » (Date de production et Shift) ; le bouton Enregistrer crée une vidéo de ce qui se passe entre le moment où tu l'appuies et celui où tu l'arrêtes.</p>
                                     <div class="lv-enreg-actions">
                                         <span class="lv-enreg-periode" id="enregPeriode">--</span>
                                         <a class="lv-btn-sombre" id="btnEnregCsv" href="#" download>Télécharger le CSV</a>
-                                        <label class="lv-champ lv-enreg-vitesse"><span class="lbl">Vitesse de la vidéo</span>
-                                            <select id="enregVitesse">
-                                                <option value="60">×60 (1 h de terrain en 1 min)</option>
-                                                <option value="120" selected>×120 (2 h en 1 min)</option>
-                                                <option value="300">×300 (5 h en 1 min)</option>
-                                            </select></label>
-                                        <button type="button" class="lv-btn-jaune" id="btnEnregVideo">Générer la vidéo</button>
+                                        <span class="lv-enreg-chrono" id="enregChrono" hidden>00:00:00</span>
+                                        <button type="button" class="lv-btn-jaune lv-btn-rec" id="btnEnregRec">● Enregistrer</button>
                                     </div>
                                     <p class="lv-aide" id="enregEtat"></p>
                                     <div class="lv-enreg-listes">
