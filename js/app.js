@@ -1589,7 +1589,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         addZone(name, rawX, rawY, color);
                     }
-                    showToast('Zones chargees depuis Mining Areas.csv');
+                    console.info('[app] zones chargees depuis Mining Areas.csv');   // plus de bulle : elle revenait a chaque page
                 }
             }
         } catch(e) {
@@ -1640,7 +1640,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     saveImportedTrails();
                     updateImportedTrailList();
-                    if (count) showToast(count + ' trail' + (count > 1 ? 's' : '') + ' charge' + (count > 1 ? 's' : '') + ' depuis Trails.geojson');
+                    if (count) console.info('[app] ' + count + ' trail(s) charge(s) depuis Trails.geojson');
                 }
             }
         } catch(e) {
