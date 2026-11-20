@@ -62,26 +62,29 @@
     const jourLocal = (d) => d.getFullYear() + '-' + deux(d.getMonth() + 1) + '-' + deux(d.getDate());
     const horodatage = (d) => jourLocal(d) + ' ' + deux(d.getHours()) + ':' + deux(d.getMinutes()) + ':' + deux(d.getSeconds());
 
-    /** Periode des trajets : shift jour 06h-18h, nuit 18h-06h (lendemain),
-     *  journee 00h-24h ; « encours » = shift en cours, jusqu'a maintenant. */
+    /** Periode lue : JOURNEE DE PRODUCTION de 06h a 06h le lendemain (shift jour 06h-18h,
+     *  shift nuit 18h-06h). `date` = date du jour de production ; un samedi a 03h appartient
+     *  donc a la journee de vendredi. « encours » = shift en cours, jusqu'a maintenant.
+     *  Retourne { depuis, jusqua ('' = maintenant), enDirect, shift: jour|nuit|journee, libelle }. */
     function periode(f) {
         const maintenant = new Date();
         let shift = f.shift || 'encours';
-        let base = f.date ? new Date(f.date + 'T00:00:00') : new Date(maintenant);
+        const jourProd = new Date(maintenant); jourProd.setHours(0, 0, 0, 0);
+        if (maintenant.getHours() < 6) jourProd.setDate(jourProd.getDate() - 1);   // avant 06h : journee de la veille
+        let base = f.date ? new Date(f.date + 'T00:00:00') : new Date(jourProd);
         base.setHours(0, 0, 0, 0);
         if (shift === 'encours') {
+            base = new Date(jourProd);
             const h = maintenant.getHours();
-            base = new Date(maintenant); base.setHours(0, 0, 0, 0);
-            if (h < 6) { base.setDate(base.getDate() - 1); shift = 'nuit'; }
-            else shift = h < 18 ? 'jour' : 'nuit';
+            shift = h >= 6 && h < 18 ? 'jour' : 'nuit';
         }
         const debut = new Date(base), fin = new Date(base);
         if (shift === 'jour') { debut.setHours(6); fin.setHours(18); }
         else if (shift === 'nuit') { debut.setHours(18); fin.setDate(fin.getDate() + 1); fin.setHours(6); }
-        else { fin.setDate(fin.getDate() + 1); }
+        else { shift = 'journee'; debut.setHours(6); fin.setDate(fin.getDate() + 1); fin.setHours(6); }
         const enDirect = fin > maintenant;
-        return { depuis: horodatage(debut), jusqua: enDirect ? '' : horodatage(fin), enDirect,
-                 libelle: (shift === 'jour' ? 'Shift jour' : shift === 'nuit' ? 'Shift nuit' : 'Journée') +
+        return { depuis: horodatage(debut), jusqua: enDirect ? '' : horodatage(fin), enDirect, shift,
+                 libelle: (shift === 'jour' ? 'Shift jour' : shift === 'nuit' ? 'Shift nuit' : 'Journée de production') +
                           ' du ' + debut.toLocaleDateString('fr-FR') };
     }
 

@@ -34,7 +34,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote, quote
 import urllib.request
@@ -4429,33 +4429,95 @@ def kpi_chargements(conn, lignes, jour):
     return res
 
 
-def kpi_du_jour(jour=None):
-    """KPI pour /api/kpi. Source : Chargements de SG (cache du releve pour
-    aujourd'hui, lecture directe pour un autre jour) ; a defaut (SG non
-    configure ou jamais lu), l'ancienne table locale « voyages »."""
-    aujourdhui = datetime.now().strftime("%Y-%m-%d")
-    jour = jour or aujourdhui
+# Journee de production : de 06h00 a 06h00 le lendemain (shift jour 06h-18h, shift
+# nuit 18h-06h). Un samedi a 03h00 appartient donc a la journee de VENDREDI : les
+# KPI et les alertes du dashboard ne melangent jamais deux journees de production.
+PRODUCTION_HEURE_DEBUT = 6
+_RE_HORODATAGE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+
+
+def jour_de_production(maintenant=None):
+    """Date (AAAA-MM-JJ) de la journee de production en cours."""
+    m = maintenant or datetime.now()
+    if m.hour < PRODUCTION_HEURE_DEBUT:
+        m = m - timedelta(days=1)
+    return m.strftime("%Y-%m-%d")
+
+
+def fenetre_du_jour(jour):
+    """(debut, fin) « AAAA-MM-JJ HH:MM:SS » de la journee de production `jour`."""
+    d = datetime.strptime(jour, "%Y-%m-%d").replace(hour=PRODUCTION_HEURE_DEBUT)
+    return d.strftime("%Y-%m-%d %H:%M:%S"), (d + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+_cache_jours_sg = {}          # jour calendaire -> (instant, lignes) pour les jours deja passes
+
+
+def lignes_chargements_calendaire(jour):
+    """Lignes « Chargements » du jour CALENDAIRE `jour` (None si SG illisible).
+    Aujourd'hui : le releve en cache (boucle_chargements) ; un autre jour : lecture
+    directe, gardee 60 s."""
+    if jour == datetime.now().strftime("%Y-%m-%d"):
+        with _chargements_lock:
+            if _chargements_etat["jour"] == jour and _chargements_etat["lu_ts"]:
+                return list(_chargements_etat["lignes"])
+        return None
+    c = _cache_jours_sg.get(jour)
+    if c and time.time() - c[0] < 60:
+        return c[1]
+    ok, d, _err = sg_lire_chargements(jour)
+    if not ok:
+        return None
+    lignes = d.get("lignes") or []
+    _cache_jours_sg[jour] = (time.time(), lignes)
+    return lignes
+
+
+def lignes_chargements_fenetre(debut, fin):
+    """Chargements dont l'heure de debut est dans [debut, fin[ (fin vide = maintenant).
+    Une fenetre 06h->06h couvre deux jours calendaires. None si l'un est illisible."""
+    fin_eff = fin or now_iso()
+    jours, j = [], datetime.strptime(debut[:10], "%Y-%m-%d")
+    dernier = datetime.strptime(fin_eff[:10], "%Y-%m-%d")
+    while j <= dernier:
+        jours.append(j.strftime("%Y-%m-%d"))
+        j += timedelta(days=1)
+    out = []
+    for jc in jours:
+        lignes = lignes_chargements_calendaire(jc)
+        if lignes is None:
+            return None
+        for r in lignes:
+            h = str(r.get("debut") or "").replace("T", " ")[:19]
+            if debut <= h < fin_eff:
+                out.append(r)
+    return out
+
+
+def kpi_du_jour(jour=None, debut=None, fin=None):
+    """KPI pour /api/kpi sur une FENETRE de production [debut, fin[. Sans parametre : la
+    journee de production en cours. `jour` = date d'une journee de production (06h->06h).
+    Source : Chargements de SG ; a defaut (SG non configure ou illisible), l'ancienne table
+    locale « voyages » (par jour, approximation)."""
+    if not debut:
+        jour = jour or jour_de_production()
+        debut, fin = fenetre_du_jour(jour)
+    jour = jour or debut[:10]
     sg_url, sg_token, _ = sg_conf()
     lignes = None
     if sg_url and sg_token:
-        if jour == aujourdhui:
-            with _chargements_lock:
-                if _chargements_etat["jour"] == jour and _chargements_etat["lu_ts"]:
-                    lignes = list(_chargements_etat["lignes"])
-        else:
-            ok, d, _err = sg_lire_chargements(jour)
-            if ok:
-                lignes = d.get("lignes") or []
+        lignes = lignes_chargements_fenetre(debut, fin or "")
     conn = get_conn()
     try:
         if lignes is not None:
             res = kpi_chargements(conn, lignes, jour)
             res["source"] = "sg"
         else:
-            res = kpi_voyages(conn, None if jour == aujourdhui else jour)
+            res = kpi_voyages(conn, None if jour == jour_de_production() else jour)
             res["source"] = "voyages"
     finally:
         conn.close()
+    res["debut"], res["fin"] = debut, fin or ""
     res["cloud"] = etat_cloud()
     return res
 
@@ -5083,9 +5145,14 @@ class Handler(BaseHTTPRequestHandler):
         # verrou : un autre jour declenche un appel au cloud (quelques s).
         if path == "/api/kpi" and method == "GET":
             jour = (self._qs().get("jour") or [None])[0]
+            depuis = (self._qs().get("depuis") or [""])[0]
+            jusqua = (self._qs().get("jusqua") or [""])[0]
             if jour and not re.match(r"^\d{4}-\d{2}-\d{2}$", jour):
                 return self._send_json(400, {"error": "jour attendu au format AAAA-MM-JJ"})
-            return self._send_json(200, kpi_du_jour(jour))
+            for v in (depuis, jusqua):
+                if v and not _RE_HORODATAGE.match(v):
+                    return self._send_json(400, {"error": "depuis / jusqua attendus au format AAAA-MM-JJ HH:MM:SS"})
+            return self._send_json(200, kpi_du_jour(jour, depuis or None, jusqua or None))
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())
@@ -6633,8 +6700,21 @@ class Handler(BaseHTTPRequestHandler):
                                                  "reglages": offroad_reglages()})
 
                 if path == "/api/alertes" and method == "GET":
-                    rows = [dict(r) for r in conn.execute(
-                        "SELECT * FROM alertes ORDER BY id DESC LIMIT 200")]
+                    # depuis / jusqua (heure locale, AAAA-MM-JJ HH:MM:SS) : alertes d'UNE journee ou
+                    # d'UN shift ; sans parametre, tout l'historique (page Alertes).
+                    depuis = (self._qs().get("depuis") or [""])[0]
+                    jusqua = (self._qs().get("jusqua") or [""])[0]
+                    for v in (depuis, jusqua):
+                        if v and not _RE_HORODATAGE.match(v):
+                            return self._send_json(400, {"error": "depuis / jusqua attendus au format AAAA-MM-JJ HH:MM:SS"})
+                    if depuis:
+                        rows = [dict(r) for r in conn.execute(
+                            "SELECT * FROM alertes WHERE datetime(created_at, 'localtime') >= ? "
+                            "AND (? = '' OR datetime(created_at, 'localtime') < ?) ORDER BY id DESC LIMIT 200",
+                            (depuis, jusqua, jusqua))]
+                    else:
+                        rows = [dict(r) for r in conn.execute(
+                            "SELECT * FROM alertes ORDER BY id DESC LIMIT 200")]
                     return self._send_json(200, {"alertes": rows})
 
                 if path == "/api/alertes" and method == "POST":

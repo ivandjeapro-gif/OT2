@@ -46,11 +46,27 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const thresholds = { offroadAlert: 1, gradeVariance: 10 };
 
+    // ===== PERIODE LUE (Date + Shift choisis dans Live) =====
+    // KPI et alertes ne portent que sur UNE periode : le shift en cours par defaut, ou la
+    // journee / le shift choisi dans « Perimetre de suivi ». Journee de production = 06h -> 06h.
+    // Recalculee a chaque releve : a 06h et a 18h, « shift en cours » bascule tout seul.
+    let periodeCourante = null;
+    function lirePeriode() {
+        periodeCourante = CarteSuivi.periode(CarteSuivi.lireFiltres());
+        const el = $('periodeLue');
+        if (el) el.textContent = periodeCourante.libelle + (periodeCourante.enDirect ? '' : ' (terminé)');
+        return periodeCourante;
+    }
+    const paramsPeriode = (p) => 'depuis=' + encodeURIComponent(p.depuis) + '&jusqua=' + encodeURIComponent(p.jusqua);
+    // objectifs : saisis par JOURNEE ; un shift (12 h) en vaut la moitie
+    const facteurObjectif = () => (periodeCourante && periodeCourante.shift !== 'journee') ? 0.5 : 1;
+
     // ===== FORMATS =====
     const fmt = (v) => (v === null || v === undefined || isNaN(v))
         ? '--' : Math.round(v).toLocaleString('fr-FR');
     const fmtSigne = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + fmt(Math.abs(v));
     const deux = (n) => String(n).padStart(2, '0');
+    const horodatageLocal = (d) => d.getFullYear() + '-' + deux(d.getMonth() + 1) + '-' + deux(d.getDate()) + ' ' + deux(d.getHours()) + ':' + deux(d.getMinutes()) + ':' + deux(d.getSeconds());
 
     // ===== PARAMETRES SERVEUR (seuils, table params) =====
     async function applyServerParams() {
@@ -109,11 +125,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderKpiCarte(cle, suffixe, unite) {
         const k = data[cle];
+        const plan = k.planned === null ? null : k.planned * facteurObjectif();
         rouler($('kpi' + suffixe), k.current);
-        $('plan' + suffixe).textContent = k.planned === null ? '--' : fmt(k.planned) + ' ' + unite;
+        $('plan' + suffixe).textContent = plan === null ? '--' : fmt(plan) + ' ' + unite;
 
-        const pct = (k.current !== null && k.planned) ? k.current / k.planned * 100 : null;
-        const st = etat(k.current, k.planned, k.alerte || 10);
+        const pct = (k.current !== null && plan) ? k.current / plan * 100 : null;
+        const st = etat(k.current, plan, k.alerte || 10);
         const pctEl = $('pct' + suffixe);
         pctEl.textContent = pct === null ? '--' : pct.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
         pctEl.className = 'pct ' + st;
@@ -126,7 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (st) carte.classList.add(st);
     }
 
-    function renderGrade(prefix, g) {
+    function renderGrade(prefix, gBrut) {
+        const g = Object.assign({}, gBrut, { planned: gBrut.planned === null ? null : gBrut.planned * facteurObjectif() });
         rouler($(prefix + 'Actuel'), g.actuel);
         $(prefix + 'Planned').textContent = fmt(g.planned);
         const v = $(prefix + 'Var');
@@ -189,8 +207,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const STATUT_CLOUD = { ok: 'ok', lent: 'warn', ko: 'ko' };
 
     function refreshKpi() {
-        getJSON(PASSERELLE + '/api/kpi')
+        const p = lirePeriode();
+        getJSON(PASSERELLE + '/api/kpi?' + paramsPeriode(p))
             .then((k) => {
+                if (p !== periodeCourante && (p.depuis !== periodeCourante.depuis || p.jusqua !== periodeCourante.jusqua)) return;   // filtre change entre-temps
                 echecsPasserelle = 0;
                 const c = k.cloud || {};
                 data.liens.cloud = STATUT_CLOUD[c.statut] || null;
@@ -254,14 +274,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (directEnCours) return;               // un appel Apps Script prend 2 a 6 s
         directEnCours = true;
-        const d = new Date();
-        const jour = d.getFullYear() + '-' + deux(d.getMonth() + 1) + '-' + deux(d.getDate());
-        getJSON(cfg.url + '?action=chargements&jour=' + jour + '&token=' + encodeURIComponent(cfg.token))
-            .then((r) => {
-                if (r.ok === false || !Array.isArray(r.lignes)) throw new Error(r.erreur || 'réponse inattendue');
+        const p = lirePeriode();
+        const jours = [];
+        for (let d = new Date(p.depuis.slice(0, 10) + 'T00:00:00'), fin = new Date((p.jusqua || horodatageLocal(new Date())).slice(0, 10) + 'T00:00:00'); d <= fin; d.setDate(d.getDate() + 1)) {
+            jours.push(d.getFullYear() + '-' + deux(d.getMonth() + 1) + '-' + deux(d.getDate()));
+        }
+        const bornes = [p.depuis, p.jusqua || horodatageLocal(new Date())];
+        Promise.all(jours.map((jour) => getJSON(cfg.url + '?action=chargements&jour=' + jour + '&token=' + encodeURIComponent(cfg.token))))
+            .then((reps) => {
+                const lignes = [];
+                reps.forEach((r) => {
+                    if (r.ok === false || !Array.isArray(r.lignes)) throw new Error(r.erreur || 'réponse inattendue');
+                    r.lignes.forEach((l) => {
+                        const h = String(l.debut || '').replace('T', ' ').slice(0, 19);
+                        if (h >= bornes[0] && h < bornes[1]) lignes.push(l);
+                    });
+                });
                 data.liens.cloud = 'ok';
                 data.liens.cloudTxt = 'secours direct, lu à ' + new Date().toLocaleTimeString('fr-FR');
-                appliquerKpi(kpiDepuisChargements(r.lignes), 'direct', new Date());
+                appliquerKpi(kpiDepuisChargements(lignes), 'direct', new Date());
             })
             .catch((e) => {
                 data.liens.cloud = 'ko';
@@ -542,7 +573,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function refreshAlertes() {
-        getJSON(PASSERELLE + '/api/alertes')
+        const p = lirePeriode();
+        getJSON(PASSERELLE + '/api/alertes?' + paramsPeriode(p))
             .then((d) => {
                 const toutes = d.alertes || [];
                 const nonVues = toutes.filter((a) => !Number(a.acquittee) && !TYPES_INFO[a.type]);
@@ -560,7 +592,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const info = toutes.find((a) => TYPES_INFO[a.type]);
                     liste.push(info
                         ? { text: (info.dt_code && info.dt_code !== '-' ? info.dt_code + ' · ' : '') + (info.message || info.type), type: 'success' }
-                        : { text: 'Aucune alerte active', type: 'success' });
+                        : { text: 'Aucune alerte sur cette période', type: 'success' });
                 }
                 alertesReelles = liste;
 
@@ -684,6 +716,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.addEventListener('storage', (e) => {
+        if (e.key === 'oreTrackingFiltres') { dernierIdAlerte = null; lirePeriode(); refreshKpi(); refreshAlertes(); renderKpis(); }
         if (e.key === 'oreTrackingKpi' || e.key === 'oreTrackingFiltres') { appliquerAffichageKpi(); return; }
         if (e.key === 'oreTrackingKpiPlan') { appliquerObjectifs(); renderKpis(); return; }
         if (e.key === 'oreTrackingConfig' || e.key === 'oreTrackingTrails') {
@@ -726,6 +759,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===== DEMARRAGE =====
+    lirePeriode();
     appliquerObjectifs();
     appliquerAffichageKpi();
     renderKpis();

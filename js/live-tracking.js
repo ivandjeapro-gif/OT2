@@ -202,7 +202,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-flt-teneur]').forEach((c) => c.addEventListener('change', () => appliquer(lireFormulaire())));
     $('btnFltAppliquer').addEventListener('click', () => appliquer(lireFormulaire()));
     $('btnFltReset').addEventListener('click', () => appliquer(JSON.parse(JSON.stringify(CS.FILTRES_DEFAUT))));
-    $('fltDate').max = new Date().toISOString().slice(0, 10);
+    { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1);   // jour de production en cours (06h->06h)
+      $('fltDate').max = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     remplirFormulaire(CS.lireFiltres());
 
     // ----------------------------------------------------- diffusion ---
