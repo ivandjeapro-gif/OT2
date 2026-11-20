@@ -305,3 +305,17 @@
 .lv-enreg-liste li span { font-family: var(--lv-mono); color: var(--lv-gris); font-size: 12px; white-space: nowrap; }
 .lv-enreg-liste li.vide { color: var(--lv-gris); border-bottom: 0; }
 .lv-enreg-liste a { color: var(--lv-encre); }
+.lv-enreg-liste li .lv-lire { cursor: pointer; text-decoration: underline; }
+.lv-aide-inline { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.lv-enreg-liste li .lv-dl { font-family: var(--lv-mono); font-size: 12px; margin-left: 12px; }
+
+/* lecteur video integre : fenetre au-dessus de la page */
+.lv-lecteur { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; background: rgba(15, 17, 14, .72); }
+.lv-lecteur[hidden] { display: none; }
+.lv-lecteur-boite { width: min(1100px, 92vw); background: #1d2620; color: #f3efe2; border-radius: 4px; box-shadow: 0 24px 70px rgba(0,0,0,.5); padding: 14px 16px 16px; }
+.lv-lecteur-tete { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 14px; }
+.lv-lecteur-actions { display: flex; align-items: center; gap: 16px; }
+.lv-lecteur-actions a { color: #fcd525; font-size: 13px; }
+.lv-lecteur-actions button { background: none; border: 0; color: #f3efe2; font-size: 28px; line-height: 1; cursor: pointer; }
+.lv-lecteur video { width: 100%; max-height: 74vh; background: #000; display: block; }
+.lv-lecteur .lv-aide { color: #ffb4a6; }

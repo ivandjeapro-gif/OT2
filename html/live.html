@@ -306,7 +306,7 @@
                                     </div>
                                     <p class="lv-aide" id="enregEtat"></p>
                                     <div class="lv-enreg-listes">
-                                        <div><h3>Vidéos</h3><ul id="enregVideos" class="lv-enreg-liste"></ul></div>
+                                        <div><h3>Vidéos <span class="lv-aide-inline">(clic = lecture)</span></h3><ul id="enregVideos" class="lv-enreg-liste"></ul></div>
                                         <div><h3>CSV par jour</h3><ul id="enregCsv" class="lv-enreg-liste"></ul></div>
                                     </div>
                                 </section>
@@ -618,7 +618,22 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- lecteur video integre (enregistrements du tracking) -->
+<div class="lv-lecteur" id="lecteurVideo" hidden role="dialog" aria-modal="true" aria-label="Lecteur vidéo">
+    <div class="lv-lecteur-boite">
+        <div class="lv-lecteur-tete">
+            <strong id="lecteurTitre">Vidéo</strong>
+            <span class="lv-lecteur-actions">
+                <a id="lecteurTelecharger" href="#" download>Télécharger</a>
+                <button type="button" id="lecteurFermer" aria-label="Fermer">&times;</button>
+            </span>
+        </div>
+        <video id="lecteurPlayer" controls playsinline preload="metadata"></video>
+        <p class="lv-aide" id="lecteurErreur" hidden></p>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
     <script src="../js/navbar.js"></script>

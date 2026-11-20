@@ -389,6 +389,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const li = document.createElement('li');
                     const a = document.createElement('a'); a.href = lien(f); a.textContent = f.nom; a.setAttribute('download', f.nom);
                     const sp = document.createElement('span'); sp.textContent = mo(f.octets);
+                    if (/\.(webm|mp4)$/.test(f.nom)) {          // video : clic = lecteur integre ; telechargement a cote
+                        a.className = 'lv-lire';
+                        a.addEventListener('click', (ev) => { ev.preventDefault(); ouvrirLecteur(f.nom, lien(f)); });
+                        const dl = document.createElement('a'); dl.className = 'lv-dl'; dl.href = lien(f); dl.textContent = '⬇'; dl.title = 'Télécharger';
+                        dl.setAttribute('download', f.nom); sp.append(dl);
+                    }
                     li.append(a, sp); return li;
                 }) : [Object.assign(document.createElement('li'), { className: 'vide', textContent: vide })]));
             };
@@ -399,6 +405,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return (d.en_cours || []).length > 0;
         } catch (e) { texte($('enregEtat'), 'Passerelle injoignable.'); return false; }
     }
+    // lecteur video integre : fenetre au-dessus de la page, lecture directe depuis la passerelle (plages d'octets)
+    const lecteur = $('lecteurVideo'), player = $('lecteurPlayer');
+    function ouvrirLecteur(nom, url) {
+        texte($('lecteurTitre'), nom);
+        $('lecteurTelecharger').href = url;
+        $('lecteurTelecharger').setAttribute('download', nom);
+        $('lecteurErreur').hidden = true;
+        player.src = url + '&inline=1';
+        lecteur.hidden = false;
+        player.play().catch(() => { /* lecture auto refusee : le bouton lecture reste disponible */ });
+    }
+    function fermerLecteur() { player.pause(); player.removeAttribute('src'); player.load(); lecteur.hidden = true; }
+    player.addEventListener('error', () => {
+        const e = $('lecteurErreur'); e.hidden = false;
+        e.textContent = /\.mp4/.test(player.currentSrc)
+            ? "Cette ancienne vidéo MP4 n'est pas lisible dans le navigateur : télécharge-la, ou régénère-la (format WebM)."
+            : 'Lecture impossible : fichier introuvable ou passerelle injoignable.';
+    });
+    $('lecteurFermer').addEventListener('click', fermerLecteur);
+    lecteur.addEventListener('click', (ev) => { if (ev.target === lecteur) fermerLecteur(); });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !lecteur.hidden) fermerLecteur(); });
+
     let enregMinuteur = null;
     async function surveillerEnreg() {
         clearTimeout(enregMinuteur);

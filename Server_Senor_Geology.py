@@ -4302,10 +4302,12 @@ def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hau
             if inside:
                 cv2.putText(fond, str(nom)[:22], inside[0], cv2.FONT_HERSHEY_SIMPLEX, 0.4, (170, 210, 170), 1, cv2.LINE_AA)
     os.makedirs(os.path.dirname(sortie), exist_ok=True)
-    part = sortie + ".part.mp4"
-    ecr = cv2.VideoWriter(part, cv2.VideoWriter_fourcc(*"mp4v"), fps, (largeur, hauteur))
+    # WebM / VP8 : lisible par tous les navigateurs (lecteur integre de la page Live). Le MP4 « mp4v » d'OpenCV
+    # (MPEG-4 partie 2) n'est lu par aucun navigateur ; H.264 exige une DLL OpenH264 que Windows n'a pas.
+    part = sortie + ".part.webm"
+    ecr = cv2.VideoWriter(part, cv2.VideoWriter_fourcc(*"VP80"), fps, (largeur, hauteur))
     if not ecr.isOpened():
-        return False, "encodeur MP4 indisponible (OpenCV)"
+        return False, "encodeur video indisponible (OpenCV / VP8)"
     pas = vitesse / float(fps)
     n_images = int((t_fin - t_deb) / pas) + 1
     TRACE_S = 600.0                              # 10 min de trace derriere chaque engin
@@ -4347,7 +4349,7 @@ def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hau
 
 
 def nom_video(depuis, jusqua):
-    return "tracking-%s_%s-%s.mp4" % (depuis[:10], depuis[11:16].replace(":", "h"), jusqua[:10] + "_" + jusqua[11:16].replace(":", "h"))
+    return "tracking-%s_%s-%s.webm" % (depuis[:10], depuis[11:16].replace(":", "h"), jusqua[:10] + "_" + jusqua[11:16].replace(":", "h"))
 
 
 def lancer_video(depuis, jusqua, vitesse=120):
@@ -4377,10 +4379,10 @@ def lancer_video(depuis, jusqua, vitesse=120):
 def enregistrements_liste():
     """CSV du tracking et videos, avec taille et etat des generations en cours."""
     res = {"csv": [], "videos": []}
-    for dossier, cle, ext in ((TRACKING_DIR, "csv", ".csv"), (ENREGISTREMENTS_DIR, "videos", ".mp4")):
+    for dossier, cle, ext in ((TRACKING_DIR, "csv", ".csv"), (ENREGISTREMENTS_DIR, "videos", (".webm", ".mp4"))):
         try:
             for f in sorted(os.listdir(dossier), reverse=True):
-                if f.endswith(ext) and not f.endswith(".part.mp4"):
+                if f.endswith(ext) and ".part." not in f:
                     res[cle].append({"nom": f, "octets": os.path.getsize(os.path.join(dossier, f))})
         except OSError:
             pass
@@ -4417,7 +4419,7 @@ def boucle_video_auto():
             if os.path.isdir(ENREGISTREMENTS_DIR):
                 for f in os.listdir(ENREGISTREMENTS_DIR):
                     chemin = os.path.join(ENREGISTREMENTS_DIR, f)
-                    if f.endswith(".mp4") and datetime.fromtimestamp(os.path.getmtime(chemin)) < limite:
+                    if f.endswith((".mp4", ".webm")) and datetime.fromtimestamp(os.path.getmtime(chemin)) < limite:
                         os.remove(chemin)
         except Exception as e:
             print("VIDEO: boucle automatique en erreur (%s)" % e)
@@ -5499,12 +5501,15 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "SenorGeology/1.0"
     protocol_version = "HTTP/1.1"
 
-    def _send_fichier(self, code, corps, type_mime, nom):
-        """Reponse binaire (CSV, video) a telecharger."""
+    def _send_fichier(self, code, corps, type_mime, nom, inline=False, plage=None):
+        """Reponse binaire (CSV, video) : telechargement, ou lecture dans la page (inline) avec plages d'octets."""
         try:
             self.send_response(code)
             self.send_header("Content-Type", type_mime)
-            self.send_header("Content-Disposition", 'attachment; filename="%s"' % nom)
+            self.send_header("Content-Disposition", '%s; filename="%s"' % ("inline" if inline else "attachment", nom))
+            self.send_header("Accept-Ranges", "bytes")
+            if plage:
+                self.send_header("Content-Range", "bytes %d-%d/%d" % plage)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Content-Length", str(len(corps)))
             self.send_header("Connection", "close")
@@ -5645,13 +5650,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, enregistrements_liste())
         if path == "/api/enregistrements/fichier" and method == "GET":
             nom = (self._qs().get("nom") or [""])[0]
-            if not re.match(r"^[A-Za-z0-9_.-]+\.(csv|mp4)$", nom) or ".." in nom:
+            if not re.match(r"^[A-Za-z0-9_.-]+\.(csv|mp4|webm)$", nom) or ".." in nom:
                 return self._send_json(400, {"error": "nom de fichier invalide"})
             chemin = os.path.join(TRACKING_DIR if nom.endswith(".csv") else ENREGISTREMENTS_DIR, nom)
             if not os.path.isfile(chemin):
                 return self._send_json(404, {"error": "fichier introuvable"})
+            mime = "text/csv; charset=utf-8" if nom.endswith(".csv") else ("video/webm" if nom.endswith(".webm") else "video/mp4")
+            taille = os.path.getsize(chemin)
+            debut, fin, code = 0, taille - 1, 200
+            m = re.match(r"^bytes=(\d*)-(\d*)$", self.headers.get("Range", "").strip())
+            if m and (m.group(1) or m.group(2)) and taille:        # lecteur video : lecture par morceaux + avance rapide
+                if m.group(1):
+                    debut = int(m.group(1)); fin = int(m.group(2)) if m.group(2) else taille - 1
+                else:
+                    debut = max(0, taille - int(m.group(2))); fin = taille - 1
+                fin = min(fin, taille - 1)
+                if debut > fin:
+                    self.send_response(416); self.send_header("Content-Range", "bytes */%d" % taille)
+                    self.send_header("Content-Length", "0"); self.end_headers(); return
+                code = 206
             with open(chemin, "rb") as fh:
-                return self._send_fichier(200, fh.read(), "text/csv; charset=utf-8" if nom.endswith(".csv") else "video/mp4", nom)
+                fh.seek(debut)
+                corps = fh.read(fin - debut + 1)
+            en_ligne = (self._qs().get("inline") or [""])[0] == "1"
+            return self._send_fichier(code, corps, mime, nom, inline=en_ligne,
+                                      plage=(debut, fin, taille) if code == 206 else None)
         if path == "/api/enregistrements/video" and method == "POST":
             b = json.loads(self._read_body() or b"{}")
             depuis, jusqua = str(b.get("depuis") or ""), str(b.get("jusqua") or "")
