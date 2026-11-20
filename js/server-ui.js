@@ -413,8 +413,10 @@
     const box = $('#teamContainer');
     if (!box) return;
     const membres = (rows || []).filter((r) => r.profil === 'SPOT');
+    const compteur = $('#cptEquipes');
     if (!membres.length) {
-      box.innerHTML = '<div class="empty-state"><i class="fas fa-users"></i><span>Aucune equipe creee. Utilisez "Nouvelle equipe" ci-dessous.</span></div>';
+      box.innerHTML = '<div class="pm-vide">Aucune équipe créée. Utilisez « Créer une équipe » ci-dessus.</div>';
+      if (compteur) compteur.textContent = '0 enregistrée · mêmes équipes que dans Senor';
       return;
     }
     // regroupement par code d'equipe (champ `equipe` du membre)
@@ -424,66 +426,64 @@
       (equipes[cle] = equipes[cle] || []).push(r);
     });
     const cles = Object.keys(equipes).sort();
-    box.innerHTML = '<div class="team-grid">' + cles.map((cle) => {
+    const nbActives = cles.filter((c) => equipes[c].some((r) => r.actif === 1)).length;
+    if (compteur) compteur.textContent = nbActives + (nbActives > 1 ? ' actives' : ' active') + ' · ' + cles.length +
+      (cles.length > 1 ? ' enregistrées' : ' enregistrée') + ' · mêmes équipes que dans Senor';
+    // un panneau « Modifier » ouvert le reste apres rechargement de la liste
+    const ouverts = new Set(Array.from(box.querySelectorAll('.pm-eq.ouvert')).map((x) => x.dataset.equipe));
+    box.innerHTML = cles.map((cle) => {
       const liste = equipes[cle];
       const active = liste.some((r) => r.actif === 1);
       const chef = liste.find((r) => (r.role || '').toUpperCase() === 'CHEF_EQUIPE');
       const couleur = (liste.find((r) => r.couleur) || {}).couleur || couleurEquipe(cle);
       const nomChef = chef ? (chef.nom || chef.identifiant || '') : '';
+      const e = eqEscape(cle);
+      const ouvert = ouverts.has(cle);
 
-      let html = '<div class="team-card' + (active ? '' : ' desactive') + '" data-equipe="' + eqEscape(cle) + '" style="--team-color:' + couleur + '">' +
-        '<div class="team-head">' +
-          '<span class="team-badge">' + eqEscape(cle.split('-')[0] || cle) + '</span>' +
-          '<div class="team-head-info">' +
-            '<div class="team-title">' +
-              '<span class="team-nom" title="' + eqEscape(cle) + '">' + eqEscape(cle) + '</span>' +
-              '<span class="team-state">' + (active ? 'Active' : 'Inactive') + '</span>' +
-            '</div>' +
-            '<div class="team-meta">' +
-              '<i class="fas fa-star"></i>' +
-              '<span class="chef-ligne">' + (nomChef
-                ? 'Chef : <span class="chef-nom">' + eqEscape(nomChef) + '</span>'
-                : '<em>Aucun chef d\'equipe nomme</em>') + '</span>' +
-              ' &middot; <i class="fas fa-user-friends"></i> ' + liste.length + (liste.length > 1 ? ' membres' : ' membre') +
-            '</div>' +
-          '</div>' +
-          '<span class="team-actions">' +
-            '<button class="team-btn" data-action="team-toggle" data-equipe="' + eqEscape(cle) + '" data-active="' + active + '">' +
-              '<i class="fas fa-' + (active ? 'pause' : 'play') + '"></i> ' + (active ? 'Desactiver' : 'Activer') + '</button>' +
-            '<button class="team-btn danger" data-action="team-delete" data-equipe="' + eqEscape(cle) + '">' +
-              '<i class="fas fa-trash"></i> Supprimer</button>' +
+      let html = '<div class="pm-eq' + (active ? '' : ' desactive') + (ouvert ? ' ouvert' : '') + '" data-equipe="' + e + '">' +
+        '<div class="pm-ligne pm-ligne-eq">' +
+          '<span class="pm-code">' + e + '</span>' +
+          '<span class="pm-eq-nom"><b>' + (nomChef ? 'Chef · ' + eqEscape(nomChef) : '<em>Aucun chef nommé</em>') + '</b>' +
+            '<small>' + liste.length + (liste.length > 1 ? ' membres' : ' membre') + '</small></span>' +
+          '<span class="pm-eq-couleur"><i style="background:' + eqEscape(couleur) + '"></i></span>' +
+          '<span class="pm-eq-etat">' +
+            '<button type="button" class="pm-switch' + (active ? ' on' : '') + '" role="switch" aria-checked="' + active + '" ' +
+              'data-action="team-toggle" data-equipe="' + e + '" data-active="' + active + '" ' +
+              'title="' + (active ? 'Désactiver' : 'Activer') + ' l\'équipe"><i></i></button>' +
+            '<span>' + (active ? 'Active' : 'Inactive') + '</span>' +
           '</span>' +
+          '<span class="pm-actions">' +
+            '<button type="button" class="pm-lien" data-action="team-edit" data-equipe="' + e + '">Modifier</button>' +
+            '<button type="button" class="pm-menu-btn" data-action="team-menu" aria-haspopup="true" title="Actions">…</button>' +
+            '<span class="pm-menu" hidden>' +
+              '<button type="button" data-action="team-toggle" data-equipe="' + e + '" data-active="' + active + '">' + (active ? 'Désactiver' : 'Activer') + '</button>' +
+              '<button type="button" class="danger" data-action="team-delete" data-equipe="' + e + '">Supprimer</button>' +
+            '</span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="pm-eq-membres"' + (ouvert ? '' : ' hidden') + '>';
+      html += liste.length ? liste.map((r) => {
+        const estChef = (r.role || '').toUpperCase() === 'CHEF_EQUIPE';
+        const roleLb = ROLE_LIBELLE[String(r.role || '').toUpperCase()] || (r.role || 'Membre');
+        return '<div class="pm-membre"' + (r.actif === 1 ? '' : ' style="opacity:.5"') + '>' +
+          '<span class="pm-membre-nom">' + eqEscape(r.nom || r.identifiant) + '</span>' +
+          '<span class="pm-membre-role' + (estChef ? ' chef' : '') + '">' + eqEscape(roleLb) + '</span>' +
+          '<button type="button" class="pm-lien danger" data-action="member-remove" data-id="' + r.id + '" ' +
+            'title="Retirer cette personne de l\'équipe">Retirer</button>' +
         '</div>';
-      html += '<div class="team-body">';
-      html += '<div class="team-members">';
-      if (!liste.length) {
-        html += '<div class="member-empty">Equipe vide</div>';
-      } else {
-        html += liste.map((r) => {
-          const estChef = (r.role || '').toUpperCase() === 'CHEF_EQUIPE';
-          const roleLb = ROLE_LIBELLE[String(r.role || '').toUpperCase()] || (r.role || 'Membre');
-          return '<div class="team-member"' + (r.actif === 1 ? '' : ' style="opacity:0.5"') + '>' +
-            '<i class="fas fa-' + (estChef ? 'user-tie' : 'user') + '"></i>' +
-            '<span class="member-name">' + eqEscape(r.nom || r.identifiant) + '</span>' +
-            '<span class="member-role' + (estChef ? ' chef' : '') + '">' + eqEscape(roleLb) + '</span>' +
-            '<button class="account-btn" data-action="member-remove" data-id="' + r.id + '" title="Retirer cette personne de l\'equipe">' +
-              '<i class="fas fa-times"></i></button>' +
-          '</div>';
-        }).join('');
-      }
-      html += '</div>';
-      html += '<form class="member-add-form" data-equipe="' + eqEscape(cle) + '">' +
-        '<input type="text" class="form-input-sm" placeholder="Ajouter une personne : son nom" name="mname" required />' +
-        '<select class="form-select-sm" name="mrole">' +
+      }).join('') : '<div class="pm-vide">Équipe vide</div>';
+      html += '<form class="member-add-form pm-membre-ajout" data-equipe="' + e + '">' +
+        '<input type="text" placeholder="Ajouter une personne : son nom" name="mname" required />' +
+        '<select name="mrole">' +
           '<option value="SPOTER">Spotter</option>' +
-          '<option value="CHEF_EQUIPE">Chef d\'equipe</option>' +
-          '<option value="OPERATEUR">Operateur</option>' +
+          '<option value="CHEF_EQUIPE">Chef d\'équipe</option>' +
+          '<option value="OPERATEUR">Opérateur</option>' +
         '</select>' +
-        '<button type="submit" class="btn-add-xs"><i class="fas fa-plus"></i> Ajouter</button>' +
+        '<button type="submit" class="pm-btn-sombre">+ Ajouter</button>' +
       '</form>';
       html += '</div></div>';
       return html;
-    }).join('') + '</div>';
+    }).join('');
   }
 
   function equipListError(e) {
@@ -526,7 +526,7 @@
       Splash.succes('Equipe creee', equipe + ' - chef : ' + chefNom);
       equipStatus('teamStatus', 'Team creee (chef: ' + chefNom + ')', true);
       e.target.reset();
-      if ($('#newTeamColor')) $('#newTeamColor').value = '#3b82f6';
+      if ($('#newTeamColor')) $('#newTeamColor').selectedIndex = 0;
       await loadTeams();
     } catch (err) { Splash.erreur('Creation impossible', err.message); equipStatus('teamStatus', 'Erreur: ' + err.message, false); }
   }
@@ -615,6 +615,23 @@
     if (action === 'team-toggle') toggleTeam(btn.dataset.equipe, btn.dataset.active === 'true');
     else if (action === 'team-delete') deleteTeam(btn.dataset.equipe);
     else if (action === 'member-remove') removeMember(btn.dataset.id);
+    else if (action === 'team-edit') {
+      const eq = btn.closest('.pm-eq');
+      if (eq) {
+        eq.classList.toggle('ouvert');
+        const panneau = eq.querySelector('.pm-eq-membres');
+        if (panneau) panneau.hidden = !eq.classList.contains('ouvert');
+      }
+    } else if (action === 'team-menu') {
+      const menu = btn.parentElement.querySelector('.pm-menu');
+      const ouvrir = menu.hidden;
+      document.querySelectorAll('.pm-menu').forEach((m) => { m.hidden = true; });
+      menu.hidden = !ouvrir;
+    }
+    if (action !== 'team-menu') {
+      const menu = btn.closest('.pm-menu');
+      if (menu) menu.hidden = true;
+    }
   }
 
   // ============ MACHINES (Truck / Excavator) ============
@@ -978,6 +995,8 @@
     // un GNSSÐ¸Ñ€ÑƒÐµÑ‚ÑÑ pairé hors catalogue reste visible
     cat.forEach((c) => { if (!reg.some((r) => r.id === c.id)) reg.push({ id: c.id, terminal: '' }); });
 
+    const cpt = $('#cptGnss');
+    if (cpt) cpt.textContent = 'Catalogue GNSS · ' + reg.length + (reg.length > 1 ? ' récepteurs enregistrés' : ' récepteur enregistré');
     if (!reg.length) {
       box.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i><span>Aucun GNSS enregistre</span></div>';
       return;
@@ -1349,7 +1368,7 @@
     const a = loadAssignments();
 
     if (!tablets.length) {
-      box.innerHTML = '<div class="empty-state"><i class="fas fa-tablet-alt"></i><span>Aucune tablette</span></div>';
+      box.innerHTML = '<div class="pm-vide">Aucune tablette enregistrée</div>';
       return;
     }
 
@@ -1363,20 +1382,14 @@
         ? a.gnss[gnssId] : null;
       const equipLabel = equip ? enginLabel(equip.type, equip.target) : null;
 
-      const rowCls = 'account-item' + (active ? '' : ' desactive');
+      const rowCls = 'pm-ligne pm-ligne-terrain' + (active ? '' : ' desactive');
       return '<div class="' + rowCls + '" data-tab-id="' + eqEscape(t.id) + '">' +
-        '<i class="fas fa-tablet-alt"></i>' +
-        '<span class="account-nom">' + eqEscape(t.id) + '</span>' +
-        '<span class="account-email" style="flex:1">' +
-          (gnssId ? '<i class="fas fa-satellite-dish"></i> ' + eqEscape(gnssId) : '<span style="opacity:.4">Pas de GNSS</span>') +
-          ' &nbsp;·&nbsp; ' +
-          (equipLabel ? '<i class="fas fa-digging"></i> ' + eqEscape(equipLabel) : '<span style="opacity:.4">Pas d\'engin</span>') +
-        '</span>' +
-        (active ? '' : '<span class="account-flag">desactive</span>') +
-        '<span class="account-actions">' +
-          '<button class="account-btn" data-action="tab-toggle" data-id="' + eqEscape(t.id) + '" data-active="' + active + '" title="' + (active ? 'Desactiver' : 'Activer') + '">' +
-            '<i class="fas fa-' + (active ? 'ban' : 'check') + '"></i></button>' +
-          '<button class="account-btn" data-action="tab-delete" data-id="' + eqEscape(t.id) + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+        '<span class="pm-code">' + eqEscape(t.id) + (active ? '' : ' <em>· désactivée</em>') + '</span>' +
+        '<span class="pm-famille">' + (gnssId ? eqEscape(gnssId) : '<span class="pm-aucun">Pas de GNSS</span>') + '</span>' +
+        '<span class="pm-famille">' + (equipLabel ? eqEscape(equipLabel) : '<span class="pm-aucun">Aucun engin</span>') + '</span>' +
+        '<span class="pm-actions">' +
+          '<button type="button" class="pm-lien" data-action="tab-toggle" data-id="' + eqEscape(t.id) + '" data-active="' + active + '">' + (active ? 'Désactiver' : 'Activer') + '</button>' +
+          '<button type="button" class="pm-lien danger" data-action="tab-delete" data-id="' + eqEscape(t.id) + '">Supprimer</button>' +
         '</span></div>';
     }).join('');
   }
@@ -2050,29 +2063,93 @@
       });
     });
 
+    // ----- onglet Connexion : menu de sections + barre « Enregistrer » (maquette Parametres) -----
+    const barreEnr = document.getElementById('pmBarre');
+    const majBarre = () => {
+      const actif = document.querySelector('#page-settings .onglet-pane.actif');
+      if (barreEnr) barreEnr.hidden = !(actif && actif.dataset.onglet === 'connexion');
+    };
+    barre.addEventListener('click', () => setTimeout(majBarre, 0));
+    majBarre();
+
+    const menu = document.getElementById('pmCxNav');
+    if (menu) {
+      const liens = Array.from(menu.querySelectorAll('.pm-cx-lien'));
+      const sections = liens.map((a) => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+      const marquer = (id) => liens.forEach((a) => a.classList.toggle('actif', a.getAttribute('href') === '#' + id));
+      menu.addEventListener('click', (e) => {
+        const a = e.target.closest('.pm-cx-lien');
+        if (!a) return;
+        e.preventDefault();
+        const cible = document.querySelector(a.getAttribute('href'));
+        if (cible) { cible.scrollIntoView({ behavior: 'smooth', block: 'start' }); marquer(cible.id); }
+      });
+      // section visible = celle dont le haut est le plus proche du haut de la zone de defilement
+      const conteneur = document.querySelector('.content');
+      const defile = conteneur && /(auto|scroll)/.test(getComputedStyle(conteneur).overflowY) ? conteneur : window;
+      const surDefilement = () => {
+        const haut = defile === window ? 0 : defile.getBoundingClientRect().top;
+        let choisie = sections[0];
+        sections.forEach((sec) => { if (sec.getBoundingClientRect().top - haut <= 90) choisie = sec; });
+        if (choisie) marquer(choisie.id === 'panelRelais' ? 'cx-passerelle' : choisie.id);
+      };
+      defile.addEventListener('scroll', surDefilement, { passive: true });
+    }
+    // Enregistrer : declenche l'enregistrement des seules sections modifiees (chacune garde sa propre logique et son statut)
+    const sales = new Set();
+    document.querySelectorAll('#page-settings .pm-carte[data-groupe]').forEach((c) => {
+      const g = c.dataset.groupe;
+      c.addEventListener('input', () => sales.add(g));
+      c.addEventListener('change', () => sales.add(g));
+    });
+    const prefs = document.getElementById('cx-preferences');
+    if (prefs) { prefs.addEventListener('change', () => sales.add('config')); prefs.addEventListener('input', () => sales.add('config')); }
+    const texteBarre = document.getElementById('pmBarreTexte');
+    const dire = (t) => { if (texteBarre) texteBarre.textContent = t; };
+    const TEXTE_DEFAUT = "Les modifications s'appliquent à cet environnement.";
+    const boutons = { config: '#btnSaveConfig', ot: '#btnOtSave', relais: '#btnRelaisSave' };
+    const btnEnr = document.getElementById('pmBarreEnregistrer');
+    if (btnEnr) btnEnr.addEventListener('click', () => {
+      const a = Array.from(sales);
+      if (!a.length) { dire('Aucune modification à enregistrer.'); setTimeout(() => dire(TEXTE_DEFAUT), 3000); return; }
+      a.forEach((g) => { const b = document.querySelector(boutons[g]); if (b) b.click(); });
+      sales.clear();
+      dire("Enregistrement de " + a.length + " section(s)… l'état de chacune s'affiche dans sa carte.");
+      setTimeout(() => dire(TEXTE_DEFAUT), 5000);
+    });
+    const btnAnn = document.getElementById('pmBarreAnnuler');
+    if (btnAnn) btnAnn.addEventListener('click', () => { sales.clear(); location.reload(); });
+
     // bandeau de sync : ping leger du SaaS toutes les 10 s
     const dot = document.getElementById('syncDot');
     const texte = document.getElementById('syncTexte');
-    let dernierOk = null;
+    const detail = document.getElementById('syncDetail');
+    let dernierOk = null, enLigne = false;
+    const ilYa = (d) => {
+      const s = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
+      return s < 60 ? 'il y a ' + s + ' s' : 'il y a ' + Math.round(s / 60) + ' min';
+    };
+    // « Cloud connecté · dernier échange il y a 2 s » (maquette), recalcule chaque seconde
+    const majTexte = () => {
+      if (dot) dot.className = 'sync-dot ' + (enLigne ? 'ok' : 'ko');
+      if (texte) {
+        texte.textContent = enLigne
+          ? 'Cloud connecté · dernier échange ' + ilYa(dernierOk)
+          : 'Hors ligne' + (dernierOk ? ' · dernier échange ' + ilYa(dernierOk) : ' · aucune connexion au serveur');
+      }
+      if (detail) {
+        const coche = (id) => { const e = document.getElementById(id); return !e || e.checked; };
+        detail.textContent = [coche('syncCouchePull') ? 'Cloud 5 s' : '', coche('syncCoucheLan') ? 'LAN temps réel' : '',
+                              coche('syncCoucheOffice') ? 'Relais Office actif' : ''].filter(Boolean).join(' / ');
+      }
+    };
     const ping = () => {
-      API.getConfig().then(() => {
-        dernierOk = new Date();
-        if (dot) dot.className = 'sync-dot ok';
-        if (texte) {
-          texte.textContent = 'Synchronise — dernier echange ' +
-            dernierOk.toLocaleTimeString();
-        }
-      }).catch(() => {
-        if (dot) dot.className = 'sync-dot ko';
-        if (texte) {
-          texte.textContent = 'Hors ligne' + (dernierOk
-            ? ' — dernier echange ' + dernierOk.toLocaleTimeString()
-            : ' — aucune connexion au serveur');
-        }
-      });
+      API.getConfig().then(() => { dernierOk = new Date(); enLigne = true; majTexte(); })
+        .catch(() => { enLigne = false; majTexte(); });
     };
     ping();
     setInterval(ping, 10000);
+    setInterval(majTexte, 1000);
 
     const btn = document.getElementById('btnSyncMaintenant');
     if (btn) btn.addEventListener('click', () => {
@@ -2097,6 +2174,6 @@
     loadEquipList, loadEquipLists: async () => {
       for (const t of Object.keys(EQUIP_TYPES)) await loadEquipList(t);
     },
-    refreshAssignments, renderGnssRegistry, loadGnssRegistry, renderFleet, renderTruckFactors,
+    refreshAssignments, renderGnssRegistry, loadGnssRegistry, renderFleet, renderTruckFactors, renderTeams,
   };
 })();
