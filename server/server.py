@@ -296,7 +296,6 @@ DEFAULT_PARAMS = {
     "port_db": "5432",
     "base": "oretracking_db",
     "user": "admin",
-    "mode_simulation": "true",
     "rafraichissement": "5",
     "theme": "Sombre",
     "animations": "true",

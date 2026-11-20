@@ -72,30 +72,45 @@
     }
   }
 
+  // ------------------------------------------------------------ compteurs : sources REELLES
+  //  - engins suivis : DT dont la position est fraiche (/api/suivi_dt : pas « signal perdu », 2 min) / parc DT (SaaS)
+  //  - alertes a traiter : alertes non vues et non informatives (MSUI)
+  //  - missions en cours : missions au statut en_cours (MSUI)
+  //  - tonnes du jour : production reelle de la journee 06 h - 06 h lue chez Serveur_SG (/api/kpi), minerai + waste
+  // Aucune valeur par defaut, aucune estimation : une source muette affiche « — », pas un chiffre invente.
+  const COMPTEURS = { suivi: null, kpi: null };
+
   function rendreStats(etat) {
-    const engins = (etat.engins || []).filter((e) => e.actif !== 0);
     const alertes = (etat.alertes || []).filter((a) => !a.acquittee && !MSUI.estInfo(a));
     const missions = (etat.missions || []).filter((m) => m.statut === 'en_cours');
-    const aujourdhui = new Date().toISOString().slice(0, 10);
-    const voy = (etat.voyages || []).filter(
-      (v) => String(v.created_at || '').slice(0, 10) === aujourdhui);
-    const tonnes = voy.reduce((s, v) => s + (v.volume_t || 0), 0);
 
     const set = (id, val) => {
       const el = document.getElementById(id);
       if (el) el.textContent = val;
     };
 
-    // Parc total : lu dans le referentiel SaaS (sync_flotte). Quand il n'est
-    // pas encore disponible, on affiche le seul nombre connu (les engins
-    // vus en direct) plutot que « 13 / ? ». Memes donnees, meme calcul.
-    const parc = (typeof window.PARC_ENGINS === 'number' && window.PARC_ENGINS > 0)
-      ? window.PARC_ENGINS
-      : null;
-    set('statEngins', parc ? (engins.length + ' / ' + parc) : String(engins.length));
+    // Parc total : referentiel SaaS (sync_flotte, camions seulement : les excavatrices ne roulent pas de missions).
+    const parc = (typeof window.PARC_ENGINS === 'number' && window.PARC_ENGINS > 0) ? window.PARC_ENGINS : null;
+    if (COMPTEURS.suivi) {
+      const enDirect = COMPTEURS.suivi.filter((e) => e.type === 'DT' && e.etat !== 'signal_perdu').length;
+      set('statEngins', parc ? (enDirect + ' / ' + parc) : String(enDirect));
+    } else {
+      set('statEngins', '—');
+    }
     set('statAlertes', String(alertes.length).padStart(2, '0'));
     set('statMissions', String(missions.length).padStart(2, '0'));
-    set('statTonnage', formaterTonnage(Math.round(tonnes)));
+    const k = COMPTEURS.kpi;
+    set('statTonnage', k ? formaterTonnage(Math.round((Number(k.minerais_t) || 0) + (Number(k.waste_t) || 0))) : '—');
+  }
+
+  function lireCompteurs() {
+    const base = basePasserelleHome();
+    fetch(base + '/api/suivi_dt', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { COMPTEURS.suivi = Array.isArray(d) ? d : (d && (d.engins || null)); if (TERRAIN.etat) rendreStats(TERRAIN.etat); })
+      .catch(() => { COMPTEURS.suivi = null; });
+    fetch(base + '/api/kpi', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { COMPTEURS.kpi = d && typeof d.minerais_t !== 'undefined' ? d : null; if (TERRAIN.etat) rendreStats(TERRAIN.etat); })
+      .catch(() => { COMPTEURS.kpi = null; });
   }
 
   // Tonnage lisible : « 53 500 t » avec séparateur milliers.
@@ -430,6 +445,8 @@
     MSUI.onTick((etat) => { TERRAIN.etat = etat; rendreVoyant(etat); rendreStats(etat); rendreFile(etat); rendreMinage(); rendreLiaisons(); });
     lireTerrain();
     setInterval(lireTerrain, 60000);
+    lireCompteurs();
+    setInterval(lireCompteurs, 10000);
     MSUI.demarrer(5000);
     brancherMarquerVu();
     rendreShift();

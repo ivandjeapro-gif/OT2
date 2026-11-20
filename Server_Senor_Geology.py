@@ -8048,61 +8048,13 @@ def main():
     if "name_base" not in cols:
         conn.execute("ALTER TABLE blasts ADD COLUMN name_base TEXT DEFAULT ''")
         conn.commit()
-    if conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0:
-        cur = conn.execute("INSERT INTO sources (nom) VALUES ('MAIN PIT')")
-        # teneurs de demo, comme sur le schema de la page
-        for nom, val_min, val_max in (("F5M", 5.0, 7.0), ("F2M", 2.0, 5.0), ("F4M", 4.0, 6.0)):
-            conn.execute("INSERT INTO teneurs (source_id, nom, valeur_min, valeur_max) VALUES (?, ?, ?, ?)",
-                         (cur.lastrowid, nom, val_min, val_max))
-        conn.commit()
+    # (20/11 : la source « MAIN PIT » et ses teneurs de demo n'etaient plus creees d'office : les sources et
+    #  teneurs viennent de Settings / Dig Plan, jamais d'un jeu d'essai)
     conn.close()
 
-    # donnees de demo si base vide
-    conn = get_conn()
-    with LOCK:
-        if conn.execute("SELECT COUNT(*) FROM oreblocs").fetchone()[0] == 0:
-            conn.execute(
-                "INSERT INTO oreblocs (nom, grade_cutoff, sommets, source_fichier) VALUES (?, ?, ?, ?)",
-                ("Orebloc A", DEFAULT_CUTOFF_GRADE,
-                 json.dumps([[0, 0], [100, 0], [100, 100], [0, 100]]), "demo.csv"))
-        if conn.execute("SELECT COUNT(*) FROM dumping_areas").fetchone()[0] == 0:
-            conn.execute(
-                "INSERT INTO dumping_areas (nom, x, y, rayon_m) VALUES (?, ?, ?, ?)",
-                ("Dumping Area Principale", 500, 500, 50))
-        if conn.execute("SELECT COUNT(*) FROM engins").fetchone()[0] == 0:
-            conn.execute("INSERT INTO engins (code, type, x, y, statut) VALUES (?, ?, ?, ?, ?)",
-                         ("EXCA-01", "EXCA", 50, 50, "OMEX"))
-            conn.execute("INSERT INTO engins (code, type, x, y, statut) VALUES (?, ?, ?, ?, ?)",
-                         ("DT-01", "DT", 55, 55, "WDT"))
-        # blast de demo pour la page Dig Plan (donnees simulees, pas un vrai
-        # export OREPro 3D) : un plan avec 3 oreblocs representatifs.
-        if conn.execute("SELECT COUNT(*) FROM blasts").fetchone()[0] == 0:
-            curb = conn.execute(
-                "INSERT INTO blasts (numero, nom, name_dxf, name_geosum, name_survey, name_map, "
-                "source_nom, destination, bench, heading, flitch, plan_date, scale, "
-                "page_label, source_fichier, nb_blocs) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                ("LWP2_235_230_107", "LWP2_235_230_107", "demo_digplan.dxf", "Geosum_LWP2_235",
-                 "Survey_2026_10_11", "Map_LWP2_235_230_107", "MAIN PIT", "F5W", "230", "W", "232.5",
-                 "2026-10-11", "1:410.74", "Page 2 of 3", "demo_digplan.csv", 3))
-            blast_id = curb.lastrowid
-            demo_blocs = [
-                ("232.5_LWP2_107_WST_FR_005_OP", 70, 69, 0.049, 0.988, "W", "IMAF",
-                 [[10, 10], [40, 10], [40, 35], [20, 40], [10, 25]]),
-                ("232.5_LWP2_107_HG_FR_006_OP", 1771, 3593, 2.568, 2.029, "F5W", "IMAF",
-                 [[45, 60], [70, 90], [85, 95], [95, 80], [90, 55], [75, 40], [55, 45]]),
-                ("232.5_LWP2_107_WST_FR_007_OP", 5859, 12288, 0.004, 2.097, "W", "IMAF",
-                 [[5, 50], [35, 50], [55, 45], [75, 40], [95, 55], [95, 10], [50, 5], [5, 15]]),
-            ]
-            for nom, volume, tonnes, au, dens, dest, litho, sommets in demo_blocs:
-                conn.execute(
-                    "INSERT INTO oreblocs (nom, grade_cutoff, sommets, source_fichier, blast_id, "
-                    "volume, tonnes, au_teneur, density, destination, litho) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (nom, DEFAULT_CUTOFF_GRADE, json.dumps(sommets), "demo_digplan.csv", blast_id,
-                     volume, tonnes, au, dens, dest, litho))
-        conn.commit()
-    conn.close()
+    # 20/11 : plus AUCUNE donnee de demonstration au demarrage. Avant, une base vide recevait un « Orebloc A »,
+    # une « Dumping Area Principale », les engins EXCA-01 / DT-01 et un blast fictif LWP2_235_230_107 :
+    # ils apparaissaient dans Dig Plan, le suivi et les compteurs comme des donnees reelles.
 
     threading.Thread(target=ecouteur_xbee, daemon=True).start()
     # envoi vers Serveur_OT hors du verrou global (16/11)
