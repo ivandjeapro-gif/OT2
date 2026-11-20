@@ -2271,26 +2271,48 @@ def ecouteur_xbee():
 
 
 # ----------------------------------------------------------- logique metier -----
+# 20/11 : une position n'est « en direct » que si elle a moins de POSITION_FRAICHE_S secondes.
+# Les excavatrices d'un ancien essai restaient OMEX avec leur derniere position (ex. « ivan »,
+# « 88 », EXCA-02/03/04 du 18/11) : un DT arrete pres de cet emplacement passait ODT, et des DT
+# figes en ODT depuis des jours restaient « charges ». Une pelle muette n'ouvre plus de chargement ;
+# un DT muet n'est ni ODT ni SBDT.
+POSITION_FRAICHE_S = 120
+
+
+def age_position_s(derniere_maj):
+    """Age (s) de la derniere POSITION ; infini si inconnu / illisible."""
+    try:
+        t = datetime.strptime(str(derniere_maj)[:19], "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return float("inf")
+    return (datetime.now() - t).total_seconds()
+
+
+def position_fraiche(engin):
+    return age_position_s(engin["derniere_maj"]) <= POSITION_FRAICHE_S
+
+
 def statuts_engins(conn):
-    """Recalcule les statuts WEX/OMEX (exca) et WDT/SBDT/ODT (DT) selon les positions."""
+    """Recalcule les statuts WEX/OMEX (exca) et WDT/SBDT/ODT (DT) selon les positions.
+    Seules les positions FRAICHES comptent ; `derniere_maj` (heure de la derniere position)
+    n'est jamais modifiee ici."""
     engins = [dict(r) for r in conn.execute("SELECT * FROM engins WHERE actif=1")]
     excas = [e for e in engins if e["type"] == "EXCA"]
     dts = [e for e in engins if e["type"] == "DT"]
     oreblocs = [dict(r) for r in conn.execute("SELECT * FROM oreblocs WHERE actif=1")]
 
-    # 1) Statut excavatrice : OMEX si dans un orebloc, sinon WEX
+    # 1) Statut excavatrice : OMEX si dans un orebloc ET en direct, sinon WEX
     for e in excas:
         dedans = False
-        for ob in oreblocs:
-            poly = json.loads(ob["sommets"] or "[]")
-            if point_in_polygon(e["x"], e["y"], poly):
-                dedans = True
-                break
+        if position_fraiche(e):
+            for ob in oreblocs:
+                poly = json.loads(ob["sommets"] or "[]")
+                if point_in_polygon(e["x"], e["y"], poly):
+                    dedans = True
+                    break
         nouveau = "OMEX" if dedans else "WEX"
         if nouveau != e["statut"]:
-            conn.execute(
-                "UPDATE engins SET statut=?, derniere_maj=? WHERE id=?",
-                (nouveau, now_iso(), e["id"]))
+            conn.execute("UPDATE engins SET statut=? WHERE id=?", (nouveau, e["id"]))
             e["statut"] = nouveau
 
     # 2) Statut DT
@@ -2321,8 +2343,9 @@ def statuts_engins(conn):
                 dans_orebloc = True
                 break
 
-        nouveau = d["statut"]
-        if exca_proche and dist_min < DT_PROCHE_EXCA_ODT and immo_min >= IMMOBILISATION_ODT_MIN and dans_orebloc:
+        if not position_fraiche(d):
+            nouveau = "WDT"          # DT muet : on ne le declare pas charge d'apres une position ancienne
+        elif exca_proche and dist_min < DT_PROCHE_EXCA_ODT and immo_min >= IMMOBILISATION_ODT_MIN and dans_orebloc:
             nouveau = "ODT"
         elif exca_proche and dist_min > DT_LOIN_EXCA_SBDT and exca_proche["statut"] == "OMEX" and immo_min >= IMMOBILISATION_SBDT_MIN:
             nouveau = "SBDT"
@@ -2330,13 +2353,26 @@ def statuts_engins(conn):
             nouveau = "WDT"
 
         if nouveau != d["statut"]:
-            conn.execute(
-                "UPDATE engins SET statut=?, derniere_maj=? WHERE id=?",
-                (nouveau, now_iso(), d["id"]))
+            conn.execute("UPDATE engins SET statut=? WHERE id=?", (nouveau, d["id"]))
             d["statut"] = nouveau
 
     conn.commit()
     return [dict(r) for r in conn.execute("SELECT * FROM engins WHERE actif=1")]
+
+
+def boucle_statuts():
+    """Reevalue les statuts toutes les 30 s : sans cela, un statut ODT / OMEX ne retombait que
+    si une page rappelait /api/engins (une pelle qui s'arrete d'emettre restait « en minage »)."""
+    while True:
+        try:
+            conn = get_conn()
+            try:
+                statuts_engins(conn)
+            finally:
+                conn.close()
+        except Exception as e:
+            print("STATUTS: recalcul impossible (%s)" % e)
+        time.sleep(30)
 
 
 def generer_affectation(conn, dt_code):
@@ -7002,6 +7038,8 @@ def main():
     threading.Thread(target=boucle_checkpoints, daemon=True).start()
     # alignement des missions locales sur Serveur_SG (20/11)
     threading.Thread(target=boucle_missions_sg, daemon=True).start()
+    # statuts WEX/OMEX/WDT/SBDT/ODT recalcules toutes les 30 s (positions fraiches seulement, 20/11)
+    threading.Thread(target=boucle_statuts, daemon=True).start()
     # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
     threading.Thread(target=boucle_comptes_mqtt, daemon=True).start()
     threading.Thread(target=boucle_suivi_mqtt, daemon=True).start()
