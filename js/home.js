@@ -321,12 +321,115 @@
     t.textContent = (min >= 360 && min < 1080) ? 'Shift de jour' : 'Shift de nuit';
   }
 
+  // ---------------------------------------------------------------- Le terrain
+  // Trois lignes du panneau, toutes calculees : jamais de texte en dur.
+  const TERRAIN = { etat: null, blasts: [], equipes: null, relais: null, cloud: null };
+
+  function ecrireItem(id, titre, detail) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.querySelector('.side-item-titre').textContent = titre;
+    el.querySelector('.side-item-detail').textContent = detail || '';
+  }
+
+  function dansPolygone(x, y, poly) {
+    let dedans = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dedans = !dedans;
+    }
+    return dedans;
+  }
+
+  // Excavatrices en minage (statut OMEX : dans un orebloc ET position fraiche) : code, pit, blast.
+  function rendreMinage() {
+    const etat = TERRAIN.etat;
+    if (!etat) return;
+    const exca = (etat.engins || []).filter((e) => e.type === 'EXCA' && e.statut === 'OMEX' && e.actif !== 0);
+    if (!exca.length) {
+      ecrireItem('terrainMinage', 'Aucune excavatrice en minage', 'Elles apparaissent ici dès qu\'une pelle travaille dans un bloc.');
+      return;
+    }
+    const blastDe = (e) => {
+      for (const b of TERRAIN.blasts) {
+        for (const o of (b.oreblocs || [])) {
+          let pts = o.sommets;
+          if (typeof pts === 'string') { try { pts = JSON.parse(pts); } catch (x) { pts = null; } }
+          if (Array.isArray(pts) && pts.length >= 3 && dansPolygone(e.x, e.y, pts)) return b;
+        }
+      }
+      return null;
+    };
+    const pitDe = (b) => {
+      const n = String((b && (b.numero || b.nom)) || '').toUpperCase();
+      return /LMP/.test(n) ? 'Main Pit' : (/LWP/.test(n) ? 'West Pit' : '');
+    };
+    const premiere = exca[0];
+    const b = blastDe(premiere);
+    const pit = pitDe(b);
+    const codes = exca.map((e) => e.code).join(', ');
+    ecrireItem('terrainMinage', (pit ? pit + ' · ' : '') + codes,
+      'Minage en cours' + (b ? ' · ' + (b.numero || b.nom) : '') + (exca.length > 1 ? ' · ' + exca.length + ' excavatrices' : ''));
+  }
+
+  // Equipes spotter actives (referentiel SaaS, table sync_identifiants, profil SPOT) : « Alpha · K. Traoré / ... ».
+  function rendreEquipes() {
+    const rows = TERRAIN.equipes;
+    if (!rows) { ecrireItem('terrainEquipes', 'Équipes spotter', 'Connectez-vous pour les afficher.'); return; }
+    const parEquipe = {};
+    rows.filter((r) => r.profil === 'SPOT').forEach((r) => {
+      const cle = r.equipe || '(sans équipe)';
+      (parEquipe[cle] = parEquipe[cle] || []).push(r);
+    });
+    const actives = Object.keys(parEquipe).filter((c) => parEquipe[c].some((r) => r.actif === 1)).sort();
+    if (!actives.length) { ecrireItem('terrainEquipes', 'Aucune équipe spotter active', ''); return; }
+    const detail = actives.map((c) => {
+      const chef = parEquipe[c].find((r) => String(r.role || '').toUpperCase() === 'CHEF_EQUIPE');
+      return c + (chef ? ' · ' + (chef.nom || chef.identifiant || '') : '');
+    }).join(' / ');
+    ecrireItem('terrainEquipes', actives.length + (actives.length > 1 ? ' équipes spotter actives' : ' équipe spotter active'), detail);
+  }
+
+  // Liaisons : Cloud (SaaS joignable), LAN temps reel (passerelle joignable), Office (relais configure).
+  function rendreLiaisons() {
+    const etat = TERRAIN.etat;
+    const lan = !!etat && !etat.passerelleDown;
+    const cloud = TERRAIN.cloud === true;
+    const office = !!(TERRAIN.relais && TERRAIN.relais.office_actif);
+    const liste = [['Cloud', cloud], ['LAN temps réel', lan], ['Office', office]];
+    const ok = liste.filter((l) => l[1]);
+    const mots = ['Aucune', 'Une', 'Deux', 'Trois'];
+    const titre = ok.length === 0 ? 'Aucune liaison connectée'
+      : mots[ok.length] + (ok.length > 1 ? ' liaisons connectées' : ' liaison connectée');
+    const hors = liste.filter((l) => !l[1]).map((l) => l[0]);
+    ecrireItem('terrainLiaisons', titre, ok.map((l) => l[0]).join(' · ') + (hors.length ? ' — hors ligne : ' + hors.join(', ') : ''));
+  }
+
+  function rendreTerrain() { rendreMinage(); rendreEquipes(); rendreLiaisons(); }
+
+  function lireTerrain() {
+    const base = basePasserelleHome();
+    fetch(base + '/api/blasts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && d.blasts) TERRAIN.blasts = d.blasts; rendreTerrain(); }).catch(() => {});
+    fetch(base + '/api/relais', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.relais = d; rendreLiaisons(); }).catch(() => { TERRAIN.relais = null; rendreLiaisons(); });
+    if (typeof API !== 'undefined' && API.getConfig) {
+      API.getConfig().then(() => { TERRAIN.cloud = true; rendreLiaisons(); }).catch(() => { TERRAIN.cloud = false; rendreLiaisons(); });
+    }
+    if (typeof API !== 'undefined' && API.getRows) {
+      API.getRows('sync_identifiants').then((d) => { TERRAIN.equipes = (d && d.rows) || []; rendreEquipes(); })
+        .catch(() => { TERRAIN.equipes = null; rendreEquipes(); });
+    }
+  }
+
   function init() {
     if (!document.getElementById('homeVoyant')) return;
     if (!window.MSUI) return;
     lireParc();
     setInterval(lireParc, 60000);
-    MSUI.onTick((etat) => { rendreVoyant(etat); rendreStats(etat); rendreFile(etat); });
+    MSUI.onTick((etat) => { TERRAIN.etat = etat; rendreVoyant(etat); rendreStats(etat); rendreFile(etat); rendreMinage(); rendreLiaisons(); });
+    lireTerrain();
+    setInterval(lireTerrain, 60000);
     MSUI.demarrer(5000);
     brancherMarquerVu();
     rendreShift();
