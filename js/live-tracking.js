@@ -368,6 +368,64 @@ document.addEventListener('DOMContentLoaded', () => {
         },
     };
 
+    // ------------------------------------------------ enregistrements ---
+    // CSV du tracking (un fichier par jour, DT + excavatrices) et videos de shift, sur le PC de la
+    // passerelle. La periode est celle du « Perimetre de suivi » (Date de production + Shift).
+    function majEnregPeriode() {
+        const p = CS.periode(CS.lireFiltres());
+        const jusqua = p.jusqua || new Date().toLocaleString('sv-SE').replace('T', ' ');
+        texte($('enregPeriode'), p.libelle + ' · ' + p.depuis.slice(11, 16) + ' → ' + jusqua.slice(11, 16));
+        $('btnEnregCsv').href = PASSERELLE() + '/api/tracking/export.csv?depuis=' + encodeURIComponent(p.depuis) +
+            '&jusqua=' + encodeURIComponent(jusqua);
+        return { depuis: p.depuis, jusqua: jusqua };
+    }
+    const mo = (o) => (o / 1048576).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' Mo';
+    async function listerEnreg() {
+        try {
+            const d = await fetch(PASSERELLE() + '/api/enregistrements', { cache: 'no-store' }).then((r) => r.json());
+            const lien = (f) => PASSERELLE() + '/api/enregistrements/fichier?nom=' + encodeURIComponent(f.nom);
+            const remplir = (ul, liste, vide) => {
+                ul.replaceChildren(...(liste.length ? liste.map((f) => {
+                    const li = document.createElement('li');
+                    const a = document.createElement('a'); a.href = lien(f); a.textContent = f.nom; a.setAttribute('download', f.nom);
+                    const sp = document.createElement('span'); sp.textContent = mo(f.octets);
+                    li.append(a, sp); return li;
+                }) : [Object.assign(document.createElement('li'), { className: 'vide', textContent: vide })]));
+            };
+            remplir($('enregVideos'), d.videos || [], 'Aucune vidéo pour l\'instant');
+            remplir($('enregCsv'), d.csv || [], 'Aucun CSV pour l\'instant');
+            if ((d.en_cours || []).length) texte($('enregEtat'), 'Génération en cours : ' + d.en_cours.join(', '));
+            else if (/^Génération en cours/.test($('enregEtat').textContent)) texte($('enregEtat'), 'Vidéo prête : elle figure dans la liste.');
+            return (d.en_cours || []).length > 0;
+        } catch (e) { texte($('enregEtat'), 'Passerelle injoignable.'); return false; }
+    }
+    let enregMinuteur = null;
+    async function surveillerEnreg() {
+        clearTimeout(enregMinuteur);
+        const encore = await listerEnreg();
+        const visible = !document.querySelector('[data-volet="enreg"]').hidden;
+        if (visible) enregMinuteur = setTimeout(surveillerEnreg, encore ? 3000 : 15000);
+    }
+    document.querySelectorAll('.lv-onglets [data-onglet]').forEach((b) => b.addEventListener('click', () => {
+        if (b.dataset.onglet === 'enreg') { majEnregPeriode(); surveillerEnreg(); }
+    }));
+    ['fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', majEnregPeriode));
+    $('btnEnregVideo').addEventListener('click', async () => {
+        const per = majEnregPeriode();
+        texte($('enregEtat'), 'Demande envoyée…');
+        try {
+            const r = await fetch(PASSERELLE() + '/api/enregistrements/video', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ depuis: per.depuis, jusqua: per.jusqua, vitesse: Number($('enregVitesse').value) }),
+            });
+            const d = await r.json().catch(() => ({}));
+            texte($('enregEtat'), r.ok ? (d.message === 'deja genere' ? 'Cette vidéo existe déjà : ' + d.fichier
+                : 'Vidéo ' + d.fichier + ' : ' + d.message + '. Elle apparaît dans la liste dès qu\'elle est prête.')
+                : (r.status === 401 || r.status === 403 ? 'Connexion requise (' + (d.error || r.status) + ')' : (d.error || 'Échec (' + r.status + ')')));
+            surveillerEnreg();
+        } catch (e) { texte($('enregEtat'), 'Passerelle injoignable.'); }
+    });
+
     // ------------------------------------------- pied : passerelle ---
     async function majPied() {
         const el = $('lvPasserelle');

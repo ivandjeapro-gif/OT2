@@ -75,6 +75,7 @@
                         <div class="lv-onglets" role="tablist">
                             <button type="button" role="tab" class="actif" data-onglet="carte" aria-selected="true">Carte &amp; tracking</button>
                             <button type="button" role="tab" data-onglet="kpi" aria-selected="false">KPI &amp; panneaux</button>
+                            <button type="button" role="tab" data-onglet="enreg" aria-selected="false">Enregistrements</button>
                         </div>
                         <span class="lv-verrou" id="lvVerrou">Configuration verrouillée par défaut</span>
                     </div>
@@ -283,6 +284,30 @@
                                             </div>
                                         </div>
 
+                                    </div>
+                                </section>
+                            </div>
+
+                            <!-- ============ ONGLET ENREGISTREMENTS ============ -->
+                            <div class="lv-volet" data-volet="enreg" role="tabpanel" hidden>
+                                <section class="lv-enreg">
+                                    <h2>Enregistrements du tracking</h2>
+                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle : un fichier CSV par jour, et une vidéo générée automatiquement à la fin de chaque shift. Ici : récupérer le CSV ou lancer la vidéo de la période choisie dans « Périmètre de suivi » (Date de production et Shift).</p>
+                                    <div class="lv-enreg-actions">
+                                        <span class="lv-enreg-periode" id="enregPeriode">--</span>
+                                        <a class="lv-btn-sombre" id="btnEnregCsv" href="#" download>Télécharger le CSV</a>
+                                        <label class="lv-champ lv-enreg-vitesse"><span class="lbl">Vitesse de la vidéo</span>
+                                            <select id="enregVitesse">
+                                                <option value="60">×60 (1 h de terrain en 1 min)</option>
+                                                <option value="120" selected>×120 (2 h en 1 min)</option>
+                                                <option value="300">×300 (5 h en 1 min)</option>
+                                            </select></label>
+                                        <button type="button" class="lv-btn-jaune" id="btnEnregVideo">Générer la vidéo</button>
+                                    </div>
+                                    <p class="lv-aide" id="enregEtat"></p>
+                                    <div class="lv-enreg-listes">
+                                        <div><h3>Vidéos</h3><ul id="enregVideos" class="lv-enreg-liste"></ul></div>
+                                        <div><h3>CSV par jour</h3><ul id="enregCsv" class="lv-enreg-liste"></ul></div>
                                     </div>
                                 </section>
                             </div>
@@ -605,6 +630,7 @@
     <script src="../js/server-ui.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
+    <script src="../js/ot-config.js"></script>
     <script src="../js/carte-suivi.js"></script>
     <script src="../js/live-tracking.js"></script>
 </body>

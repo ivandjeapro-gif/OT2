@@ -290,3 +290,18 @@
     .lv-grille { grid-template-columns: minmax(0, 1fr); }
     .lv-resumes, .lv .lv-kpi-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ------------------------------------------------ enregistrements du tracking */
+.lv-enreg { margin-top: 28px; }
+.lv-enreg h2 { font-size: 26px; font-weight: 600; }
+.lv-enreg h3 { font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--lv-gris); margin: 24px 0 8px; font-weight: 600; }
+.lv-enreg-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-top: 22px; }
+.lv-enreg-periode { font-family: var(--lv-mono); font-size: 13px; padding: 10px 14px; background: var(--lv-beige); }
+.lv-enreg-actions a.lv-btn-sombre { display: inline-flex; align-items: center; text-decoration: none; }
+.lv-enreg-vitesse select { min-width: 250px; }
+.lv-enreg-listes { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.lv-enreg-liste { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+.lv-enreg-liste li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,.08); font-size: 13.5px; }
+.lv-enreg-liste li span { font-family: var(--lv-mono); color: var(--lv-gris); font-size: 12px; white-space: nowrap; }
+.lv-enreg-liste li.vide { color: var(--lv-gris); border-bottom: 0; }
+.lv-enreg-liste a { color: var(--lv-encre); }
