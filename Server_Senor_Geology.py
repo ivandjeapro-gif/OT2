@@ -4566,8 +4566,8 @@ def lancer_video(depuis, jusqua, vitesse=120):
 
 # Bouton « REC » (dashboard / Live) : la PASSERELLE filme, en arriere-plan, la carte REELLE du dashboard.
 # Un navigateur sans ecran (Edge / Chrome, installe sur ce PC) ouvre la page du dashboard, la passerelle prend
-# une capture de la zone « carte » toutes les REC_INTERVALLE_S secondes et les range dans une video WebM
-# (accelere : un cliche = 1/REC_FPS s de video). « Arreter » ferme le fichier. Aucune autorisation a donner,
+# une capture de la zone « carte » aussi vite qu'elle le peut (3 a 5 par seconde) et en fait une video WebM a la
+# vitesse REELLE (REC_VITESSE=1 ; 10 = film accelere x10). « Arreter » ferme le fichier. Aucune autorisation a donner,
 # rien a laisser ouvert : l'enregistrement continue meme si la page du bouton est fermee.
 RECORD_FICHIER = os.path.join(DATA_DIR, "record_en_cours.json")
 RECORD_PARTIE = os.path.join(ENREGISTREMENTS_DIR, "record_en_cours.part.webm")
@@ -4710,8 +4710,13 @@ def _filmer_carte(arret, etat_page, sortie_partie):
     if not exe:
         _record["erreur"] = "Edge ou Chrome introuvable sur ce PC (REC_NAVIGATEUR pour indiquer le chemin)"
         return
-    intervalle = max(1.0, float(param_lire("REC_INTERVALLE_S", "3") or 3))
+    intervalle = max(0.0, float(param_lire("REC_INTERVALLE_S", "0.2") or 0.2))     # pause entre deux captures
     fps = max(1, int(float(param_lire("REC_FPS", "10") or 10)))
+    vitesse = max(1.0, float(param_lire("REC_VITESSE", "1") or 1))                  # 1 = temps reel
+    echelle = max(1.0, min(2.0, float(param_lire("REC_NETTETE", "1.5") or 1.5)))    # definition des captures
+    debit = int(float(param_lire("REC_DEBIT_KBPS", "6000") or 6000)) * 1000
+    # encodeur VP8 : debit eleve (le defaut d'OpenCV, ~200 kbit/s, donnait une image baveuse) et qualite maximale
+    os.environ["OPENCV_FFMPEG_WRITER_OPTIONS"] = "b;%d|crf;6|quality;good|cpu-used;3" % debit
     saas = str(param_lire("SAAS_URL", "http://127.0.0.1:8100")).rstrip("/")
     profil = tempfile.mkdtemp(prefix="ot-rec-")
     with _socket.socket() as s_:
@@ -4723,6 +4728,7 @@ def _filmer_carte(arret, etat_page, sortie_partie):
          "--no-first-run", "--no-default-browser-check", "--mute-audio", "--disable-extensions", "--window-size=1600,900",
          "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=drapeaux)
     ws, ecr = None, None
+    ecrites, precedente, debut_mono = 0, None, time.time()
     try:
         cible = None
         for _ in range(60):                                   # le navigateur demarre (jusqu'a 30 s)
@@ -4770,6 +4776,7 @@ def _filmer_carte(arret, etat_page, sortie_partie):
             return
         debut_mono = time.time()
         k = 0
+        ecrites, precedente = 0, None
         while not arret.is_set():
             t_prevu = debut_mono + k * intervalle
             attente = t_prevu - time.time()
@@ -4781,8 +4788,8 @@ def _filmer_carte(arret, etat_page, sortie_partie):
             try:
                 v = ws.appel("Runtime.evaluate", {"expression": zone_js}).get("result", {}).get("value")
                 zone = json.loads(v) if v else zone
-                rep = ws.appel("Page.captureScreenshot", {"format": "jpeg", "quality": 80, "clip": {
-                    "x": zone["x"], "y": zone["y"], "width": zone["w"], "height": zone["h"], "scale": 1}})
+                rep = ws.appel("Page.captureScreenshot", {"format": "jpeg", "quality": 95, "clip": {
+                    "x": zone["x"], "y": zone["y"], "width": zone["w"], "height": zone["h"], "scale": echelle}})
                 img = cv2.imdecode(np.frombuffer(base64.b64decode(rep["data"]), np.uint8), cv2.IMREAD_COLOR)
             except Exception as e:
                 _record["erreur"] = "capture interrompue : %s" % e
@@ -4798,14 +4805,29 @@ def _filmer_carte(arret, etat_page, sortie_partie):
                     break
             img = cv2.resize(img, taille) if (img.shape[1], img.shape[0]) != taille else img
             etiquette = datetime.now().strftime("%d/%m/%Y  %H:%M:%S")      # heure reelle du cliche
-            cv2.rectangle(img, (0, 0), (190, 24), (22, 24, 21), -1)
-            cv2.putText(img, etiquette, (8, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (240, 240, 232), 1, cv2.LINE_AA)
+            cv2.rectangle(img, (0, 0), (int(190 * echelle), int(24 * echelle)), (22, 24, 21), -1)
+            cv2.putText(img, etiquette, (int(8 * echelle), int(17 * echelle)), cv2.FONT_HERSHEY_SIMPLEX, 0.5 * echelle,
+                        (240, 240, 232), 1, cv2.LINE_AA)
+            # duree de video = duree reelle / vitesse : l'image precedente reste affichee jusqu'a celle-ci
+            cible = int((time.time() - debut_mono) / vitesse * fps)
+            if precedente is not None:
+                for _ in range(max(0, cible - ecrites - 1)):
+                    ecr.write(precedente)
+                    ecrites += 1
             ecr.write(img)
+            ecrites += 1
+            precedente = img
             _record["images"] += 1
     except Exception as e:
         _record["erreur"] = "%s: %s" % (type(e).__name__, e)
     finally:
         if ecr is not None:
+            if precedente is not None:                         # la derniere image reste jusqu'a l'arret
+                try:
+                    for _ in range(max(0, int((time.time() - debut_mono) / vitesse * fps) - ecrites)):
+                        ecr.write(precedente)
+                except Exception:
+                    pass
             ecr.release()
         if ws is not None:
             ws.fermer()
