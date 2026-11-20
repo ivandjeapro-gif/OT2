@@ -479,6 +479,9 @@
         }
 
         demarrer();
+        // fenetre ouverte alors qu'une zone est deja filtree (PRESENTER apres
+        // le choix de la zone) : la carte se place sur la zone des le depart
+        if (filtres.zone && filtres.zone !== 'toutes' && carte.centrerSur) { zoneCentree = filtres.zone; carte.centrerSur(filtres.zone); }
         return {
             appliquerFiltres, reglages, choisir,
             filtres: () => filtres,
