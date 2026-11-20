@@ -23,12 +23,14 @@ import base64
 import csv
 import hashlib
 import hmac
+import io
 import json
 import math
 import os
 import re
 import secrets
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -2117,7 +2119,9 @@ def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=Tru
             conn.execute("INSERT INTO positions_dt (code, x, y, horodatage) VALUES (?, ?, ?, ?)",
                          (code, x, y, horodatage))
             conn.commit()
+            tracking_enregistrer(conn, existe, code, typ or existe["type"], x, y, horodatage, retard=True)
             return
+    tracking_enregistrer(conn, existe, code, (existe["type"] if existe else typ) or "DT", x, y, instant)
     historiser_position_dt(conn, code, (existe["type"] if existe else typ) or "DT",
                            x, y, instant, existe)
     if existe:
@@ -4108,6 +4112,327 @@ def rattraper_blasts_ot(conn):
         print("OT: rattrapage cloture %s -> %s" % (c["numero"], "ok" if ok else err))
 
 
+# ------------------------------------------------ enregistrement du tracking ---
+# 20/11 : le suivi est ENREGISTRE sur le poste de la passerelle, pour etre revu :
+#   - CSV : un fichier par jour (data/tracking/AAAA-MM-JJ.csv), DT ET excavatrices,
+#     une ligne par position retenue (le DT bouge de plus d'1 m, ou au moins toutes les 30 s) ;
+#     conserve TRACKING_JOURS jours (90 par defaut). Export : /api/tracking/export.csv.
+#   - VIDEO : un MP4 genere a partir du CSV (plan du site : oreblocs, dumping areas, pistes ;
+#     les engins se deplacent, trace, heure), a la demande (page Live > Enregistrements) et
+#     automatiquement a la fin de chaque shift (VIDEO_AUTO, 1 par defaut), dans
+#     data/enregistrements/, conserve VIDEOS_JOURS jours (30). La video est generee dans un
+#     PROCESSUS A PART, a priorite basse : elle ne ralentit jamais les alertes.
+TRACKING_DIR = os.path.join(DATA_DIR, "tracking")
+ENREGISTREMENTS_DIR = os.path.join(DATA_DIR, "enregistrements")
+TRACKING_ENTETE = ["horodatage", "code", "type", "x_utm", "y_utm", "lat", "lng", "statut"]
+_tracking_verrou = threading.Lock()
+_tracking_repere = {"zone": None, "hemi": None, "at": 0.0}
+_tracking_purge = {"jour": ""}
+_jobs_video = {}                          # nom de fichier -> processus / thread
+
+
+def _entier_param(cle, defaut, mini=1, maxi=3650):
+    try:
+        return max(mini, min(int(float(param_lire(cle, str(defaut)))), maxi))
+    except (TypeError, ValueError):
+        return defaut
+
+
+def _repere_tracking(conn):
+    if time.time() - _tracking_repere["at"] > 600:
+        try:
+            z, h = repere_site(conn)
+        except Exception:
+            z, h = None, None
+        _tracking_repere.update(zone=z or 30, hemi=h or "N", at=time.time())
+    return _tracking_repere["zone"], _tracking_repere["hemi"]
+
+
+def tracking_purger(jour):
+    """Une fois par jour : supprime les CSV plus vieux que TRACKING_JOURS jours."""
+    if _tracking_purge["jour"] == jour:
+        return
+    _tracking_purge["jour"] = jour
+    limite = (datetime.now() - timedelta(days=_entier_param("TRACKING_JOURS", 90))).strftime("%Y-%m-%d")
+    try:
+        for f in os.listdir(TRACKING_DIR):
+            if re.match(r"^\d{4}-\d{2}-\d{2}\.csv$", f) and f[:10] < limite:
+                os.remove(os.path.join(TRACKING_DIR, f))
+    except OSError as e:
+        print("TRACKING: purge impossible (%s)" % e)
+
+
+def tracking_enregistrer(conn, existe, code, typ, x, y, instant, retard=False):
+    """Ajoute une position au CSV du jour. Ne leve jamais : une position ne se perd pas pour ca.
+    `existe` : ligne `engins` AVANT mise a jour (filtre anti-doublon) ; `retard` : point rejoue
+    (historique), pas de filtre."""
+    try:
+        if existe is not None and not retard:
+            if distance(x, y, existe["x"], existe["y"]) <= 1.0 and abs(_secondes_depuis(existe["derniere_maj"], instant)) < 30:
+                return
+        zone, hemi = _repere_tracking(conn)
+        ll = _vers_latlng(x, y, zone, hemi) or ("", "")
+        jour = str(instant)[:10]
+        statut = (existe["statut"] if existe is not None else "") or ""
+        with _tracking_verrou:
+            os.makedirs(TRACKING_DIR, exist_ok=True)
+            fichier = os.path.join(TRACKING_DIR, jour + ".csv")
+            neuf = not os.path.exists(fichier)
+            with open(fichier, "a", encoding="utf-8", newline="") as f:
+                w = csv.writer(f)
+                if neuf:
+                    w.writerow(TRACKING_ENTETE)
+                w.writerow([str(instant)[:19], code, str(typ or "DT").upper(), round(float(x), 2), round(float(y), 2),
+                            ll[0], ll[1], statut])
+            if neuf:
+                tracking_purger(jour)
+    except Exception as e:
+        print("TRACKING: enregistrement impossible (%s)" % e)
+
+
+def tracking_lire(depuis, jusqua, codes=None):
+    """Lignes du CSV dans [depuis, jusqua] (AAAA-MM-JJ HH:MM:SS), triees par heure."""
+    lignes = []
+    d0, d1 = depuis[:10], (jusqua or "9999-12-31")[:10]
+    try:
+        fichiers = sorted(f for f in os.listdir(TRACKING_DIR) if re.match(r"^\d{4}-\d{2}-\d{2}\.csv$", f) and d0 <= f[:10] <= d1)
+    except OSError:
+        return lignes
+    for f in fichiers:
+        with open(os.path.join(TRACKING_DIR, f), encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(fh):
+                h = r.get("horodatage") or ""
+                if h < depuis or (jusqua and h > jusqua):
+                    continue
+                if codes and r.get("code") not in codes:
+                    continue
+                lignes.append(r)
+    lignes.sort(key=lambda r: r["horodatage"])
+    return lignes
+
+
+def tracking_csv(depuis, jusqua, codes=None):
+    sortie = io.StringIO()
+    w = csv.writer(sortie, lineterminator="\n")
+    w.writerow(TRACKING_ENTETE)
+    for r in tracking_lire(depuis, jusqua, codes):
+        w.writerow([r.get(c, "") for c in TRACKING_ENTETE])
+    return sortie.getvalue()
+
+
+# ---------- video
+def _fond_site(conn):
+    """Oreblocs, dumping areas et pistes (UTM) pour le fond du plan."""
+    blocs, das, pistes = [], [], []
+    for r in conn.execute("SELECT sommets FROM oreblocs WHERE actif=1"):
+        try:
+            blocs.append(json.loads(r["sommets"] or "[]"))
+        except ValueError:
+            pass
+    for r in conn.execute("SELECT nom, sommets FROM dumping_areas WHERE actif=1"):
+        try:
+            das.append((r["nom"], json.loads(r["sommets"] or "[]")))
+        except ValueError:
+            pass
+    try:
+        a = offroad_aretes(conn)
+        pistes = [] if pistes_en_degres(a) else a
+    except Exception:
+        pistes = []
+    return blocs, das, pistes
+
+
+def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hauteur=720):
+    """MP4 du tracking entre `depuis` et `jusqua` : plan du site, engins en mouvement, traces, heure.
+    `vitesse` : secondes reelles par seconde de video (120 = 2 h de terrain en 1 min). Retourne (ok, message)."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return False, "OpenCV et NumPy sont requis pour la video (pip install opencv-python numpy)"
+    lignes = tracking_lire(depuis, jusqua)
+    if len(lignes) < 2:
+        return False, "aucune position enregistree entre %s et %s" % (depuis, jusqua)
+    t_deb = datetime.strptime(depuis, "%Y-%m-%d %H:%M:%S").timestamp()
+    t_fin = datetime.strptime(jusqua, "%Y-%m-%d %H:%M:%S").timestamp()
+    series = {}
+    for r in lignes:
+        try:
+            t = datetime.strptime(r["horodatage"][:19], "%Y-%m-%d %H:%M:%S").timestamp()
+            s_ = series.setdefault(r["code"], {"type": r["type"], "t": [], "x": [], "y": []})
+            s_["t"].append(t); s_["x"].append(float(r["x_utm"])); s_["y"].append(float(r["y_utm"]))
+        except (KeyError, ValueError):
+            continue
+    conn = get_conn()
+    try:
+        blocs, das, pistes = _fond_site(conn)
+    finally:
+        conn.close()
+    # cadrage : les positions, avec une marge ; le fond hors cadre est ignore
+    xs = [v for s_ in series.values() for v in s_["x"]]; ys = [v for s_ in series.values() for v in s_["y"]]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    marge = max(60.0, 0.12 * max(x1 - x0, y1 - y0, 100.0))
+    x0 -= marge; x1 += marge; y0 -= marge; y1 += marge
+    # cadre minimal (engins immobiles : on garde le contexte du site : pistes, zones voisines)
+    if x1 - x0 < 600.0:
+        c_ = (x0 + x1) / 2.0; x0, x1 = c_ - 300.0, c_ + 300.0
+    if y1 - y0 < 340.0:
+        c_ = (y0 + y1) / 2.0; y0, y1 = c_ - 170.0, c_ + 170.0
+    bandeau = 56
+    zoneh = hauteur - bandeau
+    echelle = min(largeur / (x1 - x0), zoneh / (y1 - y0))
+    ox = (largeur - (x1 - x0) * echelle) / 2.0
+    oy = bandeau + (zoneh - (y1 - y0) * echelle) / 2.0
+    px = lambda x, y: (int(ox + (x - x0) * echelle), int(oy + (y1 - y) * echelle))
+    dans = lambda x, y: x0 <= x <= x1 and y0 <= y <= y1
+    # fond (une fois)
+    fond = np.full((hauteur, largeur, 3), (38, 40, 36), np.uint8)
+    # tout le fond est dessine (OpenCV rogne ce qui sort du cadre) : pistes et zones traversant le cadre restent visibles
+    for sommets in blocs:
+        pts = [px(p[0], p[1]) for p in sommets if len(p) >= 2]
+        if len(pts) >= 3:
+            cv2.fillPoly(fond, [np.array(pts, np.int32)], (62, 66, 60))
+    for x1_, y1_, x2_, y2_ in pistes:
+        cv2.line(fond, px(x1_, y1_), px(x2_, y2_), (110, 116, 120), 1, cv2.LINE_AA)
+    for nom, sommets in das:
+        pts = [px(p[0], p[1]) for p in sommets if len(p) >= 2]
+        if len(pts) >= 3:
+            cv2.fillPoly(fond, [np.array(pts, np.int32)], (60, 90, 60))
+            inside = [q for q in pts if 0 <= q[0] < largeur and bandeau <= q[1] < hauteur]
+            if inside:
+                cv2.putText(fond, str(nom)[:22], inside[0], cv2.FONT_HERSHEY_SIMPLEX, 0.4, (170, 210, 170), 1, cv2.LINE_AA)
+    os.makedirs(os.path.dirname(sortie), exist_ok=True)
+    part = sortie + ".part.mp4"
+    ecr = cv2.VideoWriter(part, cv2.VideoWriter_fourcc(*"mp4v"), fps, (largeur, hauteur))
+    if not ecr.isOpened():
+        return False, "encodeur MP4 indisponible (OpenCV)"
+    pas = vitesse / float(fps)
+    n_images = int((t_fin - t_deb) / pas) + 1
+    TRACE_S = 600.0                              # 10 min de trace derriere chaque engin
+    couleurs = {"DT": (37, 213, 252), "EXCA": (42, 122, 238)}
+    try:
+        for k in range(n_images):
+            t = t_deb + k * pas
+            img = fond.copy()
+            vivants = 0
+            for code, s_ in series.items():
+                ts = np.array(s_["t"])
+                if t < ts[0] - 120 or t > ts[-1] + 120:
+                    continue
+                xs_, ys_ = np.array(s_["x"]), np.array(s_["y"])
+                cx, cy = float(np.interp(t, ts, xs_)), float(np.interp(t, ts, ys_))
+                i1 = int(np.searchsorted(ts, t))
+                silence = min(abs(t - ts[max(0, min(i1, len(ts) - 1))]), abs(t - ts[max(0, i1 - 1)]))
+                couleur = couleurs.get(s_["type"], (200, 200, 200)) if silence <= 120 else (110, 110, 110)
+                m = (ts >= t - TRACE_S) & (ts <= t)
+                if m.sum() >= 2:
+                    trace = np.array([px(a, b) for a, b in zip(xs_[m], ys_[m])], np.int32)
+                    cv2.polylines(img, [trace], False, tuple(int(c * 0.6) for c in couleur), 1, cv2.LINE_AA)
+                if dans(cx, cy):
+                    c = px(cx, cy)
+                    cv2.circle(img, c, 6 if s_["type"] == "DT" else 8, couleur, -1, cv2.LINE_AA)
+                    cv2.putText(img, code, (c[0] + 9, c[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (235, 235, 230), 1, cv2.LINE_AA)
+                if silence <= 120:
+                    vivants += 1
+            cv2.rectangle(img, (0, 0), (largeur, bandeau), (22, 24, 21), -1)
+            cv2.putText(img, "ORE TRACKING  -  tracking enregistre", (16, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (37, 213, 252), 1, cv2.LINE_AA)
+            cv2.putText(img, "%s   x%d" % (datetime.fromtimestamp(t).strftime("%d/%m/%Y  %H:%M:%S"), vitesse),
+                        (16, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (235, 235, 230), 1, cv2.LINE_AA)
+            cv2.putText(img, "%d engin(s) en direct" % vivants, (largeur - 230, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 195), 1, cv2.LINE_AA)
+            ecr.write(img)
+    finally:
+        ecr.release()
+    os.replace(part, sortie)
+    return True, "%d image(s), %d engin(s), %.1f Mo" % (n_images, len(series), os.path.getsize(sortie) / 1048576.0)
+
+
+def nom_video(depuis, jusqua):
+    return "tracking-%s_%s-%s.mp4" % (depuis[:10], depuis[11:16].replace(":", "h"), jusqua[:10] + "_" + jusqua[11:16].replace(":", "h"))
+
+
+def lancer_video(depuis, jusqua, vitesse=120):
+    """Demarre la generation (processus a part, priorite basse). Retourne (ok, nom, message)."""
+    nom = nom_video(depuis, jusqua)
+    sortie = os.path.join(ENREGISTREMENTS_DIR, nom)
+    if os.path.exists(sortie):
+        return True, nom, "deja genere"
+    j = _jobs_video.get(nom)
+    if j is not None and (j.poll() is None if hasattr(j, "poll") else j.is_alive()):
+        return True, nom, "generation en cours"
+    if len(tracking_lire(depuis, jusqua)) < 2:
+        return False, nom, "aucune position enregistree sur cette periode"
+    if getattr(sys, "frozen", False):                # executable : pas de second processus, on utilise un thread
+        t = threading.Thread(target=lambda: generer_video(depuis, jusqua, sortie, vitesse), daemon=True)
+        t.start(); _jobs_video[nom] = t
+        return True, nom, "generation lancee"
+    drapeaux = 0
+    if os.name == "nt":
+        drapeaux = 0x00004000 | 0x08000000           # BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW
+    _jobs_video[nom] = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "--video", depuis, jusqua, sortie, str(int(vitesse))],
+        creationflags=drapeaux, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True, nom, "generation lancee"
+
+
+def enregistrements_liste():
+    """CSV du tracking et videos, avec taille et etat des generations en cours."""
+    res = {"csv": [], "videos": []}
+    for dossier, cle, ext in ((TRACKING_DIR, "csv", ".csv"), (ENREGISTREMENTS_DIR, "videos", ".mp4")):
+        try:
+            for f in sorted(os.listdir(dossier), reverse=True):
+                if f.endswith(ext) and not f.endswith(".part.mp4"):
+                    res[cle].append({"nom": f, "octets": os.path.getsize(os.path.join(dossier, f))})
+        except OSError:
+            pass
+    res["en_cours"] = sorted(n for n, j in _jobs_video.items() if (j.poll() is None if hasattr(j, "poll") else j.is_alive()))
+    return res
+
+
+def dernier_shift_termine(maintenant=None):
+    """(nom, debut, fin) du dernier shift termine depuis au moins 5 min : jour 06h-18h ou nuit 18h-06h."""
+    m = (maintenant or datetime.now()) - timedelta(minutes=5)
+    h = m.hour
+    if h >= 18:
+        d = m.replace(hour=6, minute=0, second=0, microsecond=0)
+        return "jour", d, d + timedelta(hours=12)
+    if h >= 6:
+        f = m.replace(hour=6, minute=0, second=0, microsecond=0)
+        return "nuit", f - timedelta(hours=12), f
+    d = (m - timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
+    return "jour", d, d + timedelta(hours=12)
+
+
+def boucle_video_auto():
+    """A la fin de chaque shift : video du shift termine (une fois), et menage des vieilles videos."""
+    while True:
+        try:
+            if str(param_lire("VIDEO_AUTO", "1")).strip().lower() not in ("0", "non", "false", "off"):
+                _, d, f = dernier_shift_termine()
+                debut, fin = d.strftime("%Y-%m-%d %H:%M:%S"), f.strftime("%Y-%m-%d %H:%M:%S")
+                if not os.path.exists(os.path.join(ENREGISTREMENTS_DIR, nom_video(debut, fin))):
+                    ok, nom, msg = lancer_video(debut, fin, 120)
+                    if ok and msg == "generation lancee":
+                        print("VIDEO: %s -> %s" % (nom, msg))
+            limite = datetime.now() - timedelta(days=_entier_param("VIDEOS_JOURS", 30))
+            if os.path.isdir(ENREGISTREMENTS_DIR):
+                for f in os.listdir(ENREGISTREMENTS_DIR):
+                    chemin = os.path.join(ENREGISTREMENTS_DIR, f)
+                    if f.endswith(".mp4") and datetime.fromtimestamp(os.path.getmtime(chemin)) < limite:
+                        os.remove(chemin)
+        except Exception as e:
+            print("VIDEO: boucle automatique en erreur (%s)" % e)
+        time.sleep(120)
+
+
+def cli_video(args):
+    """python Server_Senor_Geology.py --video DEBUT FIN SORTIE [VITESSE]"""
+    depuis, jusqua, sortie = args[0], args[1], args[2]
+    vitesse = int(args[3]) if len(args) > 3 else 120
+    ok, msg = generer_video(depuis, jusqua, sortie, vitesse)
+    print(("OK " if ok else "ECHEC ") + msg)
+    return 0 if ok else 1
+
+
 # ------------------------------------------------ remontees de Serveur_SG ---
 # Les tablettes du terrain envoient leurs positions en 4G a Serveur_SG
 # (onglet `remontees`) : elles ne passent PAS par la passerelle. Ce thread
@@ -5092,7 +5417,7 @@ ECRITURES_ADMIN = ("/api/relais", "/api/offroad", "/api/mqtt/", "/api/sg/", "/ap
                    "/api/missions/", "/api/engins", "/api/mission_fin")
 ECRITURES_SENOR = ("/api/oreblocs", "/api/dumping_area", "/api/teneur", "/api/sources", "/api/checkpoints",
                    "/api/travels_roads", "/api/geographic_system", "/api/minage_declare")
-ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts")
+ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts", "/api/enregistrements")
 _roles_cache = {}                       # jeton -> (role | None, expire)
 
 
@@ -5157,6 +5482,20 @@ def ecriture_autorisee(adresse, path, entete_authorization):
 class Handler(BaseHTTPRequestHandler):
     server_version = "SenorGeology/1.0"
     protocol_version = "HTTP/1.1"
+
+    def _send_fichier(self, code, corps, type_mime, nom):
+        """Reponse binaire (CSV, video) a telecharger."""
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", type_mime)
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % nom)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(corps)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(corps)
+        except Exception as e:
+            print("ERREUR _send_fichier:", e)
 
     def _send_json(self, code, obj):
         try:
@@ -5276,6 +5615,40 @@ class Handler(BaseHTTPRequestHandler):
             if not re.match(r"^[A-Za-z0-9_-]{2,40}$", code):
                 return self._send_json(400, {"error": "code de DT invalide"})
             return self._send_json(200, renouveler_mdp_mqtt(code))
+        # Enregistrements du tracking (20/11) : lectures / telechargements, hors verrou
+        if path == "/api/tracking/export.csv" and method == "GET":
+            qs = self._qs()
+            depuis = (qs.get("depuis") or [""])[0].replace("T", " ")[:19]
+            jusqua = (qs.get("jusqua") or [""])[0].replace("T", " ")[:19]
+            if not _RE_HORODATAGE.match(depuis) or (jusqua and not _RE_HORODATAGE.match(jusqua)):
+                return self._send_json(400, {"error": "depuis (obligatoire) / jusqua : AAAA-MM-JJ HH:MM:SS"})
+            codes = [c for c in (qs.get("codes") or [""])[0].split(",") if c] or None
+            return self._send_fichier(200, tracking_csv(depuis, jusqua, codes).encode("utf-8"), "text/csv; charset=utf-8",
+                                      "tracking-%s_%s.csv" % (depuis[:10], depuis[11:16].replace(":", "h")))
+        if path == "/api/enregistrements" and method == "GET":
+            return self._send_json(200, enregistrements_liste())
+        if path == "/api/enregistrements/fichier" and method == "GET":
+            nom = (self._qs().get("nom") or [""])[0]
+            if not re.match(r"^[A-Za-z0-9_.-]+\.(csv|mp4)$", nom) or ".." in nom:
+                return self._send_json(400, {"error": "nom de fichier invalide"})
+            chemin = os.path.join(TRACKING_DIR if nom.endswith(".csv") else ENREGISTREMENTS_DIR, nom)
+            if not os.path.isfile(chemin):
+                return self._send_json(404, {"error": "fichier introuvable"})
+            with open(chemin, "rb") as fh:
+                return self._send_fichier(200, fh.read(), "text/csv; charset=utf-8" if nom.endswith(".csv") else "video/mp4", nom)
+        if path == "/api/enregistrements/video" and method == "POST":
+            b = json.loads(self._read_body() or b"{}")
+            depuis, jusqua = str(b.get("depuis") or ""), str(b.get("jusqua") or "")
+            if not (_RE_HORODATAGE.match(depuis) and _RE_HORODATAGE.match(jusqua)) or jusqua <= depuis:
+                return self._send_json(400, {"error": "depuis / jusqua : AAAA-MM-JJ HH:MM:SS, jusqua apres depuis"})
+            if datetime.strptime(jusqua, "%Y-%m-%d %H:%M:%S") - datetime.strptime(depuis, "%Y-%m-%d %H:%M:%S") > timedelta(hours=26):
+                return self._send_json(400, {"error": "periode de 26 h au plus (un shift ou une journee de production)"})
+            try:
+                vitesse = max(10, min(int(b.get("vitesse") or 120), 1800))
+            except (TypeError, ValueError):
+                vitesse = 120
+            ok, nom, message = lancer_video(depuis, jusqua, vitesse)
+            return self._send_json(200 if ok else 422, {"ok": ok, "fichier": nom, "message": message})
         # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;
         # sous le verrou global elles se disputaient la place des positions (donc des alertes).
         # Lecture seule : hors verrou, comme /api/suivi_dt et /api/kpi.
@@ -7157,6 +7530,8 @@ def main():
     threading.Thread(target=boucle_missions_sg, daemon=True).start()
     # statuts WEX/OMEX/WDT/SBDT/ODT recalcules toutes les 30 s (positions fraiches seulement, 20/11)
     threading.Thread(target=boucle_statuts, daemon=True).start()
+    # video automatique de chaque shift termine (20/11)
+    threading.Thread(target=boucle_video_auto, daemon=True).start()
     # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
     threading.Thread(target=boucle_comptes_mqtt, daemon=True).start()
     threading.Thread(target=boucle_suivi_mqtt, daemon=True).start()
@@ -7173,4 +7548,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 5 and sys.argv[1] == "--video":      # processus de generation video (20/11)
+        sys.exit(cli_video(sys.argv[2:]))
     main()
