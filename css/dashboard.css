@@ -103,6 +103,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     display: flex; align-items: center; justify-content: center; gap: 8px;
     align-self: stretch; background: var(--graphite);
     margin: -9px 0 -13px calc(-1 * (var(--gap) + 8px)); padding: 0 48px 0 calc(var(--gap) + 8px);
+    position: relative; z-index: 1;   /* par-dessus le liseré : le sombre rejoint la ligne, sans bande crème entre les deux */
 }
 .title { display: flex; flex-direction: column; gap: 4px; padding-left: clamp(8px, 1vw, 20px); border-left: 1px solid #d9d4c1; }
 .title .kicker {
