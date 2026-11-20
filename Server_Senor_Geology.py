@@ -2474,6 +2474,11 @@ def verifier_affectations_auto(conn):
     charges) : pour chaque DT en statut ODT sans mission en cours, declenche
     generer_affectation() sans intervention manuelle. A appeler juste apres
     statuts_engins() a chaque reception de position."""
+    # 20/11 : pas d'affectation sur la seule position (statut ODT). Une mission ne nait qu'APRES
+    # un chargement (cycle envoye par la tablette du DT, traite par Serveur_SG) ; un camion qui
+    # roule ou passe pres d'une pelle sans etre charge ne recoit rien. Reactivable : AFFECTATION_ODT=1.
+    if str(param_lire("AFFECTATION_ODT", "0")).strip().lower() not in ("1", "true", "oui", "on"):
+        return
     if missions_source() == "cloud":
         # Serveur_SG decide. Ses missions arrivent par la reponse du relais
         # (voir ingerer_missions_sg) ; generer ici en parallele creerait deux
