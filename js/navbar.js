@@ -67,6 +67,13 @@
   }
   window.OreNavbar = { memoriser: memoriser, lire: lireCache };
 
+  // diagnostic : la transition entre pages (barre immobile) est-elle active sur cette navigation ?
+  try {
+    window.addEventListener('pagereveal', function (e) {
+      try { sessionStorage.setItem('ore-nav-transition', e.viewTransition ? 'oui' : 'non'); } catch (x) { /* ignore */ }
+    });
+  } catch (e) { /* navigateur sans pagereveal */ }
+
   /* Réapplique la mémoire sur la barre fraîchement écrite (avant le premier affichage). */
   function appliquerCache() {
     var c = lireCache();

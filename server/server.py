@@ -2463,12 +2463,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "fichier introuvable"})
         ext = os.path.splitext(full)[1].lower()
         ctype = self.STATIC_EXT.get(ext, "application/octet-stream")
+        # 20/11 : avant, TOUT etait « no-store » : a chaque changement de page le navigateur retelechargeait
+        # style.css (130 Ko), refonte.css, les scripts et le logo de la barre -> la page (et la barre) se
+        # redessinait « comme rechargee ». Maintenant : code (html / css / js) revalide par ETag (304 instantane,
+        # une modification deployee est vue tout de suite) ; images et polices gardees 5 min ; donnees
+        # (csv, json, geojson...) toujours relues.
+        st = os.stat(full)
+        etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+        if ext in (".html", ".css", ".js"):
+            cache = "no-cache"
+        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2"):
+            cache = "public, max-age=300"
+        else:
+            cache = "no-store"
+        if cache != "no-store" and self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            return
         with open(full, "rb") as f:
             data = f.read()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
+        if cache != "no-store":
+            self.send_header("ETag", etag)
         self.end_headers()
         self.wfile.write(data)
 
