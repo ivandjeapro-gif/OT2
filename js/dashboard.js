@@ -380,6 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
             invite.remove();
         });
         document.body.appendChild(invite);
+        document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) invite.remove(); });
         setTimeout(() => invite.remove(), 20000);
     }
 
@@ -406,7 +407,6 @@ document.addEventListener('DOMContentLoaded', () => {
         $('alertTrack').replaceChildren(span);
     }
 
-        document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) invite.remove(); });
     // Sortie de route en cours : pastille rouge fixe, prioritaire sur tout.
     function afficherAlerte() {
         if (!afficherAlertes) return;
@@ -542,6 +542,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function appliquerAffichageKpi() {
         let vis = {};
         try { vis = JSON.parse(localStorage.getItem('oreTrackingKpi')) || {}; } catch (e) {}
+        // filtre « Teneurs » du Perimetre de suivi (Live) : masque aussi le bloc grade
+        let flt = {};
+        try { flt = (JSON.parse(localStorage.getItem('oreTrackingFiltres')) || {}).teneurs || {}; } catch (e) {}
+        const TENEUR_KPI = { high: 'hg', medium: 'mg', low: 'lg', marginal: 'mo' };
+        Object.entries(TENEUR_KPI).forEach(([t, k]) => { if (flt[t] === false) vis[k] = false; });
         Object.entries(KPI_ELEMENTS).forEach(([cle, id]) => { $(id).hidden = vis[cle] === false; });
         const visible = (el) => !el.hidden;
         const ligne = document.querySelector('.kpis');
@@ -593,11 +598,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const actifs = CarteSuivi.filtresActifs(r.filtres);
                 const el = $('filtreActif');
                 el.hidden = !actifs.length;
-        // filtre « Teneurs » du Perimetre de suivi (Live) : masque aussi le bloc grade
-        let flt = {};
-        try { flt = (JSON.parse(localStorage.getItem('oreTrackingFiltres')) || {}).teneurs || {}; } catch (e) {}
-        const TENEUR_KPI = { high: 'hg', medium: 'mg', low: 'lg', marginal: 'mo' };
-        Object.entries(TENEUR_KPI).forEach(([t, k]) => { if (flt[t] === false) vis[k] = false; });
                 el.textContent = actifs.length ? 'Filtre : ' + actifs.join(' · ') : '';
             },
         });
