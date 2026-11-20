@@ -4756,8 +4756,10 @@ def _filmer_carte(arret, etat_page, sortie_partie, vitesse=1.0, qualite="haute")
         # reglages de carte de l'utilisateur (filtres, pistes, fond...) : injectes avant le chargement de la page
         injection = "".join("try{localStorage.setItem(%s,%s)}catch(e){}" % (json.dumps(k), json.dumps(v))
                             for k, v in (etat_page or {}).items())
-        if injection:
-            ws.appel("Page.addScriptToEvaluateOnNewDocument", {"source": injection})
+        # elements de l'interface exclus du film : le panneau titre « La flotte en mouvement »
+        injection += ("document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');"
+                      "s.textContent='.map-title{display:none!important}';document.head.appendChild(s)});")
+        ws.appel("Page.addScriptToEvaluateOnNewDocument", {"source": injection})
         ws.appel("Page.navigate", {"url": saas + "/html/dashboard.html"})
         zone_js = ("(function(){var e=document.getElementById('map');if(!e)return null;var r=e.getBoundingClientRect();"
                    "return JSON.stringify({x:r.left,y:r.top,w:r.width,h:r.height,t:document.querySelectorAll("
