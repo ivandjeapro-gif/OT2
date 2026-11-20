@@ -1358,16 +1358,19 @@ def appliquer_geosum(conn, blast_id, geosum):
     ce que le Geosum annonce sans que le DXF le contienne -- ce dernier cas
     signale une incoherence entre les deux fichiers, pas une erreur de code.
     """
-    rapport = {"minerai": [], "sterile": [], "absents_du_dxf": []}
+    rapport = {"minerai": [], "sterile": [], "absents_du_dxf": [], "blocs": 0, "apparies": 0, "sans_donnees": []}
     vus = set()
     for o in conn.execute(
             "SELECT id, nom FROM oreblocs WHERE blast_id=? AND actif=1", (blast_id,)):
+        rapport["blocs"] += 1
         donnees = geosum.get(cle_bloc(o["nom"]))
         if donnees is None:
             # Absent du fichier : sterile, et sans donnees de reserve.
             conn.execute("UPDATE oreblocs SET minerai=0 WHERE id=?", (o["id"],))
             rapport["sterile"].append({"bloc": o["nom"], "tonnes": None})
+            rapport["sans_donnees"].append(o["nom"])        # bloc du DXF dont le nom n'est pas dans le fichier
             continue
+        rapport["apparies"] += 1
         vus.add(cle_bloc(o["nom"]))
         est_minerai = donnees.get("_minerai", 1)
         colonnes = ["minerai=%d" % (1 if est_minerai else 0)]
@@ -1406,9 +1409,10 @@ def appliquer_base_attributs(conn, blast_id, base_contenu):
     """
     attributs = extraire_geosum(base_contenu)
     if not attributs:
-        return 0
-    appliquer_geosum(conn, blast_id, attributs)
-    return len(attributs)
+        return {"lus": 0, "illisible": True, "blocs": 0, "apparies": 0, "sans_donnees": [], "absents_du_dxf": []}
+    rapport = appliquer_geosum(conn, blast_id, attributs)
+    rapport["lus"] = len(attributs)
+    return rapport
 
 
 def normaliser_codes(valeur):
@@ -6479,8 +6483,9 @@ class Handler(BaseHTTPRequestHandler):
                     # famille de destination, et distingue minerai et sterile.
                     # La base porte les attributs de TOUS les blocs, waste compris :
                     # elle passe avant le Geosum, qui garde le dernier mot.
+                    base_rapport = None
                     if base_contenu:
-                        appliquer_base_attributs(conn, blast_id, base_contenu)
+                        base_rapport = appliquer_base_attributs(conn, blast_id, base_contenu)
                     geosum_rapport = None
                     if body.get("geosum_contenu"):
                         geosum = extraire_geosum(body["geosum_contenu"])
@@ -6510,7 +6515,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_json(201, {
                         "ok": True, "id": blast_id, "numero": numero,
                         "nb_blocs": len(blocs_crees), "oreblocs": blocs_crees,
-                        "geosum": geosum_rapport,
+                        "geosum": geosum_rapport, "base": base_rapport,
                         "ot_sync": ot_ok, "ot_erreur": ot_err,
                         "onglets_sync": not onglets_err, "onglets_erreur": onglets_err})
 
@@ -6545,10 +6550,11 @@ class Handler(BaseHTTPRequestHandler):
                     # pousse : `ore_dig_bloc` (Geosum) n'est pas touche.
                     onglets_err = ""
                     base_contenu = body.get("base_contenu") or ""
+                    base_rapport = None
                     if base_contenu:
                         # Attributs des blocs (waste compris) depuis la base ; le
                         # Geosum, envoye ensuite par la page, garde le dernier mot.
-                        appliquer_base_attributs(conn, bid, base_contenu)
+                        base_rapport = appliquer_base_attributs(conn, bid, base_contenu)
                         numero_b = conn.execute(
                             "SELECT numero FROM blasts WHERE id=?", (bid,)).fetchone()[0]
                         ok_onglets, onglets_err = ot_pousser_onglets_blocs(
@@ -6556,7 +6562,7 @@ class Handler(BaseHTTPRequestHandler):
                         if not ok_onglets:
                             print("OT: onglet dig_bloc #%s non synchronise (%s)" % (
                                 bid, onglets_err))
-                    return self._send_json(200, {"ok": True, "id": bid,
+                    return self._send_json(200, {"ok": True, "id": bid, "base": base_rapport,
                                                  "ot_sync": ot_ok, "ot_erreur": ot_err,
                                                  "onglets_sync": not onglets_err,
                                                  "onglets_erreur": onglets_err})

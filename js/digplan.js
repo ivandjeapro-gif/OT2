@@ -267,6 +267,7 @@
         if (p.geosum_contenu) corpsReq.geosum_contenu = p.geosum_contenu;
         const d = await jsend('/api/blasts', 'POST', corpsReq);
         dernierGeosum = d.geosum || null;
+        dernierBase = d.base || null;
         return String(d.id);
       }
       const majReq = {
@@ -277,6 +278,7 @@
       };
       if (p.base_contenu) majReq.base_contenu = p.base_contenu;
       await jsend('/api/blasts', 'PUT', majReq);
+      dernierBase = null;     // en modification la base passe AVANT l'import du DXF : son compte rendu porterait sur d'anciens blocs
       if (p.dxf_contenu) {
         await jsend('/api/blasts_import', 'POST', {
           blast_id: Number(p.id), source_fichier: p.name_dxf, contenu: p.dxf_contenu,
@@ -584,6 +586,32 @@
   // doit JAMAIS passer inapercu : sans ce retour, le blast s'enregistre, la
   // table reste a zero, et personne ne sait pourquoi.
   let dernierGeosum = null;
+  let dernierBase = null;
+
+  // Alerte d'appariement : les valeurs (volume, tonnes, Au, densite, destination) se rattachent au bloc PAR SON NOM.
+  // Un DXF dont les calques portent d'autres noms que le CSV (cas typique : DXF exporte d'un modele precedent)
+  // laisse tout a zero SANS erreur. Rend { grave, texte } ou null.
+  function alerteAppariement() {
+    const exemples = (l) => l.slice(0, 3).join(', ') + (l.length > 3 ? ' …' : '');
+    const verifier = (rapport, fichier) => {
+      if (!rapport || rapport.erreur) return null;
+      if (rapport.illisible) return { grave: true, texte: fichier + ' illisible : colonne de noms de blocs introuvable.' };
+      if (!rapport.blocs) return null;
+      if (rapport.apparies === 0) {
+        return { grave: true, texte: 'AUCUN bloc du DXF ne correspond au ' + fichier + ' : les noms diffèrent, les valeurs restent à 0. ' +
+          'Noms du DXF : ' + exemples(rapport.sans_donnees || []) + ' — noms du ' + fichier + ' : ' + exemples(rapport.absents_du_dxf || []) + '.' };
+      }
+      if ((rapport.sans_donnees || []).length) {
+        return { grave: false, texte: rapport.sans_donnees.length + ' bloc(s) du DXF sans donnée dans le ' + fichier + ' (classés stérile) : ' +
+          exemples(rapport.sans_donnees) + '.' };
+      }
+      return null;
+    };
+    const liste = [verifier(dernierBase, 'fichier de base'), verifier(dernierGeosum, 'Geosum')].filter(Boolean);
+    dernierBase = null;
+    if (!liste.length) return null;
+    return { grave: liste.some((a) => a.grave), texte: liste.map((a) => a.texte).join(' ') };
+  }
 
   function resumeGeosum() {
     const g = dernierGeosum;
@@ -641,8 +669,9 @@
         mode = 'consultation'; // enregistre : on ressort du mode saisie
         Splash.etape('Rechargement du blast...');
         await chargerBlasts(id);
-        Splash.succes('Blast mis a jour', nom);
-        setStatus('Blast mis a jour', true);
+        const alerte = alerteAppariement();
+        if (alerte && alerte.grave) { Splash.erreur('Attention : valeurs non importées', alerte.texte); setStatus('Blast mis a jour - ' + alerte.texte, false); }
+        else { Splash.succes('Blast mis a jour', nom); setStatus('Blast mis a jour' + (alerte ? ' - ' + alerte.texte : ''), !alerte); }
       } else {
         // un blast cree est rattache a la source affichee (sinon il n'apparait
         // dans aucune liste filtree) et a la teneur selectionnee
@@ -655,8 +684,9 @@
         mode = 'consultation';
         Splash.etape('Rechargement de la liste...');
         await chargerBlasts(id);
-        Splash.succes('Blast cree : ' + nom);
-        setStatus('Blast cree', true);
+        const alerte = alerteAppariement();
+        if (alerte && alerte.grave) { Splash.erreur('Attention : valeurs non importées', alerte.texte); setStatus('Blast cree - ' + alerte.texte, false); }
+        else { Splash.succes('Blast cree : ' + nom); setStatus('Blast cree' + (alerte ? ' - ' + alerte.texte : ''), !alerte); }
       }
     } catch (err) {
       Splash.erreur(estCreation ? 'Creation impossible' : 'Mise a jour impossible', err.message);
