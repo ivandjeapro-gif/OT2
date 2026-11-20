@@ -129,6 +129,8 @@ function renderUser(user) {
   const email = $('.user-email');
   if (name) name.textContent = user ? (user.nom || user.displayName || user.email || '') : '';
   if (email) email.textContent = user ? (user.email || '') : '';
+  // la barre de navigation (js/navbar.js) reaffiche ces valeurs des son premier rendu sur la page suivante
+  if (window.OreNavbar) window.OreNavbar.memoriser({ nom: name ? name.textContent : '', email: email ? email.textContent : '' });
 }
 
 function resetLoginForm() {
@@ -284,9 +286,13 @@ async function upsertProfile(user) {
 // geologue = Home, Live, Alerts, Inbox, Dig Plan, Sync, Aide. Retourne false si la page
 // courante est interdite : on renvoie alors sur Home (et l'ecran n'est pas devoile).
 function applyNavAccess(role) {
+  const masques = [];
   document.querySelectorAll('.sidebar-link[data-page]').forEach(l => {
-    l.classList.toggle('nav-hidden', !peutAcceder(role, l.dataset.page));
+    const cache = !peutAcceder(role, l.dataset.page);
+    l.classList.toggle('nav-hidden', cache);
+    if (cache) masques.push(l.dataset.page);
   });
+  if (window.OreNavbar) window.OreNavbar.memoriser({ masques: masques });   // meme menu des le premier affichage de la page suivante
   const active = document.querySelector('.sidebar-link.active');
   const page = active && active.dataset.page;
   if (page && !peutAcceder(role, page)) {

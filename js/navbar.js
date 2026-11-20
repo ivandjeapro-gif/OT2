@@ -15,6 +15,19 @@
  * comme active, et branche : #syncPill (sync-pill.js), .btn-logout,
  * .user-name / .user-email (auth.js), et la salutation #homeGreeting.
  * Aucune logique métier ici.
+ *
+ * ANTI-CLIGNOTEMENT (20/11) : chaque page est un document distinct ; pour que
+ * la barre paraisse FIXE d'une page à l'autre :
+ *   1. le script est placé JUSTE APRÈS les conteneurs (pas en bas de page) :
+ *      la barre est écrite avant le premier affichage, jamais « vide puis remplie » ;
+ *   2. <link rel="expect" href="#sidebar" blocking="render"> : le navigateur
+ *      n'affiche pas la page tant que la barre n'est pas en place ;
+ *   3. nom, adresse, pages masquées par le profil et pastille Alerts sont
+ *      mémorisés (sessionStorage, par onglet) et réappliqués dès le premier
+ *      affichage : plus de nom qui apparaît ou de menu qui change après coup ;
+ *   4. css/refonte.css : @view-transition (Chrome / Edge) garde la barre
+ *      immobile pendant que seul le contenu change de page.
+ * Copie de référence : ELEMENTS CONJOINTS/components/navbar.js (garder identiques).
  * ===================================================================== */
 (function () {
   'use strict';
@@ -41,6 +54,33 @@
 
   // dossier assets : relatif à la page courante (../assets/ depuis html/)
   var ASSETS = '../assets/';
+
+  /* --- mémoire de la barre (par onglet) : nom, adresse, pages masquées, pastille --- */
+  var CLE_CACHE = 'ore-nav-cache';
+  function lireCache() {
+    try { return JSON.parse(sessionStorage.getItem(CLE_CACHE)) || {}; } catch (e) { return {}; }
+  }
+  function memoriser(patch) {
+    var c = lireCache();
+    Object.keys(patch || {}).forEach(function (k) { c[k] = patch[k]; });
+    try { sessionStorage.setItem(CLE_CACHE, JSON.stringify(c)); } catch (e) { /* stockage indisponible */ }
+  }
+  window.OreNavbar = { memoriser: memoriser, lire: lireCache };
+
+  /* Réapplique la mémoire sur la barre fraîchement écrite (avant le premier affichage). */
+  function appliquerCache() {
+    var c = lireCache();
+    var nom = document.querySelector('.sidebar-user .user-name');
+    var mail = document.querySelector('.sidebar-user .user-email');
+    if (nom && c.nom) nom.textContent = c.nom;
+    if (mail && c.email) mail.textContent = c.email;
+    (c.masques || []).forEach(function (p) {
+      var l = document.querySelector('.sidebar-link[data-page="' + p + '"]');
+      if (l) l.classList.add('nav-hidden');
+    });
+    var badge = document.getElementById('sidebarAlertBadge');
+    if (badge && c.badge) badge.textContent = c.badge;
+  }
 
   function pageCourante() {
     var f = (location.pathname.split('/').pop() || 'home.html').toLowerCase();
@@ -161,34 +201,47 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
           var liste = (d && (d.alertes || d.data)) || [];
-          if (!Array.isArray(liste)) { badge.textContent = '\u00a0'; return; }
+          if (!Array.isArray(liste)) return;
           var n = liste.filter(function (a) {
             if (a.acquittee) return false;
             if (window.MSUI && typeof MSUI.estInfo === 'function') return !MSUI.estInfo(a);
             return true;
           }).length;
           badge.textContent = n > 0 ? String(n).padStart(2, '0') : '\u00a0';
+          memoriser({ badge: badge.textContent });
         })
-        .catch(function () { badge.textContent = '\u00a0'; });
+        .catch(function () { /* passerelle injoignable : on garde le dernier compte affiché */ });
     }
     lire();
     setInterval(lire, 10000);
   }
 
-  function init() {
-    var actif = pageCourante();
+  var ecrite = false;
+  function ecrire() {
     var sb = document.getElementById('sidebar');
-    if (sb) sb.innerHTML = sidebarHTML(actif);
     var tb = document.querySelector('header.menu-bar');
+    if (!sb && !tb) return false;
+    var actif = pageCourante();
+    if (sb) sb.innerHTML = sidebarHTML(actif);
     if (tb) tb.innerHTML = topbarHTML(actif);
+    appliquerCache();
+    ecrite = true;
+    try { performance.mark('ore-nav-ecrite'); } catch (e) { /* diagnostic seulement */ }
+    return true;
+  }
 
+  function brancher() {
+    if (!ecrite) ecrire();
     brancherSalutation();
     brancherBadgeAlertes();
   }
 
+  // 1) tout de suite si les conteneurs sont deja la (script place juste apres eux)
+  ecrire();
+  // 2) puis, a la fin du chargement : branchements qui dependent du reste de la page
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', brancher);
   } else {
-    init();
+    brancher();
   }
 })();

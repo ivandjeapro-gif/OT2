@@ -6,6 +6,8 @@
     <title>Dig Plan - OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
     <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="expect" href="#sidebar" blocking="render" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
@@ -46,6 +48,7 @@
             <aside class="sidebar" id="sidebar">
                 <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/navbar.js"></script>
 
             <main class="content">
 <!-- PAGE: DIG PLAN - gestion des blasts/oreblocs (donnees simulees CSV/DXF) -->
@@ -253,7 +256,6 @@
     </div>
 
 
-    <script src="../js/navbar.js"></script>
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>

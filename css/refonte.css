@@ -3234,3 +3234,33 @@ body {
 
 /* l'ancienne version à droite n'existe plus */
 .app-version { display: none !important; }
+
+/* ============================================================
+   33. NAVBAR FIXE D'UNE PAGE A L'AUTRE
+   Chaque page est un document distinct : on garde la barre immobile (View Transitions
+   entre documents, Chrome / Edge 126+). Seul le contenu change ; la barre et le bandeau
+   du haut ne sont ni redessines ni animes. Ailleurs : navigation classique, sans effet.
+   ============================================================ */
+@view-transition { navigation: auto; }
+
+.sidebar { view-transition-name: nav-sidebar; }
+.menu-bar { view-transition-name: nav-topbar; }
+
+::view-transition-group(nav-sidebar),
+::view-transition-group(nav-topbar),
+::view-transition-old(nav-sidebar),
+::view-transition-new(nav-sidebar),
+::view-transition-old(nav-topbar),
+::view-transition-new(nav-topbar) {
+    animation: none;
+    mix-blend-mode: normal;
+}
+
+/* le contenu : fondu court (la page precedente reste affichee jusqu'a ce que la suivante soit prete) */
+::view-transition-old(root) { animation: 90ms ease both r-nav-sortie; }
+::view-transition-new(root) { animation: 140ms ease both r-nav-entree; }
+@keyframes r-nav-sortie { to { opacity: 0; } }
+@keyframes r-nav-entree { from { opacity: 0; } }
+
+/* la barre est deja la au premier affichage : pas d'apparition animee */
+.sidebar *, .menu-bar * { animation: none !important; }
