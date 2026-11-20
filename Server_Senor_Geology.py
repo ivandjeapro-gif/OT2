@@ -4242,9 +4242,140 @@ def _fond_site(conn):
     return blocs, das, pistes
 
 
+# ---- fond de la video : carte satellite + zones + pistes (comme la carte du dashboard) ----
+FOND_VIDEO_FICHIER = os.path.join(DATA_DIR, "fond_video.json")
+TUILES_DIR = os.path.join(DATA_DIR, "tuiles")
+TUILES_SOURCES = {
+    "esri-sat": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    "esri-topo": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+    "osm": "https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+}
+
+
+def fond_video_lire():
+    """Dernier decor transmis par la page Live (zones, pistes colorees, fond de carte) ; {} sinon."""
+    try:
+        with open(FOND_VIDEO_FICHIER, encoding="utf-8") as fh:
+            return json.load(fh) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def fond_video_ecrire(brut):
+    """Valide (tailles bornees, nombres finis) puis enregistre le decor de la carte pour la video."""
+    def nombre(v):
+        v = float(v)
+        if not math.isfinite(v):
+            raise ValueError("nombre invalide")
+        return v
+    zones, pistes = [], []
+    for z in (brut.get("zones") or [])[:300]:
+        try:
+            zones.append({"name": str(z.get("name") or "")[:60], "lat": nombre(z["lat"]), "lng": nombre(z["lng"])})
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    for t in (brut.get("pistes") or [])[:400]:
+        try:
+            wp = [[nombre(p[0]), nombre(p[1])] for p in (t.get("waypoints") or [])[:3000]]
+        except (TypeError, ValueError, IndexError, AttributeError):
+            continue
+        piste = {"waypoints": wp if len(wp) >= 2 else [], "from": str(t.get("from") or "")[:60],
+                 "to": str(t.get("to") or "")[:60], "useColor": t.get("useColor") is not False}
+        c = str(t.get("color") or "")
+        piste["color"] = c if re.match(r"^#[0-9A-Fa-f]{6}$", c) else "#EE7A2A"
+        pistes.append(piste)
+    fond = str(brut.get("basemap") or "esri-sat")
+    d = {"zones": zones, "pistes": pistes, "basemap": fond if fond in TUILES_SOURCES else "esri-sat"}
+    if not zones and not pistes:
+        return False
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(FOND_VIDEO_FICHIER, "w", encoding="utf-8") as fh:
+        json.dump(d, fh)
+    return True
+
+
+def _hex_bgr(h):
+    h = str(h).lstrip("#")
+    return (int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16))
+
+
+def _tuile_image(cv2, np, source, z, tx, ty):
+    """Tuile 256x256 (BGR) : cache disque data/tuiles, sinon telechargement (timeout 10 s). None si indisponible."""
+    chemin = os.path.join(TUILES_DIR, source, str(z), "%d_%d.img" % (tx, ty))
+    donnees = None
+    try:
+        if os.path.isfile(chemin):
+            with open(chemin, "rb") as fh:
+                donnees = fh.read()
+        else:
+            url = TUILES_SOURCES[source].replace("{z}", str(z)).replace("{x}", str(tx)).replace("{y}", str(ty)).replace("{s}", "a")
+            req = urllib.request.Request(url, headers={"User-Agent": "OreTracking-video/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as rep:
+                donnees = rep.read()
+            os.makedirs(os.path.dirname(chemin), exist_ok=True)
+            with open(chemin, "wb") as fh:
+                fh.write(donnees)
+    except Exception:
+        return None
+    img = cv2.imdecode(np.frombuffer(donnees, np.uint8), cv2.IMREAD_COLOR)
+    return img if img is not None and img.shape[0] == 256 and img.shape[1] == 256 else None
+
+
+def _fond_carte(cv2, np, source, coins_latlon, trois_latlon, largeur, hauteur, echelle):
+    """Fond satellite (tuiles Web Mercator) recale sur le cadre UTM de la video. Rend (image, nb_tuiles_manquantes)
+    ou (None, ...) si rien n'a pu etre charge. `trois_latlon` = (lat, lon) des coins haut-gauche, haut-droit, bas-gauche."""
+    def tuile_xy(lat, lon, z):
+        n = 2.0 ** z
+        return (lon + 180.0) / 360.0 * n, (1.0 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2.0 * n
+    lat0 = sum(c[0] for c in coins_latlon) / len(coins_latlon)
+    mpp = 1.0 / echelle
+    z = int(math.ceil(math.log(156543.03392 * math.cos(math.radians(lat0)) / mpp, 2)))
+    z = max(10, min(19, z))
+    while True:
+        pts = [tuile_xy(la, lo, z) for la, lo in coins_latlon]
+        x_min, x_max = int(min(p[0] for p in pts)), int(max(p[0] for p in pts))
+        y_min, y_max = int(min(p[1] for p in pts)), int(max(p[1] for p in pts))
+        if (x_max - x_min + 1) * (y_max - y_min + 1) <= 160 or z <= 10:
+            break
+        z -= 1
+    liste = [(x, y) for x in range(x_min, x_max + 1) for y in range(y_min, y_max + 1)]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        images = list(pool.map(lambda xy: _tuile_image(cv2, np, source, z, xy[0], xy[1]), liste))
+    manquantes = sum(1 for i in images if i is None)
+    if manquantes == len(images):
+        return None, manquantes
+    mosaique = np.full(((y_max - y_min + 1) * 256, (x_max - x_min + 1) * 256, 3), (38, 40, 36), np.uint8)
+    for (x, y), im in zip(liste, images):
+        if im is not None:
+            mosaique[(y - y_min) * 256:(y - y_min + 1) * 256, (x - x_min) * 256:(x - x_min + 1) * 256] = im
+    src = np.float32([[(tuile_xy(la, lo, z)[0] - x_min) * 256.0, (tuile_xy(la, lo, z)[1] - y_min) * 256.0]
+                      for la, lo in trois_latlon])
+    dst = np.float32([[0, 0], [largeur, 0], [0, hauteur]])
+    M = cv2.getAffineTransform(src, dst)
+    return cv2.warpAffine(mosaique, M, (largeur, hauteur), flags=cv2.INTER_LINEAR), manquantes
+
+
+def _pin(cv2, np, img, c, couleur=(176, 104, 22)):
+    """Epingle de zone (goutte bleue, point blanc) dont la pointe est en c."""
+    x, y = c
+    cv2.circle(img, (x, y - 17), 11, couleur, -1, cv2.LINE_AA)
+    cv2.fillPoly(img, [np.array([(x - 8, y - 11), (x + 8, y - 11), (x, y)], np.int32)], couleur, cv2.LINE_AA)
+    cv2.circle(img, (x, y - 17), 4, (255, 255, 255), -1, cv2.LINE_AA)
+
+
+def _etiquette(cv2, img, texte, x, y, ancrage="gauche"):
+    """Etiquette sombre (texte clair) : x, y = coin haut-gauche (ou haut-centre si ancrage centre)."""
+    (w, h), base = cv2.getTextSize(texte, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    x0 = x - (w + 14) // 2 if ancrage == "centre" else x
+    cv2.rectangle(img, (x0, y), (x0 + w + 14, y + h + 10), (30, 34, 28), -1)
+    cv2.putText(img, texte, (x0 + 7, y + h + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (240, 240, 232), 1, cv2.LINE_AA)
+
+
 def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hauteur=720):
-    """MP4 du tracking entre `depuis` et `jusqua` : plan du site, engins en mouvement, traces, heure.
-    `vitesse` : secondes reelles par seconde de video (120 = 2 h de terrain en 1 min). Retourne (ok, message)."""
+    """Video WebM du tracking entre `depuis` et `jusqua` : la carte satellite du site (zones, pistes colorees, comme
+    le dashboard), les engins en mouvement avec leurs traces, la date / heure. `vitesse` : secondes reelles par seconde
+    de video (120 = 2 h de terrain en 1 min). Retourne (ok, message)."""
     try:
         import cv2
         import numpy as np
@@ -4265,15 +4396,46 @@ def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hau
             continue
     conn = get_conn()
     try:
-        blocs, das, pistes = _fond_site(conn)
+        blocs, das, pistes_db = _fond_site(conn)
+        zone, hemi = repere_site(conn)
     finally:
         conn.close()
-    # cadrage : les positions, avec une marge ; le fond hors cadre est ignore
-    xs = [v for s_ in series.values() for v in s_["x"]]; ys = [v for s_ in series.values() for v in s_["y"]]
+    zone, hemi = zone or 30, hemi or "N"
+    # decor de la carte transmis par la page Live (zones, pistes colorees, fond) ; a defaut, zones de depot de la base
+    decor = fond_video_lire()
+    zones_utm = []                                   # (nom, x, y)
+    for z in decor.get("zones") or []:
+        try:
+            e, n = wgs84_vers_utm(z["lat"], z["lng"], zone, hemi)
+            zones_utm.append((z["name"], e, n))
+        except (KeyError, ValueError, TypeError):
+            continue
+    if not zones_utm:
+        for nom, sommets in das:
+            if sommets:
+                zones_utm.append((nom, sum(p[0] for p in sommets) / len(sommets), sum(p[1] for p in sommets) / len(sommets)))
+    pistes_couleur = []                              # (points UTM, couleur BGR)
+    for t in decor.get("pistes") or []:
+        wp = t.get("waypoints") or []
+        if len(wp) < 2:
+            a = next((z for z in zones_utm if z[0] == t.get("from")), None)
+            b = next((z for z in zones_utm if z[0] == t.get("to")), None)
+            pts = [(a[1], a[2]), (b[1], b[2])] if a and b else []
+        else:
+            pts = []
+            for p in wp:
+                try:
+                    pts.append(wgs84_vers_utm(p[0], p[1], zone, hemi))
+                except (ValueError, TypeError, IndexError):
+                    pass
+        if len(pts) >= 2:
+            pistes_couleur.append((pts, _hex_bgr(t.get("color") or "#EE7A2A") if t.get("useColor", True) else (163, 179, 183)))
+    # cadrage : positions + zones (la carte montre le site, pas seulement la ou les engins ont roule)
+    xs = [v for s_ in series.values() for v in s_["x"]] + [z[1] for z in zones_utm]
+    ys = [v for s_ in series.values() for v in s_["y"]] + [z[2] for z in zones_utm]
     x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-    marge = max(60.0, 0.12 * max(x1 - x0, y1 - y0, 100.0))
+    marge = max(60.0, 0.10 * max(x1 - x0, y1 - y0, 100.0))
     x0 -= marge; x1 += marge; y0 -= marge; y1 += marge
-    # cadre minimal (engins immobiles : on garde le contexte du site : pistes, zones voisines)
     if x1 - x0 < 600.0:
         c_ = (x0 + x1) / 2.0; x0, x1 = c_ - 300.0, c_ + 300.0
     if y1 - y0 < 340.0:
@@ -4285,22 +4447,44 @@ def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hau
     oy = bandeau + (zoneh - (y1 - y0) * echelle) / 2.0
     px = lambda x, y: (int(ox + (x - x0) * echelle), int(oy + (y1 - y) * echelle))
     dans = lambda x, y: x0 <= x <= x1 and y0 <= y <= y1
-    # fond (une fois)
-    fond = np.full((hauteur, largeur, 3), (38, 40, 36), np.uint8)
-    # tout le fond est dessine (OpenCV rogne ce qui sort du cadre) : pistes et zones traversant le cadre restent visibles
+
+    def latlon(u, v):                                 # pixel de la video -> (lat, lon)
+        return utm_vers_wgs84(x0 + (u - ox) / echelle, y1 - (v - oy) / echelle, zone, hemi)
+    # fond : satellite (tuiles) recale sur le cadre ; sans internet / sans tuile : fond sombre uni
+    fond, manquantes = None, 0
+    try:
+        coins = [latlon(0, 0), latlon(largeur, 0), latlon(0, hauteur), latlon(largeur, hauteur)]
+        fond, manquantes = _fond_carte(cv2, np, decor.get("basemap") or "esri-sat", coins, coins[:3], largeur, hauteur, echelle)
+    except Exception as e:
+        print("VIDEO: fond satellite indisponible (%s)" % e)
+    satellite = fond is not None
+    if not satellite:
+        fond = np.full((hauteur, largeur, 3), (38, 40, 36), np.uint8)
+    # zones : contour fin (orebloc) / remplissage translucide (zone de depot)
+    calque = fond.copy()
     for sommets in blocs:
         pts = [px(p[0], p[1]) for p in sommets if len(p) >= 2]
         if len(pts) >= 3:
-            cv2.fillPoly(fond, [np.array(pts, np.int32)], (62, 66, 60))
-    for x1_, y1_, x2_, y2_ in pistes:
-        cv2.line(fond, px(x1_, y1_), px(x2_, y2_), (110, 116, 120), 1, cv2.LINE_AA)
+            cv2.polylines(fond, [np.array(pts, np.int32)], True, (235, 235, 230) if satellite else (110, 116, 120), 1, cv2.LINE_AA)
     for nom, sommets in das:
         pts = [px(p[0], p[1]) for p in sommets if len(p) >= 2]
         if len(pts) >= 3:
-            cv2.fillPoly(fond, [np.array(pts, np.int32)], (60, 90, 60))
-            inside = [q for q in pts if 0 <= q[0] < largeur and bandeau <= q[1] < hauteur]
-            if inside:
-                cv2.putText(fond, str(nom)[:22], inside[0], cv2.FONT_HERSHEY_SIMPLEX, 0.4, (170, 210, 170), 1, cv2.LINE_AA)
+            cv2.fillPoly(calque, [np.array(pts, np.int32)], (60, 130, 60))
+    fond = cv2.addWeighted(calque, 0.45, fond, 0.55, 0)
+    # pistes colorees (contour sombre, trait de couleur) : memes couleurs que la carte du dashboard
+    for pts, couleur in pistes_couleur:
+        ligne = np.array([px(a, b) for a, b in pts], np.int32)
+        cv2.polylines(fond, [ligne], False, (0, 0, 0), 6, cv2.LINE_AA)
+        cv2.polylines(fond, [ligne], False, couleur, 3, cv2.LINE_AA)
+    if not pistes_couleur:                            # pas de decor transmis : reseau de pistes de la passerelle
+        for x1_, y1_, x2_, y2_ in pistes_db:
+            cv2.line(fond, px(x1_, y1_), px(x2_, y2_), (80, 160, 235) if satellite else (110, 116, 120), 1, cv2.LINE_AA)
+    # epingles de zone + etiquettes
+    for nom, zx, zy in zones_utm:
+        c = px(zx, zy)
+        if 0 <= c[0] < largeur and bandeau <= c[1] < hauteur:
+            _pin(cv2, np, fond, c)
+            _etiquette(cv2, fond, str(nom)[:24], c[0] + 14, c[1] - 30)
     os.makedirs(os.path.dirname(sortie), exist_ok=True)
     # WebM / VP8 : lisible par tous les navigateurs (lecteur integre de la page Live). Le MP4 « mp4v » d'OpenCV
     # (MPEG-4 partie 2) n'est lu par aucun navigateur ; H.264 exige une DLL OpenH264 que Windows n'a pas.
@@ -4325,15 +4509,18 @@ def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hau
                 cx, cy = float(np.interp(t, ts, xs_)), float(np.interp(t, ts, ys_))
                 i1 = int(np.searchsorted(ts, t))
                 silence = min(abs(t - ts[max(0, min(i1, len(ts) - 1))]), abs(t - ts[max(0, i1 - 1)]))
-                couleur = couleurs.get(s_["type"], (200, 200, 200)) if silence <= 120 else (110, 110, 110)
+                couleur = couleurs.get(s_["type"], (200, 200, 200)) if silence <= 120 else (130, 130, 130)
                 m = (ts >= t - TRACE_S) & (ts <= t)
                 if m.sum() >= 2:
                     trace = np.array([px(a, b) for a, b in zip(xs_[m], ys_[m])], np.int32)
-                    cv2.polylines(img, [trace], False, tuple(int(c * 0.6) for c in couleur), 1, cv2.LINE_AA)
+                    cv2.polylines(img, [trace], False, (0, 0, 0), 4, cv2.LINE_AA)
+                    cv2.polylines(img, [trace], False, couleur, 2, cv2.LINE_AA)
                 if dans(cx, cy):
                     c = px(cx, cy)
-                    cv2.circle(img, c, 6 if s_["type"] == "DT" else 8, couleur, -1, cv2.LINE_AA)
-                    cv2.putText(img, code, (c[0] + 9, c[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (235, 235, 230), 1, cv2.LINE_AA)
+                    cv2.circle(img, c, 13, (255, 255, 255), -1, cv2.LINE_AA)       # anneau blanc, comme la carte
+                    cv2.circle(img, c, 11, (60, 40, 20), -1, cv2.LINE_AA)
+                    cv2.circle(img, c, 7, couleur, -1, cv2.LINE_AA)
+                    _etiquette(cv2, img, code, c[0], c[1] - 40, "centre")
                 if silence <= 120:
                     vivants += 1
             cv2.rectangle(img, (0, 0), (largeur, bandeau), (22, 24, 21), -1)
@@ -4345,7 +4532,8 @@ def generer_video(depuis, jusqua, sortie, vitesse=120, fps=10, largeur=1280, hau
     finally:
         ecr.release()
     os.replace(part, sortie)
-    return True, "%d image(s), %d engin(s), %.1f Mo" % (n_images, len(series), os.path.getsize(sortie) / 1048576.0)
+    info = "satellite" if satellite else "fond uni (tuiles indisponibles : internet ?)"
+    return True, "%d image(s), %d engin(s), %.1f Mo, %s" % (n_images, len(series), os.path.getsize(sortie) / 1048576.0, info)
 
 
 def nom_video(depuis, jusqua):
@@ -5686,6 +5874,11 @@ class Handler(BaseHTTPRequestHandler):
                 vitesse = max(10, min(int(b.get("vitesse") or 120), 1800))
             except (TypeError, ValueError):
                 vitesse = 120
+            if isinstance(b.get("fond"), dict):
+                try:
+                    fond_video_ecrire(b["fond"])         # decor de la carte (zones, pistes colorees) pour la video
+                except Exception as e:
+                    print("VIDEO: decor ignore (%s)" % e)
             ok, nom, message = lancer_video(depuis, jusqua, vitesse)
             return self._send_json(200 if ok else 422, {"ok": ok, "fichier": nom, "message": message})
         # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;

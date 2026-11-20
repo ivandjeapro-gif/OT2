@@ -427,6 +427,17 @@ document.addEventListener('DOMContentLoaded', () => {
     lecteur.addEventListener('click', (ev) => { if (ev.target === lecteur) fermerLecteur(); });
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !lecteur.hidden) fermerLecteur(); });
 
+    // decor de la carte (zones, pistes colorees, fond) : la video reprend exactement ce que montre la carte
+    function decorCarte() {
+        if (!carte) return null;
+        return {
+            basemap: carte.basemap,
+            zones: (carte.zones || []).filter((z) => z.lat && z.lng).map((z) => ({ name: z.name, lat: z.lat, lng: z.lng })),
+            pistes: (carte.pistes || []).map((t) => ({ waypoints: t.waypoints || [], from: t.from || '', to: t.to || '',
+                                                      color: t.color || '', useColor: t.useColor !== false })),
+        };
+    }
+
     let enregMinuteur = null;
     async function surveillerEnreg() {
         clearTimeout(enregMinuteur);
@@ -444,7 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const r = await fetch(PASSERELLE() + '/api/enregistrements/video', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ depuis: per.depuis, jusqua: per.jusqua, vitesse: Number($('enregVitesse').value) }),
+                body: JSON.stringify({ depuis: per.depuis, jusqua: per.jusqua, vitesse: Number($('enregVitesse').value), fond: decorCarte() }),
             });
             const d = await r.json().catch(() => ({}));
             texte($('enregEtat'), r.ok ? (d.message === 'deja genere' ? 'Cette vidéo existe déjà : ' + d.fichier

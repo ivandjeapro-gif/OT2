@@ -296,7 +296,7 @@
         const majZoom = () => el.classList.toggle('z-low', map.getZoom() < 15);
         map.on('zoomend', majZoom); majZoom();
 
-        return { map, zones, segments, fond, centre, zoom, afficher,
+        return { map, zones, pistes, basemap: config.basemap || 'esri-sat', segments, fond, centre, zoom, afficher,
                  recentrer: () => map.setView(centre, zoom),
                  // zoom sur une zone (filtre Zone) ; « toutes » = retour a la vue d'ensemble
                  centrerSur: (nom) => {
