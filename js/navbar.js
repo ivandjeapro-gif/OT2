@@ -89,11 +89,18 @@
       '</div>';
   }
 
-  function topbarHTML() {
+  function topbarHTML(actif) {
+    var noms = { home: 'Home', live: 'Live', alerts: 'Alerts', inbox: 'Inbox',
+      settings: 'Settings', sync: 'Sync', senor: 'Senor', digplan: 'Dig Plan' };
+    var courant = (noms[actif] || actif).toUpperCase();
     return '<div class="menu-left">' +
         '<span class="r-crumb-app">ORE TRACKING</span>' +
         '<span class="r-crumb-sep2">/</span>' +
         '<span class="r-crumb-space">Espace opérations</span>' +
+      '</div>' +
+      '<div class="menu-center">' +
+        '<span class="r-crumb-page">' + courant + '</span>' +
+        '<span class="r-crumb-version">V2.0</span>' +
       '</div>' +
       '<div class="menu-right">' +
         '<span class="r-net-pill" title="Liaison cloud"><i class="fas fa-cloud"></i> Cloud</span>' +
@@ -103,10 +110,12 @@
           '<span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span>' +
         '</span>' +
         '<button class="r-bell" type="button" title="Alertes" aria-label="Alertes">' +
-          '<i class="fas fa-bell"></i>' +
+          '<i class="fas fa-bell"></i><span class="r-bell-dot"></span>' +
         '</button>' +
-        '<span class="r-site-chip"><i class="fas fa-map-marker-alt"></i> Lafigué</span>' +
-        '<span class="app-version">V2.0</span>' +
+        '<button class="r-site-chip" type="button" title="Site courant">' +
+          '<i class="fas fa-map-marker-alt"></i> Lafigué' +
+          '<i class="fas fa-chevron-down r-site-chev"></i>' +
+        '</button>' +
       '</div>';
   }
 
@@ -171,7 +180,7 @@
     var sb = document.getElementById('sidebar');
     if (sb) sb.innerHTML = sidebarHTML(actif);
     var tb = document.querySelector('header.menu-bar');
-    if (tb) tb.innerHTML = topbarHTML();
+    if (tb) tb.innerHTML = topbarHTML(actif);
 
     brancherSalutation();
     brancherBadgeAlertes();

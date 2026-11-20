@@ -93,9 +93,14 @@
       ? window.PARC_ENGINS
       : null;
     set('statEngins', parc ? (engins.length + ' / ' + parc) : String(engins.length));
-    set('statAlertes', alertes.length);
-    set('statMissions', missions.length);
-    set('statTonnage', Math.round(tonnes) + ' t');
+    set('statAlertes', String(alertes.length).padStart(2, '0'));
+    set('statMissions', String(missions.length).padStart(2, '0'));
+    set('statTonnage', formaterTonnage(Math.round(tonnes)));
+  }
+
+  // Tonnage lisible : « 53 500 t » avec séparateur milliers.
+  function formaterTonnage(t) {
+    return String(t).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f') + ' t';
   }
 
     // Un code engin absent ne doit rien afficher (pas de tiret orphelin).
@@ -160,13 +165,20 @@
       if (a.acquittee || MSUI.estInfo(a)) continue;
       const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
       const vieux = Date.now() - t > seuilMs;
+      // maquette : titre + sous-titre, decoupe sur « : » ou « — »
+      const brut = casseLisible(a.message);
+      const sep = brut.search(/[:\u2014]/);
+      const titre = sep > 0 ? brut.slice(0, sep).trim() : brut;
+      const detail = sep > 0 ? brut.slice(sep + 1).trim() : '';
       items.push({
         urgence: vieux ? 2 : 1,
-        html: '<b class="file-code">' + MSUI.esc(codePropre(a.dt_code)) + '</b>' +
-          '<span class="file-msg">' + MSUI.esc(casseLisible(a.message)) + '</span>' +
-          '<span class="file-age">' + delaiCourt(a.created_at) + '</span>',
-        lien: 'alerts.html',
+        id: a.id,
+        titre: titre,
+        detail: detail,
+        code: codePropre(a.dt_code),
         heure: heureDe(a.created_at),
+        age: delaiCourt(a.created_at),
+        lien: 'alerts.html',
       });
     }
     // DT charge sans mission
@@ -176,10 +188,11 @@
       if (e.type === 'DT' && e.statut === 'ODT' && !enMission.has(e.code)) {
         items.push({
           urgence: 2,
-          html: '<b class="file-code">' + MSUI.esc(codePropre(e.code)) + '</b>' +
-            '<span class="file-msg">est charge (ODT) mais n\'a pas de mission</span>',
+          titre: 'Charge sans mission',
+          detail: 'est chargé (ODT) mais n\'a pas de mission',
+          code: codePropre(e.code),
+          heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
           lien: 'senor.html',
-        heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         });
       }
     }
@@ -188,11 +201,11 @@
       if (m.statut === 'en_cours' && Number(m.devie) === 1 || m.statut === 'devoie') {
         items.push({
           urgence: 1,
-          html: '<b class="file-code">' + MSUI.esc(codePropre(m.dt_code)) + '</b>' +
-            '<span class="file-msg">a devie de sa mission (' +
-            Math.round(m.ecart_m || 0) + ' m du trajet, bloc #' + m.orebloc_id + ')</span>',
+          titre: 'Mission déviée',
+          detail: Math.round(m.ecart_m || 0) + ' m du trajet, bloc #' + m.orebloc_id,
+          code: codePropre(m.dt_code),
+          heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
           lien: 'senor.html',
-        heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         });
       }
     }
@@ -202,18 +215,64 @@
       return;
     }
     items.sort((a, b) => b.urgence - a.urgence);
-    // Rendu de la file (presentation uniquement) : chaque item est
-    // decompose en cellules Heure/Engin - Evenement - Delai - action,
-    // comme la maquette. Aucun calcul metier n'est modifie ici.
+    // Rendu de la file comme la maquette : heure au-dessus du code,
+    // titre + sous-titre, delai, et un bouton « Marquer vu » par ligne.
+    // Le bouton appelle la vraie route d'acquittement (POST /api/alertes).
     box.innerHTML = items.slice(0, 8).map((it) =>
-      '<a class="file-item u' + it.urgence + '" href="' + it.lien + '">' +
-      '<i class="fas fa-' + (it.urgence === 2 ? 'fire' : 'bell') + '"></i>' +
-      '<span class="file-cell">' +
-        '<span class="file-slot">' +
-          (it.heure ? '<em class="file-heure">' + it.heure + '</em>' : '') +
-          it.html +
-        '</span>' +
-      '</span></a>').join('');
+      '<div class="file-item u' + it.urgence + '">' +
+        '<div class="file-cell">' +
+          '<div class="file-slot">' +
+            '<span class="file-quand">' +
+              (it.heure ? '<em class="file-heure">' + it.heure + '</em>' : '') +
+              (it.code ? '<b class="file-code">' + MSUI.esc(it.code) + '</b>' : '') +
+            '</span>' +
+            '<span class="file-quoi">' +
+              '<span class="file-titre">' + MSUI.esc(it.titre) + '</span>' +
+              (it.detail ? '<span class="file-detail">' + MSUI.esc(it.detail) + '</span>' : '') +
+            '</span>' +
+            '<span class="file-age">' + (it.age || '') + '</span>' +
+            '<button type="button" class="file-marquer" data-alerte="' + (it.id || '') + '">' +
+              'Marquer vu</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>').join('');
+  }
+
+  // « Marquer vu » : branche sur la route d'acquittement existante.
+  // On delegue a alerts-ui si present, sinon appel direct a la passerelle.
+  function brancherMarquerVu() {
+    const box = document.getElementById('homeFile');
+    if (!box) return;
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest('.file-marquer');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute('data-alerte');
+      if (!id) return;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+
+      const faire = (window.AlertsUI && typeof AlertsUI.acquitter === 'function')
+        ? AlertsUI.acquitter(id)
+        : fetch(basePasserelleHome() + '/api/alertes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'acquit', id: id }),
+          }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+
+      Promise.resolve(faire)
+        .catch(() => {
+          btn.disabled = false;
+          btn.textContent = 'Marquer vu';
+        });
+    });
+  }
+
+  // base passerelle : meme logique que missions-ui (OTCFG, sinon :8101)
+  function basePasserelleHome() {
+    if (window.OTCFG && typeof OTCFG.passerelle === 'function') return OTCFG.passerelle();
+    return 'http://' + location.hostname + ':8101';
   }
 
   // Total du parc (referentiel administratif, SaaS :8100, table sync_flotte).
@@ -229,6 +288,39 @@
     }).catch(() => { window.PARC_ENGINS = window.PARC_ENGINS || null; });
   }
 
+  // Panneau SHIFT : horaires et progression CALCULÉS d'après l'heure
+  // réelle (shift de jour 06:00–18:00, de nuit 18:00–06:00). Rien en dur.
+  function rendreShift() {
+    const h = document.querySelector('.shift-hours');
+    const el = document.querySelector('.shift-elapsed');
+    const bar = document.querySelector('.shift-progress span');
+    if (!h || !el || !bar) return;
+
+    const now = new Date();
+    const min = now.getHours() * 60 + now.getMinutes();
+    const jour = min >= 360 && min < 1080; // 06:00 → 18:00
+    const debut = jour ? 360 : 1080;
+    const duree = 720; // 12 h
+    const ecoule = ((min - debut) + 1440) % 1440;
+    const clamp = Math.max(0, Math.min(duree, ecoule));
+
+    const fmt = (m) =>
+      String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+
+    h.innerHTML = fmt(debut) + ' <span class="shift-dash">—</span> ' + fmt(debut + duree);
+    el.textContent =
+      Math.floor(clamp / 60) + ' h ' + (clamp % 60) + ' écoulées sur 12 heures';
+    bar.style.width = Math.round((clamp / duree) * 100) + '%';
+  }
+
+  // Le titre du panneau suit le shift réel (jour/nuit).
+  function titreShift() {
+    const t = document.querySelector('.panel-side-title');
+    if (!t) return;
+    const min = new Date().getHours() * 60 + new Date().getMinutes();
+    t.textContent = (min >= 360 && min < 1080) ? 'Shift de jour' : 'Shift de nuit';
+  }
+
   function init() {
     if (!document.getElementById('homeVoyant')) return;
     if (!window.MSUI) return;
@@ -236,6 +328,10 @@
     setInterval(lireParc, 60000);
     MSUI.onTick((etat) => { rendreVoyant(etat); rendreStats(etat); rendreFile(etat); });
     MSUI.demarrer(5000);
+    brancherMarquerVu();
+    rendreShift();
+    titreShift();
+    setInterval(rendreShift, 60000);
   }
 
   if (document.readyState === 'loading') {
