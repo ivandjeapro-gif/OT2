@@ -130,25 +130,37 @@
     }
   }
 
-  /* --- badge Alerts : alimenté par la vraie passerelle, sinon vide --- */
+  /* --- badge Alerts : alimenté par la vraie passerelle, sinon vide ---
+     La base est déduite comme missions-ui.js le fait (OTCFG, sinon
+     host courant :8101). Le composant attend que la passerelle ait
+     répondu au moins une fois : tant pis, le badge reste vide —
+     jamais de chiffre inventé. */
+  function basePasserelle() {
+    if (window.OTCFG && typeof OTCFG.passerelle === 'function') {
+      return OTCFG.passerelle();
+    }
+    return 'http://' + location.hostname + ':8101';
+  }
+
   function brancherBadgeAlertes() {
     var badge = document.getElementById('sidebarAlertBadge');
     if (!badge) return;
 
     function lire() {
-      var base = (typeof window.basePasserelle === 'function') ? window.basePasserelle() : null;
-      if (!base || !window.fetch) return;
-      fetch(base + '/api/alertes').then(function (r) { return r.ok ? r.json() : null; })
+      if (!window.fetch) return;
+      fetch(basePasserelle() + '/api/alertes')
+        .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
-          var n = 0;
-          if (d && d.alertes) {
-            n = d.alertes.filter(function (a) { return !a.acquittee; }).length;
-            if (typeof window.MSUI === 'object' && MSUI.estInfo) {
-              n = d.alertes.filter(function (a) { return !a.acquittee && !MSUI.estInfo(a); }).length;
-            }
-          }
+          var liste = (d && (d.alertes || d.data)) || [];
+          if (!Array.isArray(liste)) { badge.textContent = '\u00a0'; return; }
+          var n = liste.filter(function (a) {
+            if (a.acquittee) return false;
+            if (window.MSUI && typeof MSUI.estInfo === 'function') return !MSUI.estInfo(a);
+            return true;
+          }).length;
           badge.textContent = n > 0 ? String(n).padStart(2, '0') : '\u00a0';
-        }).catch(function () { badge.textContent = '\u00a0'; });
+        })
+        .catch(function () { badge.textContent = '\u00a0'; });
     }
     lire();
     setInterval(lire, 10000);

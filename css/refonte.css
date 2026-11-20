@@ -2751,3 +2751,84 @@ body {
     max-height: 60px !important;
     max-width: 100% !important;
 }
+
+/* ============================================================
+   28. NAVBAR + HOME — derniers écarts d'espacement
+   ============================================================ */
+
+/* --- 1. Profil coupé en bas : il faut lui laisser sa hauteur --- */
+.sidebar-nav {
+    flex: 0 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+}
+
+.sidebar-user {
+    flex-shrink: 0 !important;
+    flex: 0 0 auto !important;
+    padding: 16px !important;
+    min-height: 78px !important;
+}
+
+.sidebar-mine {
+    flex-shrink: 0 !important;
+}
+
+/* --- 3. Ligne urgente : le liseré doit respirer --- */
+.home-file .file-item.u2:first-child {
+    border-left: 3px solid var(--r-red) !important;
+    border-radius: 8px 0 0 8px !important;
+    margin-left: 0 !important;
+}
+
+.home-file .file-item {
+    padding-left: 26px !important;
+}
+
+.home-file .file-item.u2:first-child {
+    padding-left: 26px !important;
+}
+
+/* --- 4. Le délai de la ligne urgente doit rester visible --- */
+.home-file .file-item.u2:first-child .file-age {
+    visibility: visible !important;
+    display: block !important;
+    justify-self: end !important;
+}
+
+/* le bouton « Marquer vu » reste dans la colonne 5 */
+.home-file .file-item.u2:first-child::after {
+    position: static !important;
+    transform: none !important;
+    justify-self: end !important;
+    align-self: center !important;
+}
+
+/* ============================================================
+   29. HOME — badge, vide sous la file, liseré rogné
+   ============================================================ */
+
+/* --- 3. Liseré de la ligne urgente : respirer à gauche --- */
+.home-file .file-item.u2:first-child {
+    border-radius: 0 8px 8px 0 !important;
+    margin-left: 3px !important;
+}
+
+/* --- 2. Pas de vide sous la file : la colonne s'arrête à son contenu --- */
+.page-home-grid {
+    align-items: start !important;
+}
+
+.home-main-col {
+    align-content: start !important;
+    grid-auto-rows: min-content !important;
+}
+
+.page#page-home {
+    height: auto !important;
+}
+
+/* --- statut bar visible sans chevaucher --- */
+.status-bar {
+    flex-shrink: 0;
+}
