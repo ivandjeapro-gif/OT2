@@ -4469,7 +4469,7 @@ MQTT_CONF_FICHIER = os.environ.get("OT_MQTT_CONF", r"C:\ProgramData\OreTracking\
 SAAS_DB_PATH = os.path.join(DATA_DIR, "oretracking.db")
 FAMILLES_DT = ("1500", "785", "ADT")
 MQTT_COMPTES_INTERVALLE_S = 30
-MQTT_EN_LIGNE_S = 120          # « en ligne » = presence en_ligne ou position < 2 min
+MQTT_EN_LIGNE_S = 120          # « en ligne » = (presence en_ligne OU position) recue il y a < 2 min
 _mqtt_etat = {"comptes_actif": False, "suivi_actif": False, "dernier_rapprochement": "",
               "erreur": "", "resume": {}, "ot_envoye_le": "", "ot_erreur": "",
               "abonne": False, "messages": 0, "presence": {}, "derniere_position": {}}
@@ -4704,8 +4704,12 @@ def comptes_mqtt_etat():
         pres = _mqtt_etat["presence"].get(l["code"]) or {}
         pos = _mqtt_etat["derniere_position"].get(l["code"])
         recent = pos is not None and maintenant - pos < MQTT_EN_LIGNE_S
+        pres_recente = pres.get("etat") == "en_ligne" and maintenant - pres.get("t", 0) < MQTT_EN_LIGNE_S
         l["applique_broker"] = bool(l.pop("mdp_applique"))
-        l["en_ligne"] = (pres.get("etat") == "en_ligne") or recent
+        # « hors_ligne » recu APRES la derniere position = deconnexion explicite :
+        # la position, meme recente, ne compte plus.
+        deconnecte = pres.get("etat") == "hors_ligne" and (pos is None or pres.get("t", 0) >= pos)
+        l["en_ligne"] = pres_recente or (recent and not deconnecte)
         l["presence"] = pres.get("etat", "")
         l["derniere_position_s"] = None if pos is None else int(maintenant - pos)
     conf = mqtt_conf() or {}
@@ -4754,7 +4758,7 @@ def appliquer_message_mqtt(sujet, charge):
         return
     _mqtt_etat["messages"] += 1
     if nature == "connexion":
-        _mqtt_etat["presence"][code] = {"etat": str(d.get("etat") or ""), "le": now_iso()}
+        _mqtt_etat["presence"][code] = {"etat": str(d.get("etat") or ""), "le": now_iso(), "t": time.time()}
         return
     if nature != "position":
         return
