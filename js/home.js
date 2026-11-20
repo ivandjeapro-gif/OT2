@@ -96,24 +96,6 @@
     set('statAlertes', alertes.length);
     set('statMissions', missions.length);
     set('statTonnage', Math.round(tonnes) + ' t');
-
-    // Notes sous les chiffres : refletent la meme source de donnees.
-    const setNote = (id, txt) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = txt;
-    };
-    setNote('statEnginsNote', parc
-      ? engins.length + ' actifs sur ' + parc + ' au parc'
-      : (engins.length ? engins.length + ' engins emettent' : 'Passerelle injoignable'));
-    setNote('statAlertesNote', alertes.length
-      ? alertes.length + (alertes.length > 1 ? ' alertes ' : ' alerte ') + 'a traiter'
-      : 'Rien a traiter');
-    setNote('statMissionsNote', missions.length
-      ? missions.length + (missions.length > 1 ? ' missions ' : ' mission ') + 'en cours'
-      : 'Aucune mission en cours');
-    setNote('statTonnageNote', voy.length
-      ? voy.length + (voy.length > 1 ? ' voyages ' : ' voyage ') + 'aujourd\'hui'
-      : 'Aucun voyage aujourd\'hui');
   }
 
     // Un code engin absent ne doit rien afficher (pas de tiret orphelin).
