@@ -1247,6 +1247,15 @@
     wrap.innerHTML = svg;
   }
 
+  // Deux types seulement : bloc de minerai (icone) ou bloc sterile (« sterile »), d'apres le drapeau `minerai`
+  // de la passerelle (0 = sterile, absent = minerai).
+  const estSterile = (b) => b && (b.minerai === 0 || b.minerai === '0' || b.minerai === false);
+  function pastilleMatiere(b) {
+    return estSterile(b)
+      ? '<span class="dp-matiere waste" title="Bloc stérile">stérile</span>'
+      : '<span class="dp-matiere ore" title="Bloc de minerai"><i class="fas fa-gem"></i></span>';
+  }
+
   function rendreTable(oreblocs) {
     const tbody = $('#dpTableBody');
     if (!tbody) return;
@@ -1257,7 +1266,7 @@
     tbody.innerHTML = oreblocs.map((b) => {
       const dest = (b.destination || '').toUpperCase();
       return '<tr' + (dest && dest !== 'W' ? ' class="dp-row-ore"' : '') + '>' +
-        '<td>' + esc(b.nom) + '</td>' +
+        '<td>' + pastilleMatiere(b) + esc(b.nom) + '</td>' +
         '<td>' + esc(b.volume || 0) + '</td>' +
         '<td>' + esc(b.tonnes || 0) + '</td>' +
         '<td>' + esc(b.au_teneur || 0) + '</td>' +
@@ -1346,7 +1355,7 @@
       const ob = oreblocs.find((o) => o.nom === nom) || {};
       const couleur = window.OTCouleurs ? OTCouleurs.famille(ob.destination) : '#8d887a';
       return '<div class="dp-bar-row" style="--fam:' + couleur + '">' +
-        '<span class="dp-bar-label" title="' + esc(nom) + '">' + esc(nom) + '</span>' +
+        '<span class="dp-bar-label" title="' + esc(nom) + '">' + pastilleMatiere(ob) + esc(nom) + '</span>' +
         '<div class="dp-bar-track">' +
           '<div class="dp-bar-fill theo" style="width:' + pctT + '%"></div>'
           + '<div class="dp-bar-fill mine" style="width:' + pctM + '%"></div>' +
