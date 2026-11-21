@@ -34,6 +34,7 @@
 
   let etat = { tablettes: [], apk: {}, adb: {} };
   let flotte = [];                 // [{ code: 'DT-04', famille: '1500' }]
+  let spotters = [];               // [{ id: 'SP-01', nom: 'Jean', equipe: 'A' }] : sync_identifiants, profil SPOT
   const PROFILS = [['dt', 'DT'], ['exc', 'Excavatrice'], ['spotter', 'Spotter'], ['link', 'Link']];
   const jobs = {};                 // serie -> { job, etapes, etat, erreur }
   let minuteur = null;
@@ -47,6 +48,14 @@
         .map((r) => ({ code: String(r.code).toUpperCase(), famille: String(r.famille || '') }))
         .sort((a, b) => a.code.localeCompare(b.code));
     } catch (e) { /* non connecte : saisie manuelle de secours */ }
+    try {
+      const d = await API.getRows('sync_identifiants');
+      spotters = ((d && d.rows) || [])
+        .filter((r) => r.actif !== 0 && String(r.profil || '').toUpperCase() === 'SPOT')
+        .map((r) => ({ id: String(r.identifiant || ''), nom: String(r.nom || r.identifiant || ''), equipe: String(r.equipe || '') }))
+        .filter((r) => r.nom)
+        .sort((a, b) => a.equipe.localeCompare(b.equipe) || a.nom.localeCompare(b.nom));
+    } catch (e) { /* idem */ }
   }
 
   function statut(texte, ok) {
@@ -127,6 +136,12 @@
   function identite(t, dis) {
     const s = esc(t.serie);
     if (t.profil === 'link') return '<small>Aucune identité</small>';
+    if (t.profil === 'spotter' && spotters.length) {
+      const courant = spotters.findIndex((x) => x.nom === t.ident && x.equipe === t.equipe);
+      const opts = '<option value="">Choisir…</option>' + spotters.map((x, i) => '<option value="' + i + '"' + (i === courant ? ' selected' : '') + '>' + esc(x.nom) + (x.equipe ? ' · équipe ' + esc(x.equipe) : '') + '</option>').join('') +
+        (t.ident && courant < 0 ? '<option value="-1" selected>' + esc(t.ident) + (t.equipe ? ' · équipe ' + esc(t.equipe) : '') + '</option>' : '');
+      return '<select data-tab-spotter="' + s + '"' + dis + '>' + opts + '</select><small>' + (t.equipe ? 'Équipe ' + esc(t.equipe) : 'Nom + équipe') + '</small>';
+    }
     if (t.profil === 'spotter') {
       return '<input type="text" data-tab-champ="equipe" data-serie="' + s + '" value="' + esc(t.equipe) + '" placeholder="Équipe"' + dis + ' />' +
              '<input type="text" data-tab-champ="ident" data-serie="' + s + '" value="' + esc(t.ident) + '" placeholder="Nom"' + dis + ' />';
@@ -248,6 +263,12 @@
       if (sel) {
         const d = flotte.find((x) => x.code === sel.value);
         enregistrer(sel.dataset.tabFlotte, { ident: sel.value, famille: d ? d.famille : '' });
+        return;
+      }
+      const sp = e.target.closest('[data-tab-spotter]');
+      if (sp) {
+        const x = spotters[Number(sp.value)];
+        if (x) enregistrer(sp.dataset.tabSpotter, { ident: x.nom, equipe: x.equipe, famille: '' });
         return;
       }
       const ch = e.target.closest('[data-tab-champ]');
