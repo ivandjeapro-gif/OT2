@@ -124,6 +124,7 @@
       if (prev) prev.disabled = !plusieurs;
       if (next) next.disabled = !plusieurs;
     });
+    rendreEntete();
     // codes de source admis (garde-fou blasts) : pre-remplir le champ
     const codesEl = $('#sgSrcCodes');
     if (codesEl) codesEl.value = s ? (s.codes || '') : '';
@@ -148,28 +149,79 @@
    * Appelee aussi depuis chargerZones() : au demarrage les teneurs peuvent
    * arriver avant la liste des Dumping Areas, et le nom manquerait.
    */
+  // Couleur d'une famille : grade du 1er code de bloc, lu dans la table reglable de la passerelle
+  // (Settings > Terrain > Codes de teneur). Aucun code ni couleur en dur cote page.
+  let tableGrades = {};
+  async function chargerTableGrades() {
+    try {
+      const r = await fetch(base().replace(/\/$/, '') + '/api/codes_teneur', { cache: 'no-store' });
+      if (r.ok) { tableGrades = (await r.json()).codes || {}; rendreChipsInstruction(); }
+    } catch (e) { /* passerelle injoignable : familles sans couleur */ }
+  }
+  const premierCode = (t) => String(t.codes || '').split(/[,\s;]+/).filter(Boolean)[0] || '';
+  const gradeDe = (t) => tableGrades[premierCode(t).toUpperCase()] || 'inconnu';
+
+  /**
+   * Liste « Consignes de déchargement » (onglet Consignes) : une ligne par famille de teneur
+   * (code du nom de bloc, plage d'admission, aire de déchargement). Un clic ouvre la popup
+   * d'affectation. Appelée aussi depuis chargerZones() : au démarrage les teneurs peuvent
+   * arriver avant la liste des dumping areas.
+   */
   function rendreChipsInstruction() {
-    const rowDi = $('#sgDiTeneursRow');
-    if (!rowDi) return;
-    rowDi.innerHTML = teneurs.map((t) => {
+    const box = $('#sgConsignes');
+    if (!box) return;
+    const fmt = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+    box.innerHTML = teneurs.length ? teneurs.map((t) => {
       const da = dumpingAreas.find((z) => z.id === t.dumping_area_id);
-      const libelle = da ? esc(t.nom) + ' → ' + esc(da.nom) : esc(t.nom);
-      const infobulle = t.dumping_area_id
-        ? (da ? 'Consigne : ' + da.nom + ' - cliquer pour modifier'
-              : 'Dumping Area affectee - cliquer pour modifier')
-        : 'Aucune Dumping Area - cliquer pour affecter';
-      return '<button type="button" class="sg2-outline sg2-chip' +
-        (t.dumping_area_id ? '' : ' sg2-warn') +
-        '" data-teneur-assign="' + t.id + '" title="' + esc(infobulle) + '">' +
-        libelle + '</button>';
-    }).join('');
+      const code = premierCode(t);
+      const bloc = '<div class="sg-cons-fam g-' + gradeDe(t) + '"><span class="sg-cons-code g-' + gradeDe(t) + '">' + esc(code || '?') + '</span>' +
+        '<div><b>' + esc(t.nom) + '</b><small>' + (t.codes ? 'Code de bloc : ' + esc(String(t.codes).trim()) : 'Aucun code de bloc') + '</small></div></div>';
+      const plage = '<span class="sg-cons-plage">' + fmt(t.valeur_min) + ' – ' + fmt(t.valeur_max) + ' %</span>';
+      const aire = da
+        ? '<button type="button" class="sg-cons-aire" data-teneur-assign="' + t.id + '" title="Cliquer pour modifier">' +
+          '<i class="far fa-square-full"></i><span><b>' + esc(da.nom) + '</b><small>Aire polygonale affectée</small></span><i class="fas fa-chevron-down"></i></button>'
+        : '<button type="button" class="sg-cons-aire manquante" data-teneur-assign="' + t.id + '" title="Cliquer pour affecter">' +
+          '<i class="fas fa-triangle-exclamation"></i><span><b>Affecter une aire</b><small>Obligatoire pour cette famille</small></span><i class="fas fa-arrow-right"></i></button>';
+      return '<div class="sg-cons-row' + (da ? '' : ' manquante') + '">' + bloc + plage + '<i class="fas fa-arrow-right sg-cons-fleche"></i>' + aire + '</div>';
+    }).join('') : '<div class="sg2-di-empty">Aucune famille de teneur pour cette source.</div>';
+
+    const manquantes = teneurs.filter((t) => !t.dumping_area_id).length;
+    const prog = $('#sgDiProgress');
+    if (prog) prog.textContent = teneurs.length
+      ? (teneurs.length - manquantes) + ' famille' + (teneurs.length - manquantes > 1 ? 's' : '') + ' affectée' + (teneurs.length - manquantes > 1 ? 's' : '') + ' sur ' + teneurs.length
+      : '';
+    const fill = $('#sgProgressFill');
+    if (fill) fill.style.width = teneurs.length ? Math.round((teneurs.length - manquantes) / teneurs.length * 100) + '%' : '0';
     const statusDi = $('#sgDiStatus');
     if (statusDi) {
-      const manquantes = teneurs.filter((t) => !t.dumping_area_id).length;
       statusDi.textContent = manquantes
         ? manquantes + ' teneur' + (manquantes > 1 ? 's' : '') + ' sans Dumping Area' : '';
       statusDi.className = 'sg2-status account-status' + (manquantes ? ' err' : '');
     }
+    rendreEntete();
+  }
+
+  // En-tete : rang de la source, compteurs, pastille du systeme geographique, onglets (tout calcule)
+  let nbPistes = null;
+  function rendreEntete() {
+    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    const deux = (n) => String(n).padStart(2, '0');
+    const idx = sources.findIndex((x) => x.id === sourceSelectionnee);
+    set('#sgSourceRang', idx >= 0 ? deux(idx + 1) : '--');
+    set('#sgStatFamilles', deux(teneurs.length));
+    set('#sgStatAires', deux(dumpingAreas.length));
+    set('#sgStatPistes', nbPistes === null ? '--' : deux(nbPistes));
+    set('#sgTabConsignes', deux(teneurs.length));
+    set('#sgTabSources', deux(sources.length));
+    set('#sgTabAires', deux(dumpingAreas.length));
+    set('#sgTabTrails', nbPistes === null ? '--' : deux(nbPistes));
+    const s = sources.find((x) => x.id === sourceSelectionnee);
+    const codes = s && s.codes ? String(s.codes).trim() : '';
+    set('#sgInfoCodes', codes
+      ? 'Le code ' + codes + ' doit appartenir à ' + s.nom + ' avant toute affectation.'
+      : 'Aucun code admis pour cette source : le contrôle du nom de bloc est désactivé.');
+    const n = new Date();
+    set('#sgMaj', 'Données lues à ' + deux(n.getHours()) + ':' + deux(n.getMinutes()));
   }
 
   async function chargerTeneurs() {
@@ -472,6 +524,7 @@
       // ont pu etre dessinees avant que cette liste arrive (chargements
       // paralleles au demarrage). On les redessine une fois les noms connus.
       if (teneurs.length) rendreChipsInstruction();
+      rendreEntete();
       await chargerResumeDI();
     } catch (e) {
       setStatus('#sgDaStatus', 'Serveur SG injoignable (' + e.message + ')', false);
@@ -598,6 +651,8 @@
   /* ======================= CARTE 3 : TRAILS (GeoTiff) ==================== */
 
   function renderRoads(rows) {
+    nbPistes = (rows || []).length;
+    rendreEntete();
     const b = $('#sgRoadsList');
     if (!b) return;
     if (!rows || !rows.length) { b.innerHTML = ''; return; }
@@ -775,6 +830,9 @@
     }
     det.classList.add('show');
     det.innerHTML = '<span><b>' + libelle + '</b></span>';
+    const pill = $('#sgGeoPill');
+    if (pill) pill.textContent = geoActuel.systeme === 'UTM'
+      ? 'WGS84 · UTM ' + geoActuel.zone + (geoActuel.hemisphere || 'N') : 'WGS84';
   }
 
   async function chargerGeo() {
@@ -991,6 +1049,33 @@
       r.addEventListener('change', majVisibiliteUtm);
     });
 
+    // onglets
+    const tabs = document.querySelectorAll('.sg-tab');
+    const ouvrirOnglet = (nom) => {
+      tabs.forEach((t) => t.classList.toggle('is-active', t.dataset.sgtab === nom));
+      document.querySelectorAll('.sg-pane').forEach((p) => {
+        const actif = p.dataset.sgpane === nom;
+        p.hidden = !actif;
+        p.classList.toggle('is-active', actif);
+      });
+    };
+    tabs.forEach((t) => t.addEventListener('click', () => ouvrirOnglet(t.dataset.sgtab)));
+    // « Nouvelle source » : onglet Sources & teneurs + ouverture du formulaire d'ajout
+    const btnNouvelle = $('#sgBtnNouvelleSource');
+    if (btnNouvelle) btnNouvelle.addEventListener('click', () => {
+      ouvrirOnglet('sources');
+      const form = $('#sgSrcAddForm');
+      if (form && form.style.display === 'none') $('#sgBtnSrcAdd').click();
+      else if ($('#sgNewSource')) $('#sgNewSource').focus();
+    });
+    // « Voir le resume » : resume des consignes de toutes les sources
+    const btnResume = $('#sgVoirResume');
+    if (btnResume) btnResume.addEventListener('click', () => {
+      const r = $('#sgResume');
+      if (r) r.hidden = !r.hidden;
+    });
+
+    chargerTableGrades();
     chargerSources();
     chargerZones();
     chargerCheckpoints();
@@ -1114,6 +1199,22 @@
           '</div>';
         }).join('');
       }
+    }
+
+    const enCoursN = etat.missions.filter((m) => m.statut === 'en_cours').length;
+    const sm = $('#sgStatMissions');
+    if (sm) sm.textContent = String(enCoursN).padStart(2, '0');
+    const aujourdhuiT = new Date().toISOString().slice(0, 10);
+    const tonnesJour = etat.voyages
+      .filter((v) => String(v.created_at || '').slice(0, 10) === aujourdhuiT)
+      .reduce((t, v) => t + (v.volume_t || 0), 0);
+    const st = $('#sgStatTonnes');
+    if (st) st.textContent = Math.round(tonnesJour).toLocaleString('fr-FR');
+    const derniere = etat.alertes.find((a) => !MSUI.estInfo(a)) || etat.alertes[0];
+    const boxD = $('#sgDerniereAlerte');
+    if (boxD) {
+      boxD.hidden = !derniere;
+      if (derniere) $('#sgDerniereAlerteTxt').textContent = MSUI.heure(derniere.created_at) + ' · ' + String(derniere.message || '');
     }
 
     const boxA = $('#sgSuiviAlertes');
