@@ -29,9 +29,11 @@ import math
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -371,6 +373,19 @@ CREATE TABLE IF NOT EXISTS trajectoires (
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE (source_id, dumping_area_id)
 );
+
+-- 21/11 : TABLETTES (console, Settings > Tablettes). Une installation = une famille de camion = un id DT.
+CREATE TABLE IF NOT EXISTS tablettes (
+    serial TEXT PRIMARY KEY,           -- numero de serie adb (stable, USB comme Wi-Fi)
+    nom TEXT DEFAULT '',               -- modele lu sur l'appareil
+    dt_code TEXT DEFAULT '',           -- DT-04 : le DT auquel la tablette est affectee
+    famille TEXT DEFAULT '',           -- famille du camion : 1500, 785, ADT...
+    apk TEXT DEFAULT '',               -- dernier APK installe
+    installee_le TEXT DEFAULT '',
+    derniere_vue TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tablettes_dt ON tablettes(dt_code) WHERE dt_code <> '';
 
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6253,6 +6268,318 @@ def enregistrer_alerte_office(conn, evenement):
         _office_reveil.set()               # sans attendre (jamais d'appel reseau ici : on est sous le verrou)
 
 
+# ------------------------------------------------------------------ tablettes (adb) ---
+# Detection automatique des tablettes branchees (USB) ou connectees (Wi-Fi), affectation a un DT et
+# installation de l'APK, depuis la console. adb est lance SUR CE POSTE : aucun service cloud n'est concerne.
+# Une installation = une famille de camion = un id DT : la console pousse `provision.json` dans le dossier
+# de l'app (lu par ProvisionPlugin cote tablette), l'app s'ouvre directement sur ce DT.
+PAQUET_DT = "com.lafigue.oretracking.dt"
+PORT_ADB_WIFI = 5555
+_RE_ADRESSE = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{2,5}))?$")
+_RE_SERIE = re.compile(r"^[A-Za-z0-9._:\-]{3,64}$")
+_jobs_tablettes = {}
+_jobs_verrou = threading.Lock()
+
+
+def adb_chemin():
+    """adb : reglage ADB_CHEMIN, sinon le PATH, sinon le SDK Android (ANDROID_SDK_ROOT / ANDROID_HOME)."""
+    c = param_lire("ADB_CHEMIN", "").strip()
+    if c and os.path.isfile(c):
+        return c
+    trouve = shutil.which("adb")
+    if trouve:
+        return trouve
+    for var in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
+        base = os.environ.get(var, "")
+        for nom in ("adb.exe", "adb"):
+            f = os.path.join(base, "platform-tools", nom)
+            if base and os.path.isfile(f):
+                return f
+    return ""
+
+
+def adb_lancer(args, serie=None, timeout=25):
+    """Lance adb [-s serie] args. Rend (code, sortie, erreur) ; code -1 = adb introuvable / delai depasse."""
+    exe = adb_chemin()
+    if not exe:
+        return -1, "", "adb introuvable (reglage ADB_CHEMIN, PATH ou SDK Android)"
+    cmd = [exe] + (["-s", serie] if serie else []) + list(args)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, creationflags=flags,
+                           encoding="utf-8", errors="replace")
+        return r.returncode, (r.stdout or "").replace("\r", ""), (r.stderr or "").replace("\r", "").strip()
+    except subprocess.TimeoutExpired:
+        return -1, "", "delai depasse (%d s) : %s" % (timeout, " ".join(args[:3]))
+    except OSError as e:
+        return -1, "", str(e)
+
+
+def adb_peripheriques():
+    """`adb devices -l` -> [{serie, etat, transport, modele}] ; transport = usb | wifi."""
+    adb_lancer(["start-server"], timeout=15)
+    code, sortie, err = adb_lancer(["devices", "-l"], timeout=15)
+    if code != 0:
+        return [], err or "adb a echoue"
+    res = []
+    for ligne in sortie.split("\n")[1:]:
+        parts = ligne.split()
+        if len(parts) < 2:
+            continue
+        info = {kv.split(":", 1)[0]: kv.split(":", 1)[1] for kv in parts[2:] if ":" in kv}
+        res.append({"serie": parts[0], "etat": parts[1],
+                    "transport": "wifi" if _RE_ADRESSE.match(parts[0]) else "usb",
+                    "modele": info.get("model", "").replace("_", " ")})
+    return res, ""
+
+
+_SCRIPT_INFOS = (
+    "echo modele=$(getprop ro.product.model); echo marque=$(getprop ro.product.manufacturer); "
+    "echo android=$(getprop ro.build.version.release); echo serie=$(getprop ro.serialno); "
+    "echo tcp=$(getprop service.adb.tcp.port); "
+    "echo ip=$(ip -f inet addr show 2>/dev/null | grep 'inet ' | grep -v ' 127[.]' | head -1); "
+    "echo batterie=$(dumpsys battery | grep level | head -1); "
+    "echo version=$(dumpsys package " + PAQUET_DT + " | grep versionName | head -1); "
+    "echo paquets=$(pm list packages | grep -i oretracking | tr '\\n' ' ')"
+)
+
+
+def adb_infos(serie):
+    """Informations d'une tablette (une seule commande shell) : modele, Android, IP Wi-Fi, batterie, app DT."""
+    code, sortie, _ = adb_lancer(["shell", _SCRIPT_INFOS], serie=serie, timeout=20)
+    if code != 0:
+        return {}
+    d = {}
+    for ligne in sortie.split("\n"):
+        if "=" in ligne:
+            k, v = ligne.split("=", 1)
+            d[k.strip()] = v.strip()
+    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", d.get("ip", ""))
+    b = re.search(r"(\d+)", d.get("batterie", ""))
+    v = re.search(r"versionName=(\S+)", d.get("version", ""))
+    return {"modele": ((d.get("marque", "") + " " + d.get("modele", "")).strip()),
+            "android": d.get("android", ""), "numero_serie": d.get("serie", ""),
+            "ip": m.group(1) if m else "", "wifi_ouvert": d.get("tcp", "") == str(PORT_ADB_WIFI),
+            "batterie": int(b.group(1)) if b else None,
+            "app_version": v.group(1) if v else "",
+            "paquets": [x.replace("package:", "") for x in d.get("paquets", "").split()]}
+
+
+def dossier_apk():
+    """Dossier des APK : reglage APK_DOSSIER, sinon <poste>/apk, sinon le depot de l'app DT voisin."""
+    c = param_lire("APK_DOSSIER", "").strip()
+    candidats = [c] if c else []
+    candidats += [os.path.join(BASE_DIR, "apk"),
+                  os.path.join(os.path.dirname(BASE_DIR), "OT2-Tab-goodJob-DT", "apk")]
+    for d in candidats:
+        if d and os.path.isdir(d):
+            return d
+    return candidats[0] if candidats else ""
+
+
+def apk_disponibles():
+    """APK du DT du dossier (ore-dt-*.apk), du plus recent au plus ancien."""
+    d = dossier_apk()
+    res = []
+    if d:
+        for nom in os.listdir(d):
+            if re.match(r"^ore-dt-.*\.apk$", nom, re.I):
+                f = os.path.join(d, nom)
+                res.append({"nom": nom, "taille_mo": round(os.path.getsize(f) / 1048576, 1),
+                            "date": datetime.fromtimestamp(os.path.getmtime(f)).strftime("%Y-%m-%d %H:%M"),
+                            "test": nom.lower().endswith("-test.apk"), "chemin": f})
+    res.sort(key=lambda a: a["date"], reverse=True)
+    return d, res
+
+
+def apk_retenu(autoriser_test=False):
+    """APK a installer : le dernier de PRODUCTION ; un APK de test (WebView deboguable) seulement si autorise."""
+    _, liste = apk_disponibles()
+    prod = [a for a in liste if not a["test"]]
+    if prod:
+        return prod[0], ""
+    if autoriser_test and liste:
+        return liste[0], ""
+    if liste:
+        return None, "aucun APK de production (seulement des APK de test) : construisez-le ou autorisez l'APK de test"
+    return None, "aucun APK ore-dt-*.apk dans %s" % (dossier_apk() or "le dossier des APK")
+
+
+def zone_utm_site(conn):
+    z, h = repere_site(conn)
+    return ("%s%s" % (z, h)) if z else ""
+
+
+def tablettes_lister(conn):
+    """Tablettes detectees (adb) + tablettes connues (base), avec leur affectation."""
+    periph, erreur = adb_peripheriques()
+    connues = {r["serial"]: dict(r) for r in conn.execute("SELECT * FROM tablettes")}
+    vus, tablettes = set(), []
+    for p in periph:
+        info = adb_infos(p["serie"]) if p["etat"] == "device" else {}
+        serie = info.get("numero_serie") or p["serie"]
+        if serie in vus:
+            # meme tablette branchee en USB ET en Wi-Fi : une seule ligne, le Wi-Fi est note
+            for t in tablettes:
+                if t["serie"] == serie:
+                    t["transports"] = sorted(set(t["transports"] + [p["transport"]]))
+                    if p["transport"] == "wifi":
+                        t["adresse_wifi"] = p["serie"]
+            continue
+        vus.add(serie)
+        k = connues.get(serie, {})
+        tablettes.append({
+            "serie": serie, "adresse_adb": p["serie"], "etat": p["etat"], "connectee": p["etat"] == "device",
+            "transports": [p["transport"]], "adresse_wifi": p["serie"] if p["transport"] == "wifi" else "",
+            "modele": info.get("modele") or p["modele"] or k.get("nom", ""), "android": info.get("android", ""),
+            "ip": info.get("ip", ""), "wifi_ouvert": info.get("wifi_ouvert", False),
+            "batterie": info.get("batterie"),
+            "app_installee": PAQUET_DT in info.get("paquets", []) or bool(info.get("app_version")),
+            "app_version": info.get("app_version", ""), "autres_apps": [x for x in info.get("paquets", []) if x != PAQUET_DT],
+            "dt_code": k.get("dt_code", ""), "famille": k.get("famille", ""), "apk": k.get("apk", ""),
+            "installee_le": k.get("installee_le", ""),
+        })
+        if k or info:
+            conn.execute(
+                "INSERT INTO tablettes (serial, nom, derniere_vue) VALUES (?, ?, datetime('now','localtime')) "
+                "ON CONFLICT(serial) DO UPDATE SET nom=excluded.nom, derniere_vue=excluded.derniere_vue",
+                (serie, tablettes[-1]["modele"]))
+        else:
+            conn.execute("INSERT OR IGNORE INTO tablettes (serial, nom, derniere_vue) VALUES (?, ?, datetime('now','localtime'))",
+                         (serie, tablettes[-1]["modele"]))
+    conn.commit()
+    for serie, k in connues.items():          # connues mais absentes : on garde leur affectation
+        if serie not in vus:
+            tablettes.append({"serie": serie, "adresse_adb": "", "etat": "absente", "connectee": False,
+                              "transports": [], "adresse_wifi": "", "modele": k.get("nom", ""), "android": "",
+                              "ip": "", "wifi_ouvert": False, "batterie": None, "app_installee": False,
+                              "app_version": "", "autres_apps": [], "dt_code": k.get("dt_code", ""),
+                              "famille": k.get("famille", ""), "apk": k.get("apk", ""),
+                              "installee_le": k.get("installee_le", "")})
+    dossier, apks = apk_disponibles()
+    retenu, motif = apk_retenu(False)
+    return {"adb": {"chemin": adb_chemin(), "erreur": erreur}, "tablettes": tablettes,
+            "apk": {"dossier": dossier, "fichiers": [{k: v for k, v in a.items() if k != "chemin"} for a in apks],
+                    "retenu": retenu["nom"] if retenu else "", "motif": motif}}
+
+
+def tablette_ouvrir_wifi(serie):
+    """« Ouverture du port » : adb tcpip 5555 sur la tablette (USB), puis adb connect <ip>:5555."""
+    code, _, err = adb_lancer(["tcpip", str(PORT_ADB_WIFI)], serie=serie, timeout=20)
+    if code != 0:
+        return {"ok": False, "erreur": err or "adb tcpip a echoue (la tablette doit etre branchee en USB)"}
+    time.sleep(2.5)
+    info = {}
+    for _ in range(4):
+        info = adb_infos(serie) or adb_infos(serie)
+        if info.get("ip"):
+            break
+        time.sleep(1.0)
+    ip = info.get("ip", "")
+    if not ip:
+        return {"ok": False, "erreur": "port ouvert, mais l'adresse Wi-Fi de la tablette est introuvable (Wi-Fi allume ?)"}
+    code, sortie, err = adb_lancer(["connect", "%s:%d" % (ip, PORT_ADB_WIFI)], timeout=15)
+    ok = code == 0 and ("connected" in sortie.lower() or "already" in sortie.lower())
+    return {"ok": ok, "ip": ip, "port": PORT_ADB_WIFI, "detail": (sortie.strip() or err)}
+
+
+def tablette_connecter(adresse):
+    m = _RE_ADRESSE.match(str(adresse or "").strip())
+    if not m:
+        return {"ok": False, "erreur": "adresse attendue : 192.168.x.x ou 192.168.x.x:5555"}
+    cible = "%s:%s" % (m.group(1), m.group(2) or PORT_ADB_WIFI)
+    code, sortie, err = adb_lancer(["connect", cible], timeout=15)
+    ok = code == 0 and ("connected" in sortie.lower() or "already" in sortie.lower())
+    return {"ok": ok, "adresse": cible, "detail": (sortie.strip() or err)}
+
+
+def tablette_affecter(conn, serie, dt, famille):
+    """Fixe l'affectation : une tablette = un DT = une famille. Un DT n'a qu'UNE tablette."""
+    serie = str(serie or "").strip()
+    famille = str(famille or "").strip()
+    dt_brut = str(dt or "").strip().upper().replace("DT-", "").replace("DT", "")
+    if not _RE_SERIE.match(serie):
+        return 400, {"error": "numero de serie invalide"}
+    if not re.fullmatch(r"\d{1,3}", dt_brut):
+        return 400, {"error": "id DT attendu : un numero (4 ou DT-04)"}
+    if not re.fullmatch(r"[A-Za-z0-9 ._\-]{1,24}", famille):
+        return 400, {"error": "famille de camion requise (1500, 785, ADT...)"}
+    code = "DT-%02d" % int(dt_brut)
+    autre = conn.execute("SELECT serial, nom FROM tablettes WHERE dt_code=? AND serial<>?", (code, serie)).fetchone()
+    if autre:
+        return 409, {"error": "%s est deja affecte a la tablette %s (%s)" % (code, autre["serial"], autre["nom"] or "sans nom")}
+    conn.execute("INSERT OR IGNORE INTO tablettes (serial) VALUES (?)", (serie,))
+    conn.execute("UPDATE tablettes SET dt_code=?, famille=? WHERE serial=?", (code, famille, serie))
+    conn.commit()
+    return 200, {"ok": True, "serie": serie, "dt_code": code, "famille": famille}
+
+
+def _job_log(job, texte, ok=True):
+    with _jobs_verrou:
+        _jobs_tablettes[job]["etapes"].append({"texte": texte, "ok": ok})
+
+
+def tablette_installer(job, serie, adresse_adb, dt_code, famille, zone, autoriser_test, reinstaller):
+    """Installation complete (thread) : APK -> premier lancement -> provision.json -> relance."""
+    cible = adresse_adb or serie
+    try:
+        apk, motif = apk_retenu(autoriser_test)
+        if not apk:
+            raise RuntimeError(motif)
+        _job_log(job, "APK retenu : %s (%s Mo%s)" % (apk["nom"], apk["taille_mo"], ", TEST" if apk["test"] else ""))
+        if reinstaller:
+            adb_lancer(["uninstall", PAQUET_DT], serie=cible, timeout=60)
+            _job_log(job, "Ancienne version desinstallee (donnees de l'app effacees)")
+        code, sortie, err = adb_lancer(["install", "-r", apk["chemin"]], serie=cible, timeout=240)
+        texte = (sortie + " " + err).strip()
+        if code != 0 or "Success" not in texte:
+            if "UPDATE_INCOMPATIBLE" in texte:
+                raise RuntimeError("une version signee avec une AUTRE cle est installee : relancez avec « reinstaller » "
+                                   "(les donnees de l'app seront effacees)")
+            raise RuntimeError("installation refusee : %s" % texte[-240:])
+        _job_log(job, "APK installe")
+        # premier lancement : l'app cree son dossier de fichiers externes (getExternalFilesDir)
+        adb_lancer(["shell", "monkey", "-p", PAQUET_DT, "-c", "android.intent.category.LAUNCHER", "1"], serie=cible, timeout=20)
+        time.sleep(4.0)
+        contenu = json.dumps({"dt": dt_code.replace("DT-", ""), "camion": famille, "zone": zone or ""}, ensure_ascii=True)
+        tmp = os.path.join(tempfile.gettempdir(), "provision_%s.json" % re.sub(r"[^A-Za-z0-9]", "", serie))
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(contenu)
+        dest = "/sdcard/Android/data/%s/files" % PAQUET_DT
+        adb_lancer(["shell", "mkdir", "-p", dest], serie=cible, timeout=15)
+        code, _, err = adb_lancer(["push", tmp, dest + "/provision.json"], serie=cible, timeout=30)
+        os.remove(tmp)
+        if code != 0:
+            raise RuntimeError("fichier de provisionnement non ecrit : %s" % err[-200:])
+        code, relu, _ = adb_lancer(["shell", "cat", dest + "/provision.json"], serie=cible, timeout=15)
+        if code != 0 or dt_code.replace("DT-", "") not in relu:
+            raise RuntimeError("provisionnement non verifie sur la tablette")
+        _job_log(job, "Affectation ecrite sur la tablette : %s, famille %s" % (dt_code, famille))
+        adb_lancer(["shell", "am", "force-stop", PAQUET_DT], serie=cible, timeout=15)
+        adb_lancer(["shell", "monkey", "-p", PAQUET_DT, "-c", "android.intent.category.LAUNCHER", "1"], serie=cible, timeout=20)
+        _job_log(job, "Application lancee sur %s" % dt_code)
+        conn = get_conn()
+        try:
+            conn.execute("UPDATE tablettes SET apk=?, installee_le=datetime('now','localtime') WHERE serial=?", (apk["nom"], serie))
+            conn.commit()
+        finally:
+            conn.close()
+        with _jobs_verrou:
+            _jobs_tablettes[job]["etat"] = "ok"
+    except Exception as e:
+        _job_log(job, str(e), ok=False)
+        with _jobs_verrou:
+            _jobs_tablettes[job]["etat"] = "erreur"
+            _jobs_tablettes[job]["erreur"] = str(e)
+
+
+def tablette_reinitialiser(serie, adresse_adb):
+    cible = adresse_adb or serie
+    code, _, err = adb_lancer(["shell", "rm", "-f", "/sdcard/Android/data/%s/files/provision.json" % PAQUET_DT], serie=cible, timeout=15)
+    adb_lancer(["shell", "am", "force-stop", PAQUET_DT], serie=cible, timeout=15)
+    return {"ok": code == 0, "erreur": err}
+
+
 # ------------------------------------------------ authentification des ecritures ---
 # 20/11 : la passerelle n'avait AUCUNE authentification : toute machine du reseau pouvait
 # changer les reglages (sortie de route, liaisons, MQTT...). Les LECTURES restent ouvertes
@@ -6264,7 +6591,7 @@ def enregistrer_alerte_office(conn, evenement):
 # AUTH_ECRITURES=0 coupe le controle (depannage).
 RANG_ROLE = {"geologue": 1, "senor": 2, "admin": 3}
 # Prefixes d'ecritures : le plus restrictif d'abord. Ecriture inconnue = admin (refus par defaut).
-ECRITURES_ADMIN = ("/api/relais", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
+ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
                    "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
@@ -6383,6 +6710,51 @@ class Handler(BaseHTTPRequestHandler):
         if length > 0:
             return self.rfile.read(length)
         return b""
+
+    def _route_tablettes(self, path, method):
+        sous = path[len("/api/tablettes"):].strip("/")
+        conn = get_conn()
+        try:
+            if method == "GET" and sous == "":
+                return self._send_json(200, tablettes_lister(conn))
+            if method == "GET" and sous == "installation":
+                job = (self._qs().get("job") or [""])[0]
+                with _jobs_verrou:
+                    d = dict(_jobs_tablettes.get(job) or {})
+                if not d:
+                    return self._send_json(404, {"error": "installation inconnue"})
+                return self._send_json(200, d)
+            if method != "POST":
+                return self._send_json(405, {"error": "methode non supportee"})
+            body = json.loads(self._read_body() or b"{}")
+            serie = str(body.get("serie") or "").strip()
+            if sous == "connecter":
+                return self._send_json(200, tablette_connecter(body.get("adresse")))
+            if not _RE_SERIE.match(serie):
+                return self._send_json(400, {"error": "numero de serie invalide"})
+            if sous == "wifi":
+                return self._send_json(200, tablette_ouvrir_wifi(str(body.get("adresse_adb") or serie)))
+            if sous == "affecter":
+                code, rep_ = tablette_affecter(conn, serie, body.get("dt"), body.get("famille"))
+                return self._send_json(code, rep_)
+            if sous == "reinitialiser":
+                return self._send_json(200, tablette_reinitialiser(serie, str(body.get("adresse_adb") or "")))
+            if sous == "installer":
+                k = conn.execute("SELECT dt_code, famille FROM tablettes WHERE serial=?", (serie,)).fetchone()
+                if not k or not k["dt_code"] or not k["famille"]:
+                    return self._send_json(409, {"error": "affectez d'abord un DT et une famille a cette tablette"})
+                with _jobs_verrou:
+                    if any(j["serie"] == serie and j["etat"] == "en_cours" for j in _jobs_tablettes.values()):
+                        return self._send_json(409, {"error": "une installation est deja en cours sur cette tablette"})
+                    job = "inst_%d" % int(time.time() * 1000)
+                    _jobs_tablettes[job] = {"job": job, "serie": serie, "etat": "en_cours", "etapes": [], "erreur": ""}
+                threading.Thread(target=tablette_installer, daemon=True, args=(
+                    job, serie, str(body.get("adresse_adb") or ""), k["dt_code"], k["famille"], zone_utm_site(conn),
+                    bool(body.get("autoriser_test")), bool(body.get("reinstaller")))).start()
+                return self._send_json(202, {"job": job})
+            return self._send_json(404, {"error": "endpoint inconnu: /api/tablettes/" + sous})
+        finally:
+            conn.close()
 
     def _qs(self):
         return parse_qs(urlparse(self.path).query)
@@ -6617,6 +6989,9 @@ class Handler(BaseHTTPRequestHandler):
                 if v and not _RE_HORODATAGE.match(v):
                     return self._send_json(400, {"error": "depuis / jusqua attendus au format AAAA-MM-JJ HH:MM:SS"})
             return self._send_json(200, kpi_du_jour(jour, depuis or None, jusqua or None))
+        # Tablettes (adb) : detection, Wi-Fi, affectation, installation. Hors verrou : adb prend plusieurs secondes.
+        if path.startswith("/api/tablettes"):
+            return self._route_tablettes(path, method)
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())

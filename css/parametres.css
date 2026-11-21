@@ -341,3 +341,41 @@
 .pm-catalogue .pm-ajout-ligne { margin-bottom: 10px; }
 #page-settings .pm-bloc { background: #ece8dc; }
 #page-settings .pm-eq:nth-child(odd), #page-settings .pm-eq-creation, #page-settings .pm-note { background: #ece8dc; }
+
+
+/* ============================================================ onglet Tablettes */
+.pm-tablettes { padding-top: 6px; }
+.pm-tablettes[hidden] { display: none !important; }
+.pm-tab-barre { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px; margin-top: 26px; padding: 22px 24px; background: var(--pm-beige); border-radius: 2px; }
+.pm-tab-apk { display: flex; flex-direction: column; gap: 8px; min-width: 280px; flex: 1; }
+.pm-tab-apk .lbl, .pm-tab-ip-form .lbl { font-family: var(--pm-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--pm-gris); }
+.pm-tab-apk-nom { display: flex; flex-direction: column; gap: 3px; }
+.pm-tab-apk-nom b { font-size: 16px; font-weight: 500; color: var(--pm-encre); word-break: break-all; }
+.pm-tab-apk-nom small { font-size: 12.5px; color: var(--pm-gris); }
+.pm-tab-test { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--pm-gris); cursor: pointer; }
+.pm-tab-ip-form { display: flex; flex-direction: column; gap: 8px; }
+.pm-tab-ip-ligne { display: flex; gap: 10px; }
+.pm-tab-ip-ligne input { height: 44px; padding: 0 12px; border: 0; border-radius: 2px; background: #fff; font-size: 14px; min-width: 220px; }
+.pm-tab-detecter { height: 44px; padding: 0 22px; }
+.pm-table-tab { margin-top: 28px; }
+.pm-table-tab .pm-thead, .pm-ligne-tab { grid-template-columns: 1.5fr 1.1fr 1.1fr 1.6fr; }
+.pm-tab { margin-bottom: 5px; border-radius: 2px; }
+.pm-tab:nth-child(odd) { background: var(--pm-beige); }
+.pm-ligne-tab { min-height: 84px; margin: 0; padding-top: 12px; padding-bottom: 12px; background: none !important; }
+.pm-tab-id, .pm-tab-app, .pm-tab-dt { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.pm-tab-id b { font-size: 17px; font-weight: 500; color: var(--pm-encre); }
+.pm-tab-id small, .pm-tab-app small, .pm-tab-dt small { font-size: 12px; color: var(--pm-gris); }
+.pm-tab-transports { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
+.pm-tab-puce { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 2px; background: var(--pm-sombre); color: #fff; font-size: 10.5px; letter-spacing: .05em; }
+.pm-tab-ip { font-family: var(--pm-mono); font-size: 11.5px; color: var(--pm-gris); }
+.pm-tab-alerte { font-size: 12px; color: #c23b22; }
+.pm-tab-app { font-size: 14px; color: var(--pm-gris); }
+.pm-tab-app.ok { color: var(--pm-encre); }
+.pm-tab-dt select { height: 42px; padding: 0 10px; border: 0; border-radius: 2px; background: #fff; font-size: 14px; min-width: 0; }
+.pm-tab-dt select:disabled { opacity: .55; }
+.pm-tab-actions { gap: 8px; align-items: center; flex-wrap: wrap; }
+.pm-tab-installer { height: 42px; min-width: 130px; }
+.pm-tab-installer:disabled { opacity: .45; cursor: default; }
+.pm-tab-etapes { display: flex; flex-direction: column; gap: 4px; padding: 4px 16px 16px; font-size: 13px; color: var(--pm-gris); }
+.pm-tab-etapes .ko { color: #c23b22; }
+.pm-tab-etapes .en-cours { color: var(--pm-bleu); }

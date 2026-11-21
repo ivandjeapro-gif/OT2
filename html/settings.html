@@ -87,6 +87,7 @@
                     <div class="settings-onglets r-onglets" id="settingsOnglets">
                         <button class="onglet actif" data-onglet="connexion">Connexion</button>
                         <button class="onglet" data-onglet="flotte">Flotte</button>
+                        <button class="onglet" data-onglet="tablettes">Tablettes</button>
                         <button class="onglet" data-onglet="terrain">Terrain</button>
                     </div>
 
@@ -530,6 +531,34 @@
                         </div>
                     </div><!-- /onglet flotte -->
 
+                    <!-- ===== ONGLET TABLETTES : detection auto (adb), affectation DT, installation ===== -->
+                    <div class="onglet-pane pm-tablettes" data-onglet="tablettes" hidden>
+                        <h2 class="pm-titre-onglet">Tablettes</h2>
+                        <p class="pm-sous" id="tabAdbEtat">Recherche des tablettes…</p>
+
+                        <div class="pm-tab-barre">
+                            <div class="pm-tab-apk">
+                                <span class="lbl">APK du DT</span>
+                                <div class="pm-tab-apk-nom" id="tabApk">--</div>
+                                <label class="pm-tab-test"><input type="checkbox" id="tabAutoriserTest" /> Autoriser l'APK de test</label>
+                            </div>
+                            <form class="pm-tab-ip-form" id="tabConnecterForm">
+                                <span class="lbl">Connecter par IP</span>
+                                <div class="pm-tab-ip-ligne">
+                                    <input type="text" id="tabAdresse" placeholder="192.168.1.50 (port 5555)" />
+                                    <button type="submit" class="pm-btn-sombre">Connecter</button>
+                                </div>
+                            </form>
+                            <button type="button" class="pm-btn-sombre pm-tab-detecter" id="tabDetecter">Détecter</button>
+                        </div>
+                        <div class="account-status" id="tabStatus"></div>
+
+                        <div class="pm-table pm-table-tab">
+                            <div class="pm-thead"><span>Tablette</span><span>Application</span><span>DT · famille</span><span class="pm-droite">Actions</span></div>
+                            <div id="tabListe"><div class="pm-vide">Chargement…</div></div>
+                        </div>
+                    </div><!-- /onglet tablettes -->
+
                     <!-- ===== ONGLET TERRAIN : tablette, GNSS, radio, affectation (maquette « Paramètres › Terrain ») ===== -->
                     <div class="onglet-pane pm-terrain" data-onglet="terrain" hidden>
                         <div class="pm-flotte-cols">
@@ -681,6 +710,7 @@
     <script src="../js/ot-settings.js"></script>
     <script src="../js/passerelle-relais.js"></script>
     <script src="../js/server-ui.js"></script>
+    <script src="../js/tablettes.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/xbee-serial.js"></script>
     <script src="../js/app.js"></script>
