@@ -25,13 +25,21 @@
     return /waste|dump|sterile/.test(String(v.da_nom || '').toLowerCase());
   }
 
-  // Grade : un voyage Waste n'a pas de grade ; sinon seuils de teneur (g/t)
+  // Grade : meme regle que le Dashboard et la passerelle (KPI_GRADES de Server_Senor_Geology.py) :
+  // code de teneur = 4e segment du NOM du bloc (260_LMP2_113_MG_FR_021_OP -> MG).
+  // Aucun seuil de g/t : le grade vient de la nomenclature, pas d'un chiffre.
+  const GRADES = {
+    HG: ['high', 'High Grade'], SHG: ['high', 'High Grade'],
+    MG: ['medium', 'Medium Grade'], MG1: ['medium', 'Medium Grade'], MG2: ['medium', 'Medium Grade'],
+    LG: ['low', 'Low Grade'], LG1: ['low', 'Low Grade'], LG2: ['low', 'Low Grade'],
+    MO: ['marginal', 'Marginal Ore'], WST: ['waste', 'Waste'],
+  };
   function grade(v) {
+    const parties = String(v.orebloc_nom || '').split('_');
+    const g = GRADES[(parties[3] || '').toUpperCase()];
+    if (g) return { cle: g[0], lbl: g[1] };
     if (estWaste(v)) return { cle: 'waste', lbl: 'Waste' };
-    const t = Number(v.teneur) || 0;
-    if (t >= 8) return { cle: 'high', lbl: 'High Grade' };
-    if (t >= 4) return { cle: 'medium', lbl: 'Medium Grade' };
-    return { cle: 'low', lbl: 'Low Grade' };
+    return { cle: 'inconnu', lbl: 'Non classé' };
   }
 
   // Conformite : conforme / a controler (compromis) / non conforme
