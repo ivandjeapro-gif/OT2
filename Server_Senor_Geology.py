@@ -477,6 +477,7 @@ CREATE TABLE IF NOT EXISTS voyages (
     volume_t REAL DEFAULT 0,        -- tonnage cumule du voyage (truck factor x barite)
     truck_factor INTEGER DEFAULT 1, -- capacite du DT (nb de coups / coefficient)
     conformite TEXT DEFAULT '',     -- conforme / compromis / non_conforme (dumping instruction)
+    conformite_detail TEXT DEFAULT '', -- JSON : de quoi expliquer le verdict (regle, zones, position, raison)
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -3382,7 +3383,7 @@ def position_dt_exploitable(conn, dt_code, age_max_s=POSITION_FRAICHE_S):
     return (r["x"], r["y"])
 
 
-def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_controler=False):
+def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_controler=False, detail=None):
     """Dumping Instruction : la teneur du bloc impose une dumping area.
     Retourne "conforme", "non_conforme" ou "" (pas de verdict) et cree
     l'alerte `non_conforme` quand il y a ecart.
@@ -3398,7 +3399,15 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_co
     vue chez SG : le DT a pu abandonner sa mission en route).
     `a_controler` (21/11, enregistrement du voyage) : on ne se fie JAMAIS a la zone affectee pour dire
     « conforme ». Sans position exploitable, ou si le DT n'est dans aucune dumping area, le verdict est
-    "compromis" (« A controler ») des qu'une zone est attendue ; il n'y a pas d'alerte dans ce cas."""
+    "compromis" (« A controler ») des qu'une zone est attendue ; il n'y a pas d'alerte dans ce cas.
+    `detail` (dict, optionnel) : rempli avec de quoi EXPLIQUER le verdict a un lecteur (regle, zone attendue,
+    zone reelle, etat de la position, raison) ; stocke avec le voyage et affiche dans l'Inbox."""
+    detail = detail if detail is not None else {}
+
+    def nom_da(i):
+        r = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (i,)).fetchone() if i else None
+        return r["nom"] if r else ("DA #%d" % i if i else "")
+
     attendue, teneur = 0, None
     if mission["orebloc_id"]:
         ob = conn.execute("SELECT * FROM oreblocs WHERE id=?", (mission["orebloc_id"],)).fetchone()
@@ -3409,13 +3418,23 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_co
                 "AND dumping_area_id > 0 LIMIT 1", (teneur, teneur)).fetchone()
             if instr:
                 attendue = instr["dumping_area_id"]
+                detail["teneur"] = round(teneur, 1)
     regle = "teneur %.1f" % teneur if attendue else "consigne de Serveur_SG"
+    detail["regle"] = "teneur" if attendue else "affectation"
     if not attendue:
         if position is None:
-            return "compromis" if (a_controler and mission["dumping_area_id"]) else ""
+            detail["position"] = "absente"
+            if a_controler and mission["dumping_area_id"]:
+                detail.update(attendue=nom_da(mission["dumping_area_id"]), raison="position_absente")
+                return "compromis"
+            detail["raison"] = "aucune_zone_attendue"
+            return ""
         attendue = mission["dumping_area_id"]
     reelle = mission["dumping_area_id"]
+    detail["attendue"] = nom_da(attendue)
     if a_controler and position is None:
+        detail["position"] = "absente"
+        detail["raison"] = "position_absente" if attendue else "aucune_zone_attendue"
         return "compromis" if attendue else ""      # on ne sait pas ou le DT a decharge
     if position is not None:
         trouvee = 0
@@ -3426,16 +3445,23 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_co
                     break
             except (TypeError, ValueError):
                 continue
+        detail["position"] = "dans_da" if trouvee else "hors_da"
         if trouvee:
             reelle = trouvee
         elif a_controler:
+            detail["raison"] = "hors_da" if attendue else "aucune_zone_attendue"
             return "compromis" if attendue else ""   # hors de toute dumping area : a verifier, pas « conforme »
         elif strict:
+            detail["raison"] = "hors_da"
             return ""
     if not attendue or not reelle:
+        detail["raison"] = "aucune_zone_attendue"
         return ""
+    detail["reelle"] = nom_da(reelle)
     if attendue == reelle:
+        detail["raison"] = "zone_attendue"
         return "conforme"
+    detail["raison"] = "autre_zone"
     def nom(i):
         r = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (i,)).fetchone()
         return r["nom"] if r else "DA #%d" % i
@@ -3506,11 +3532,14 @@ def reconcilier_missions(conn, missions_sg):
             mission = conn.execute("SELECT * FROM missions WHERE id=?", (l["id"],)).fetchone()
             dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (l["dt_code"],)).fetchone()
             try:
-                verdict = verifier_conformite_dumping(conn, mission, (dt["x"], dt["y"]) if dt else None, strict=True)
+                detail_conf = {}
+                verdict = verifier_conformite_dumping(conn, mission, (dt["x"], dt["y"]) if dt else None, strict=True,
+                                                      detail=detail_conf)
                 if verdict:
                     # le voyage deja enregistre recoit aussi ce verdict (position reelle) s'il n'en a pas de ferme
-                    conn.execute("UPDATE voyages SET conformite=? WHERE mission_id=? AND conformite IN ('', 'compromis')",
-                                 (verdict, l["id"]))
+                    conn.execute("UPDATE voyages SET conformite=?, conformite_detail=? "
+                                 "WHERE mission_id=? AND conformite IN ('', 'compromis')",
+                                 (verdict, json.dumps(detail_conf, ensure_ascii=True), l["id"]))
                     conn.commit()
             except Exception as e:
                 print("MISSIONS: controle de conformite impossible (%s)" % e)
@@ -7722,17 +7751,20 @@ class Handler(BaseHTTPRequestHandler):
                     # --- Conformite dumping (Dumping Instruction) -----------
                     # 21/11 : verdict d'apres la position REELLE du DT (derniere position fraiche), plus
                     # d'apres la zone affectee ; sans position exploitable -> « A controler »
+                    detail_conf = {}
                     conformite = verifier_conformite_dumping(
-                        conn, mission, position_dt_exploitable(conn, mission["dt_code"]), a_controler=True)
+                        conn, mission, position_dt_exploitable(conn, mission["dt_code"]), a_controler=True,
+                        detail=detail_conf)
 
                     conn.execute(
                         "UPDATE missions SET statut='termine', fin=? WHERE id=?",
                         (now_iso(), mission_id))
                     cur = conn.execute(
                         "INSERT INTO voyages (mission_id, dt_code, orebloc_id, dumping_area_id, "
-                        "teneur, volume_t, truck_factor, conformite) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        "teneur, volume_t, truck_factor, conformite, conformite_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (mission_id, mission["dt_code"], mission["orebloc_id"],
-                         mission["dumping_area_id"], teneur, volume_t, truck_factor, conformite))
+                         mission["dumping_area_id"], teneur, volume_t, truck_factor, conformite,
+                         json.dumps(detail_conf, ensure_ascii=True)))
                     voyage_id = cur.lastrowid
                     felicitation = (
                         "Felicitations %s ! Voyage termine : %d t a %.1f vers dumping area #%d. "
@@ -8068,6 +8100,9 @@ def main():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(voyages)")]
     if "conformite" not in cols:
         conn.execute("ALTER TABLE voyages ADD COLUMN conformite TEXT DEFAULT ''")
+    if "conformite_detail" not in cols:
+        conn.execute("ALTER TABLE voyages ADD COLUMN conformite_detail TEXT DEFAULT ''")
+        conn.commit()
         conn.commit()
     # sources : codes admis dans le nom des blasts (garde-fou LMP2/LWP2)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(sources)")]

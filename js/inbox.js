@@ -34,6 +34,42 @@
     non_conforme: { lbl: 'Non conforme', cls: 'non-conforme' },
   };
 
+  // Explication lisible du verdict, composee a partir du detail enregistre avec le voyage
+  // (conformite_detail, JSON ecrit par la passerelle). Ouverte par un clic sur la conformite.
+  const ouverts = new Set();
+  function detailVoyage(v) {
+    try { return v.conformite_detail ? JSON.parse(v.conformite_detail) : null; } catch (e) { return null; }
+  }
+  function explication(v) {
+    const d = detailVoyage(v);
+    const q = (t) => '«\u00a0' + MSUI.esc(t) + '\u00a0»';
+    if (!d) {
+      return ['Aucun détail enregistré pour ce voyage.',
+        v.conformite ? 'Le verdict a été posé avant l\u2019enregistrement des explications.'
+          : 'Il a été enregistré sans vérification de la dumping area (voyage ancien ou bloc inconnu).'];
+    }
+    const lignes = [];
+    if (d.attendue) {
+      lignes.push(d.regle === 'teneur'
+        ? 'Zone attendue : ' + q(d.attendue) + ' \u2014 la teneur du bloc' + (d.teneur != null ? ' (' + d.teneur + ' g/t)' : '') + ' impose cette dumping area.'
+        : 'Zone attendue : ' + q(d.attendue) + ' \u2014 aucune règle de teneur ne couvre ce bloc, c\u2019est la zone affectée à la mission.');
+    } else {
+      lignes.push('Aucune zone attendue : ni règle de teneur, ni dumping area affectée à la mission.');
+    }
+    if (d.position === 'dans_da') lignes.push('Fin de mission : le camion était dans ' + q(d.reelle) + '.');
+    else if (d.position === 'hors_da') lignes.push('Fin de mission : le camion n\u2019était dans aucune dumping area connue.');
+    else if (d.position === 'absente') lignes.push('Fin de mission : position du camion indisponible ou trop ancienne (plus de 2 minutes).');
+    const verdict = {
+      zone_attendue: 'Conforme : le camion a déchargé dans la zone attendue.',
+      autre_zone: 'Non conforme : le camion devait décharger dans ' + q(d.attendue) + ' mais a déchargé dans ' + q(d.reelle) + '. Une alerte a été créée.',
+      hors_da: 'À contrôler : on ne peut pas confirmer que le déchargement a eu lieu dans la bonne zone. À vérifier avec le chauffeur ou la trace GPS.',
+      position_absente: 'À contrôler : sans position récente du camion, le lieu du déchargement n\u2019est pas confirmé. À vérifier avec le chauffeur ou la trace GPS.',
+      aucune_zone_attendue: 'Pas de verdict : il n\u2019y avait aucune zone à comparer.',
+    }[d.raison];
+    if (verdict) lignes.push(verdict);
+    return lignes;
+  }
+
   // Journee d'exploitation 06 h - 06 h (comme Home, Alerts et le tonnage)
   function debutJourMs() {
     const d = new Date();
@@ -100,7 +136,9 @@
     tbody.innerHTML = affiches.map((v) => {
       const c = CONF[v.conformite] || null;
       const g = grade(v);
-      return '<tr class="' + (c ? c.cls : '') + '">' +
+      const ouvert = ouverts.has(v.id);
+      const libConf = c ? c.lbl : 'Non évaluée';
+      const ligne = '<tr class="' + (c ? c.cls : '') + (ouvert ? ' ouvert' : '') + '">' +
         '<td class="r-id">V-' + String(v.id).padStart(4, '0') + '</td>' +
         '<td class="r-engin">' + MSUI.esc(v.dt_code) + '</td>' +
         '<td class="r-heure">' + MSUI.heure(v.created_at) + '</td>' +
@@ -108,8 +146,12 @@
         '<td>' + MSUI.esc(v.da_nom || ('#' + v.dumping_area_id)) + '</td>' +
         '<td>' + (Math.round((Number(v.volume_t) || 0) * 10) / 10).toLocaleString('fr-FR') + ' t</td>' +
         '<td><span class="r-grade"' + (g.cle === 'inconnu' ? ' title="Grade inconnu : bloc ' + MSUI.esc(v.orebloc_nom ? 'sans code de teneur reconnu' : 'introuvable') + '"' : '') + '><i class="g-' + g.cle + '"></i>' + g.lbl + '</span></td>' +
-        '<td class="r-conf"' + (c ? '' : ' title="Pas de verdict : bloc ou dumping instruction introuvable au moment du voyage"') + '>' + (c ? c.lbl : 'Non évaluée') + '</td>' +
+        '<td class="r-conf"><button type="button" class="r-conf-btn" data-voyage="' + v.id + '" aria-expanded="' + ouvert +
+          '" title="Cliquer pour comprendre ce verdict">' + libConf + ' <i class="r-conf-i">' + (ouvert ? '\u25B4' : '\u24D8') + '</i></button></td>' +
         '</tr>';
+      if (!ouvert) return ligne;
+      return ligne + '<tr class="r-detail"><td colspan="8"><div class="r-detail-box"><b>Pourquoi «\u00a0' + libConf + '\u00a0» ?</b>' +
+        explication(v).map((t) => '<p>' + t + '</p>').join('') + '</div></td></tr>';
     }).join('');
     set('inboxPied', '1–' + affiches.length + ' sur ' + voyages.length + (voyages.length > 1 ? ' voyages' : ' voyage'));
 
@@ -138,6 +180,16 @@
           c.classList.toggle('is-active', c === chip));
         render(MSUI.etat);
       });
+    });
+
+    // clic sur une conformite : ouvre / ferme l'explication
+    const corps = document.getElementById('inboxVoyages');
+    if (corps) corps.addEventListener('click', (e) => {
+      const b = e.target.closest('.r-conf-btn');
+      if (!b) return;
+      const id = Number(b.dataset.voyage);
+      if (ouverts.has(id)) ouverts.delete(id); else ouverts.add(id);
+      render(MSUI.etat);
     });
 
     // periode
