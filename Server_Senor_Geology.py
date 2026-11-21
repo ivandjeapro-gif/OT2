@@ -2536,8 +2536,17 @@ def verifier_arrivee_da(conn, dt_code):
     conn.execute("UPDATE missions SET arrivee=1 WHERE id=?", (mission["id"],))
     conn.commit()
     # 21/11 : fin de mission dans SA dumping area (pas une autre) -> les alertes encore ouvertes du DT sont closes
-    for typ in ("offroad", "deviation", "checkpoint"):
-        clore_alertes_ouvertes(conn, dt_code, typ, cause="arrivee_da")
+    closes = sum(clore_alertes_ouvertes(conn, dt_code, typ, cause="arrivee_da")
+                 for typ in ("offroad", "deviation", "checkpoint"))
+    if closes:
+        # l'app DT leve ses bandeaux/voix en silence (type « cloture », sans retour_* parle)
+        msg_cloture = "Mission terminee en dumping area : alertes closes."
+        mqtt_publier("camions/%s/alerte" % dt_code, {
+            "type": "cloture", "dt_code": dt_code, "message": msg_cloture,
+            "voix_off": False, "horodatage": now_iso()})
+        if alertes_chauffeur_actives():
+            enregistrer_pour_office(conn, {"chauffeur": {
+                "profil": dt_code, "message": "[cloture] " + msg_cloture, "type": "cloture"}})
     message = "Vous etes arrive : dumping area %s." % da["nom"]
     creer_alerte(conn, "arrivee", dt_code, message)
     enregistrer_pour_office(conn, {"mission_id": mission["id"], "dt_code": dt_code,
@@ -2598,6 +2607,7 @@ def clore_alertes_ouvertes(conn, dt_code, type_alerte, instant=None, cause="reto
         "retour_duree_s=MAX(0, CAST((julianday('now') - julianday(created_at)) * 86400 AS INTEGER)) "
         "WHERE dt_code=? AND type=? AND retour_le=''", (cause, dt_code, type_alerte))
     conn.commit()
+    return conn.execute("SELECT changes()").fetchone()[0]
 
 
 def distance_au_chemin(chemin, x, y):
