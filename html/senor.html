@@ -132,131 +132,100 @@
 
                             <!-- ONGLET SOURCES & TENEURS -->
                             <div class="sg-pane" data-sgpane="sources" hidden>
-                                <!-- CARTE : DESTINATION -->
-                        <div class="panel sg2-area-dest sg2-flat">
-                            <div class="panel-label">Sources &amp; teneurs</div>
-                            <div class="panel-content">
-                                <div class="sg2-row sg2-row-equal" id="sgTeneursRow"></div>
-                                <div class="sg2-band">
-                                    <button class="sg2-gray-bar" id="sgBtnSrcAdd">Ajouter une source</button>
-                                    <form class="sg2-inline" id="sgSrcAddForm" style="display:none">
-                                        <input type="text" id="sgNewSource" class="sg2-input" placeholder="Nom de la source" required />
-                                        <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
-                                        <button type="button" class="sg2-x" id="sgSrcAddCancel" title="Annuler">x</button>
-                                    </form>
-                                    <form class="sg2-inline" id="sgTeneurForm" style="display:none" data-edit="">
-                                        <input type="text" id="sgNewTeneur" class="sg2-input" placeholder="Famille de teneur" required />
-                                        <input type="text" inputmode="decimal" id="sgNewTeneurMin" class="sg2-input sg2-short" placeholder="min %" />
-                                        <input type="text" inputmode="decimal" id="sgNewTeneurMax" class="sg2-input sg2-short" placeholder="max %" />
-                                        <input type="text" id="sgNewTeneurCodes" class="sg2-input" placeholder="Codes du nom de bloc (ex : HG, MO)"
-                                               title="Codes lus dans le nom d'un bloc DXF, par exemple HG dans 230_LWP2_106_HG_FR_008_OP. Separes par des virgules." />
-                                        <label class="sg2-couleur" title="Couleur de la famille dans toutes les pages (Auto = couleur de son grade)">
-                                            <input type="color" id="sgNewTeneurCouleur" value="#8d887a" />
-                                            <span><input type="checkbox" id="sgNewTeneurAuto" checked /> Auto</span>
-                                        </label>
-                                        <button type="submit" class="sg2-outline sg2-ok" id="sgTeneurSubmit">Enregistrer</button>
-                                        <button type="button" class="sg2-x" id="sgTeneurCancel" title="Annuler">x</button>
-                                    </form>
-                                    <div class="sg2-status" id="sgDestStatus"></div>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Sources</h2>
+                                    <button type="button" class="sg-btn" id="sgBtnSrcAdd"><i class="fas fa-plus"></i> Ajouter une source</button>
                                 </div>
-                                <div class="sg2-detail" id="sgDestDetail"></div>
-                            </div>
-                        </div>
+                                <form class="sg-form" id="sgSrcAddForm" style="display:none">
+                                    <input type="text" id="sgNewSource" class="sg-input" placeholder="Nom de la source" required />
+                                    <button type="submit" class="sg-btn sg-btn-ok">Enregistrer</button>
+                                    <button type="button" class="sg-btn" id="sgSrcAddCancel">Annuler</button>
+                                </form>
+                                <div class="sg-liste" id="sgSourcesList"></div>
+                                <div class="sg2-status" id="sgDestStatus"></div>
 
-                        
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Familles de teneur <small id="sgFamillesSource"></small></h2>
+                                    <button type="button" class="sg-btn" id="sgBtnTeneurAdd"><i class="fas fa-plus"></i> Ajouter une famille</button>
+                                </div>
+                                <form class="sg-form" id="sgTeneurForm" style="display:none" data-edit="">
+                                    <input type="text" id="sgNewTeneur" class="sg-input" placeholder="Famille de teneur" required />
+                                    <input type="text" inputmode="decimal" id="sgNewTeneurMin" class="sg-input sg-input-court" placeholder="min %" />
+                                    <input type="text" inputmode="decimal" id="sgNewTeneurMax" class="sg-input sg-input-court" placeholder="max %" />
+                                    <input type="text" id="sgNewTeneurCodes" class="sg-input" placeholder="Codes de bloc (HG, MO)"
+                                           title="Codes lus dans le nom d'un bloc DXF, par exemple HG dans 230_LWP2_106_HG_FR_008_OP. Séparés par des virgules." />
+                                    <label class="sg2-couleur" title="Couleur de la famille dans toutes les pages (Auto = couleur de son grade)">
+                                        <input type="color" id="sgNewTeneurCouleur" value="#8d887a" />
+                                        <span><input type="checkbox" id="sgNewTeneurAuto" checked /> Auto</span>
+                                    </label>
+                                    <button type="submit" class="sg-btn sg-btn-ok" id="sgTeneurSubmit">Enregistrer</button>
+                                    <button type="button" class="sg-btn" id="sgTeneurCancel">Annuler</button>
+                                </form>
+                                <div class="sg-liste" id="sgTeneursRow"></div>
+                                <div id="sgDestDetail" hidden></div>
                             </div>
 
                             <!-- ONGLET DUMPING AREAS -->
                             <div class="sg-pane" data-sgpane="aires" hidden>
-                                <!-- CARTE : DUMPING AREA -->
-                        <div class="panel sg2-area-dump sg2-flat">
-                            <div class="panel-label">Dumping Area</div>
-                            <div class="panel-content">
-                                <div class="sg2-cols">
-                                    <div class="sg2-left">
-                                        <div class="sg2-row" id="sgDaRow"></div>
-                                        <div class="sg2-detail" id="sgDaDetail"></div>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Aires de déchargement</h2>
+                                    <div class="sg-actions">
+                                        <button type="button" class="sg-btn" id="btnSgImportZones" title="CSV avec les sommets du polygone : nom, x, y, le même nom répété pour chaque sommet"><i class="fas fa-file-import"></i> Importer CSV</button>
+                                        <button type="button" class="sg-btn" id="sgBtnDaAdd"><i class="fas fa-plus"></i> Ajouter une aire</button>
                                     </div>
-                                    <div class="sg2-note">Une Dumping Area est une aire (m2), pas un point : CSV avec
-                                        les sommets du polygone, meme nom repete par sommet (nom, x, y).</div>
+                                    <input type="file" id="sgZoneFileInput" accept=".csv" style="display:none" />
                                 </div>
-                                <div class="sg2-status" id="sgDaStatus"></div>
-                                <form class="sg2-inline" id="sgDaForm" style="display:none">
-                                    <input type="text" id="sgDaNom" class="sg2-input" placeholder="Nom" required />
-                                    <input type="text" id="sgDaX" class="sg2-input sg2-short" placeholder="x" />
-                                    <input type="text" id="sgDaY" class="sg2-input sg2-short" placeholder="y" />
-                                    <select id="sgDaColor" class="sg2-input sg2-short">
+                                <form class="sg-form" id="sgDaForm" style="display:none">
+                                    <input type="text" id="sgDaNom" class="sg-input" placeholder="Nom" required />
+                                    <input type="text" id="sgDaX" class="sg-input sg-input-court" placeholder="x" />
+                                    <input type="text" id="sgDaY" class="sg-input sg-input-court" placeholder="y" />
+                                    <select id="sgDaColor" class="sg-input sg-input-court">
                                         <option value="blue">Bleu</option>
                                         <option value="green">Vert</option>
                                         <option value="yellow">Jaune</option>
                                         <option value="orange">Orange</option>
                                     </select>
-                                    <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
-                                    <button type="button" class="sg2-outline" id="btnSgImportZones">Importer CSV</button>
-                                    <input type="file" id="sgZoneFileInput" accept=".csv" style="display:none" />
-                                    <button type="button" class="sg2-x" id="sgDaDelete" title="Supprimer"><i class="fas fa-trash"></i></button>
-                                    <button type="button" class="sg2-x" id="sgDaCancel" title="Fermer">x</button>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Enregistrer</button>
+                                    <button type="button" class="sg-btn sg-btn-danger" id="sgDaDelete" title="Supprimer"><i class="fas fa-trash"></i></button>
+                                    <button type="button" class="sg-btn" id="sgDaCancel">Fermer</button>
                                 </form>
-                            </div>
-                        </div>
-
-                        
+                                <div class="sg-liste" id="sgDaRow"></div>
+                                <div class="sg2-status" id="sgDaStatus"></div>
+                                <div id="sgDaDetail" hidden></div>
                             </div>
 
                             <!-- ONGLET TRAILS : pistes, checkpoints, systeme geographique -->
                             <div class="sg-pane" data-sgpane="trails" hidden>
-                                <!-- CARTE (colonne 3) : TRAILS (CHEMIN) -->
-                        <div class="panel sg2-area-trails sg2-flat">
-                            <div class="panel-label">Trails (Chemin)</div>
-                            <div class="panel-content">
-                                <div class="sg2-center">
-                                    <button class="sg2-outline" id="sgBtnRoadUpload">Importer un fichier</button>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Pistes</h2>
+                                    <button type="button" class="sg-btn" id="sgBtnRoadUpload" title="Fichier GeoTiff ou GeoJSON des routes"><i class="fas fa-file-import"></i> Importer un fichier</button>
                                     <input type="file" id="sgRoadInput" accept=".tif,.tiff,.json,.geojson" style="display:none" />
                                 </div>
-                                <div class="sg2-cols">
-                                    <div class="sg2-left">
-                                        <div class="sg2-roads" id="sgRoadsList"></div>
-                                        <div class="sg2-status" id="sgRoadStatus"></div>
-                                    </div>
-                                    <div class="sg2-note">Fichier GeoTiff / GeoJSON des routes.</div>
-                                </div>
-                            </div>
-                        </div>
+                                <div class="sg-liste" id="sgRoadsList"></div>
+                                <div class="sg2-status" id="sgRoadStatus"></div>
 
-                        <!-- CARTE : CHECKPOINTS (17/11) - lignes de passage, deux
-                             extremites par checkpoint, import CSV "Y, X, id, Nom" -->
-                        <div class="panel sg2-area-chk sg2-flat">
-                            <div class="panel-label">Checkpoints</div>
-                            <div class="panel-content">
-                                <div class="sg2-center">
-                                    <button type="button" class="sg2-outline" id="btnSgImportChk">Importer CSV</button>
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Checkpoints <small id="sgChkCompte"></small></h2>
+                                    <div class="sg-actions">
+                                        <button type="button" class="sg-btn" id="btnSgImportChk" title="CSV : colonnes Y, X, id, Nom, avec deux lignes par nom (les deux extrémités). Degrés convertis en UTM ; un nom déjà présent est mis à jour."><i class="fas fa-file-import"></i> Importer CSV</button>
+                                        <button type="button" class="sg-btn sg-btn-danger" id="btnSgChkToutSuppr" title="Supprimer tous les checkpoints"><i class="fas fa-trash"></i></button>
+                                    </div>
                                     <input type="file" id="sgChkFileInput" accept=".csv,.txt" style="display:none" />
-                                    <button type="button" class="sg2-x" id="btnSgChkToutSuppr" title="Supprimer tous les checkpoints"><i class="fas fa-trash"></i></button>
                                 </div>
-                                <div class="sg2-cols">
-                                    <div class="sg2-left">
-                                        <div class="sg2-roads" id="sgChkList"></div>
-                                        <div class="sg2-status" id="sgChkStatus"></div>
-                                        <div class="sg2-detail" id="sgChkDetail"></div>
+                                <div class="sg-liste" id="sgChkList"></div>
+                                <div class="sg2-status" id="sgChkStatus"></div>
+                                <div id="sgChkDetail" hidden></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Système géographique</h2>
+                                </div>
+                                <div class="sg-liste">
+                                    <div class="sg-ligne">
+                                        <i class="fas fa-globe sg-ligne-ico"></i>
+                                        <span class="sg-ligne-nom" id="sgGeoDetail">--</span>
                                     </div>
-                                    <div class="sg2-note">Un checkpoint est une ligne de passage : CSV avec les
-                                        colonnes Y, X, id, Nom et DEUX lignes par Nom (les deux extremites).
-                                        Degres convertis en UTM. Un Nom deja present est mis a jour.</div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <!-- CARTE (rang 2, colonne 3) : GEOGRAPHIC SYSTEM -->
-                        <div class="panel sg2-area-geo sg2-flat">
-                            <div class="panel-label">Geographic System</div>
-                            <div class="panel-content">
-                                
-                                <div class="sg2-detail" id="sgGeoDetail"></div>
-                                <div class="sg2-note">Systeme de coordonnees : WGS84 / UTM.</div>
                                 <div class="sg2-status" id="sgGeoStatus"></div>
-                            </div>
-                        </div>
-
                             </div>
                         </div>
 

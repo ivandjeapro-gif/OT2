@@ -96,6 +96,63 @@
   let sourceSelectionnee = null;
   let teneurSelectionnee = null;
 
+  /* ---- Listes des onglets (meme charte que « Consignes ») ---- */
+  let toutesTeneurs = [];            // toutes sources confondues : compteurs par source, familles par aire
+  const COULEUR_DA = { blue: '#1d6fd1', green: '#2f9e44', yellow: '#e0b413', orange: '#e8641c' };
+  const couleurFamille = (t) => (window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a');
+  const pastilleFamille = (t) => '<span class="sg-fam-pastille" style="--fam:' + couleurFamille(t) + '">' + esc(t.nom) + '</span>';
+  const deuxN = (n) => String(n).padStart(2, '0');
+
+  function aireM2(z) {                // surface reelle du polygone (formule du lacet)
+    let pts = [];
+    try { pts = JSON.parse(z.sommets || '[]'); } catch (e) { pts = []; }
+    if (pts.length < 3) return 0;
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i];
+      const [x2, y2] = pts[(i + 1) % pts.length];
+      a += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(a) / 2;
+  }
+
+  function rendreListeSources() {
+    const box = $('#sgSourcesList');
+    if (!box) return;
+    box.innerHTML = sources.length ? sources.map((src) => {
+      const n = toutesTeneurs.filter((t) => t.source_id === src.id).length;
+      const actif = src.id === sourceSelectionnee;
+      return '<div class="sg-ligne' + (actif ? ' actif' : '') + '">' +
+        '<i class="fas fa-layer-group sg-ligne-ico"></i>' +
+        '<span class="sg-ligne-nom"><b>' + esc(src.nom) + '</b><small>' + (src.codes ? 'Codes admis : ' + esc(src.codes) : 'Aucun code admis') + '</small></span>' +
+        '<span class="sg-ligne-meta">' + deuxN(n) + (n > 1 ? ' familles' : ' famille') + '</span>' +
+        (actif ? '<span class="sg-badge">Active</span>'
+          : '<button type="button" class="sg-btn" data-src-select="' + src.id + '">Activer</button>') +
+        '</div>';
+    }).join('') : '<div class="sg-vide">Aucune source.</div>';
+    const nom = $('#sgFamillesSource');
+    const cur = sources.find((x) => x.id === sourceSelectionnee);
+    if (nom) nom.textContent = cur ? '· ' + cur.nom : '';
+  }
+
+  function rendreListeAires() {
+    const box = $('#sgDaRow');
+    if (!box) return;
+    box.innerHTML = dumpingAreas.length ? dumpingAreas.map((z) => {
+      let nbSommets = 0;
+      try { nbSommets = JSON.parse(z.sommets || '[]').length; } catch (e) { /* sommets illisibles */ }
+      const m2 = Math.round(aireM2(z));
+      const fam = toutesTeneurs.filter((t) => t.dumping_area_id === z.id);
+      return '<div class="sg-ligne">' +
+        '<i class="far fa-square-full sg-ligne-ico" style="color:' + (COULEUR_DA[z.couleur] || COULEUR_DA.blue) + '"></i>' +
+        '<span class="sg-ligne-nom"><b>' + esc(z.nom) + '</b><small>' + nbSommets + ' sommets · centre ' + esc(coord(z.x)) + ' / ' + esc(coord(z.y)) + '</small></span>' +
+        '<span class="sg-ligne-meta">' + m2.toLocaleString('fr-FR') + ' m²</span>' +
+        '<span class="sg-ligne-fams">' + (fam.length ? fam.map(pastilleFamille).join('') : '<em>Aucune famille</em>') + '</span>' +
+        '<button type="button" class="sg-ico-btn" data-da-edit="' + z.id + '" title="Modifier"><i class="fas fa-pen"></i></button>' +
+        '</div>';
+    }).join('') : '<div class="sg-vide">Aucune aire de déchargement.</div>';
+  }
+
   async function chargerSources() {
     try {
       const d = await jsend('/api/sources', 'GET');
@@ -125,6 +182,7 @@
       if (next) next.disabled = !plusieurs;
     });
     rendreEntete();
+    rendreListeSources();
     // codes de source admis (garde-fou blasts) : pre-remplir le champ
     const codesEl = $('#sgSrcCodes');
     if (codesEl) codesEl.value = s ? (s.codes || '') : '';
@@ -150,7 +208,7 @@
    * arriver avant la liste des Dumping Areas, et le nom manquerait.
    */
   // Couleur d'une famille : js/couleurs.js (grade du 1er code de bloc, ou couleur propre de la famille).
-  window.addEventListener('couleurs:pret', () => rendreChipsInstruction());
+  window.addEventListener('couleurs:pret', () => { rendreChipsInstruction(); rendreListeAires(); rendreListeSources(); chargerTeneurs(); });
   const premierCode = (t) => String(t.codes || '').split(/[,\s;]+/).filter(Boolean)[0] || '';
 
   /**
@@ -231,10 +289,15 @@
       teneurs = d.teneurs || [];
       if (teneurSelectionnee && !teneurs.some((t) => t.id === teneurSelectionnee)) teneurSelectionnee = null;
       if (row) {
-        row.innerHTML = teneurs.map((t) =>
-          '<button type="button" class="sg2-outline sg2-chip' + (t.id === teneurSelectionnee ? ' sel' : '') +
-          '" data-teneur="' + t.id + '">' + esc(t.nom) + '</button>').join('') +
-          '<button type="button" class="sg2-outline" id="sgBtnTeneurAdd" title="Ajouter une teneur">+</button>';
+        const fmt = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+        row.innerHTML = teneurs.length ? teneurs.map((t) =>
+          '<div class="sg-ligne">' +
+            '<span class="sg-fam-puce" style="--fam:' + couleurFamille(t) + '"></span>' +
+            '<span class="sg-ligne-nom"><b>' + esc(t.nom) + '</b><small>' + (t.codes ? 'Codes de bloc : ' + esc(String(t.codes).trim()) : 'Aucun code de bloc') + '</small></span>' +
+            '<span class="sg-ligne-meta">' + fmt(t.valeur_min) + ' – ' + fmt(t.valeur_max) + ' %</span>' +
+            '<button type="button" class="sg-ico-btn" data-teneur-edit="' + t.id + '" title="Modifier"><i class="fas fa-pen"></i></button>' +
+            '<button type="button" class="sg-ico-btn danger" data-teneur-del="' + t.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+          '</div>').join('') : '<div class="sg-vide">Aucune famille de teneur pour cette source.</div>';
       }
       rendreChipsInstruction();
       rendreDetailTeneur();
@@ -472,6 +535,9 @@
     try {
       const d = await jsend('/api/teneurs', 'GET');
       const tous = d.teneurs || [];
+      toutesTeneurs = tous;
+      rendreListeSources();
+      rendreListeAires();
       if (!tous.length) {
         box.innerHTML = '<div class="sg2-di-empty">Aucune teneur enregistree</div>';
         if (compteur) compteur.textContent = '';
@@ -514,10 +580,7 @@
       const d = await jsend('/api/dumping_areas', 'GET');
       dumpingAreas = d.dumping_areas || [];
       if (daSelectionnee && !dumpingAreas.some((z) => z.id === daSelectionnee)) daSelectionnee = null;
-      row.innerHTML = dumpingAreas.map((z) =>
-        '<button type="button" class="sg2-outline sg2-chip' + (z.id === daSelectionnee ? ' sel' : '') +
-        '" data-da="' + z.id + '">' + esc(z.nom) + '</button>').join('') +
-        '<button type="button" class="btn-add-account" id="sgBtnDaAdd" title="Ajouter une dumping area">+</button>';
+      rendreListeAires();
       rendreDetailDA();
       // Les pastilles de Dumping Instruction affichent le nom de la DA ; elles
       // ont pu etre dessinees avant que cette liste arrive (chargements
@@ -654,16 +717,14 @@
     rendreEntete();
     const b = $('#sgRoadsList');
     if (!b) return;
-    if (!rows || !rows.length) { b.innerHTML = ''; return; }
+    if (!rows || !rows.length) { b.innerHTML = '<div class="sg-vide">Aucune piste importée.</div>'; return; }
     b.innerHTML = rows.map((r) => {
-      const meta = r.type === 'geotiff'
-        ? 'GeoTiff - le ' + esc((r.created_at || '').slice(0, 16))
-        : 'GeoJSON - le ' + esc((r.created_at || '').slice(0, 16));
-      return '<div class="sg2-road-item">' +
-        '<i class="fas fa-route"></i>' +
-        '<span class="sg2-road-nom">' + esc(r.nom) + '</span>' +
-        '<span class="sg2-road-meta">' + meta + '</span>' +
-        '<button type="button" class="sg2-x" data-road-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+      const meta = (r.type === 'geotiff' ? 'GeoTiff' : 'GeoJSON') + ' · ' + esc((r.created_at || '').slice(0, 16));
+      return '<div class="sg-ligne">' +
+        '<i class="fas fa-route sg-ligne-ico"></i>' +
+        '<span class="sg-ligne-nom"><b>' + esc(r.nom) + '</b></span>' +
+        '<span class="sg-ligne-meta">' + meta + '</span>' +
+        '<button type="button" class="sg-ico-btn danger" data-road-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
       '</div>';
     }).join('');
   }
@@ -728,17 +789,19 @@
   function renderCheckpoints(rows) {
     const b = $('#sgChkList');
     if (!b) return;
+    const cpt = $('#sgChkCompte');
+    if (cpt) cpt.textContent = rows && rows.length ? '· ' + deuxN(rows.length) : '';
     if (!rows || !rows.length) {
-      b.innerHTML = '<div class="sg2-note">Aucun checkpoint</div>';
+      b.innerHTML = '<div class="sg-vide">Aucun checkpoint.</div>';
       return;
     }
     b.innerHTML = rows.map((r) =>
-      '<div class="sg2-road-item">' +
-        '<i class="fas fa-flag-checkered"></i>' +
-        '<span class="sg2-road-nom" title="' + esc(r.nom) + '">' + esc(r.nom) + '</span>' +
-        '<span class="sg2-road-meta" title="(' + coord(r.x1) + ', ' + coord(r.y1) + ') - (' +
+      '<div class="sg-ligne">' +
+        '<i class="fas fa-flag-checkered sg-ligne-ico"></i>' +
+        '<span class="sg-ligne-nom"><b title="' + esc(r.nom) + '">' + esc(r.nom) + '</b></span>' +
+        '<span class="sg-ligne-meta" title="(' + coord(r.x1) + ', ' + coord(r.y1) + ') - (' +
           coord(r.x2) + ', ' + coord(r.y2) + ')">' + esc(String(r.longueur_m)) + ' m</span>' +
-        '<button type="button" class="sg2-x" data-chk-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+        '<button type="button" class="sg-ico-btn danger" data-chk-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
       '</div>').join('');
   }
 
@@ -899,6 +962,27 @@
     if (!$('#sgSourceLabel')) return; // pas sur cette page
 
     document.addEventListener('click', (e) => {
+      // source : activer
+      const srcSel = e.target.closest('[data-src-select]');
+      if (srcSel) {
+        sourceSelectionnee = Number(srcSel.dataset.srcSelect);
+        teneurSelectionnee = null;
+        rendreSourceLabel();
+        chargerTeneurs();
+        return;
+      }
+      // famille : modifier / supprimer depuis la ligne
+      const tEdit = e.target.closest('[data-teneur-edit]');
+      if (tEdit) { ouvrirFormTeneur(teneurs.find((x) => x.id === Number(tEdit.dataset.teneurEdit)) || null); return; }
+      const tDel = e.target.closest('[data-teneur-del]');
+      if (tDel) { teneurSelectionnee = Number(tDel.dataset.teneurDel); supprimerTeneur(); return; }
+      // aire : modifier depuis la ligne
+      const daEdit = e.target.closest('[data-da-edit]');
+      if (daEdit) {
+        const z = dumpingAreas.find((x) => x.id === Number(daEdit.dataset.daEdit));
+        if (z) { daSelectionnee = z.id; ouvrirFormDA(z); }
+        return;
+      }
       // teneur : selection
       const chipT = e.target.closest('[data-teneur]');
       if (chipT) {
