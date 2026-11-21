@@ -27,6 +27,8 @@
   let filtreDt = '';
   let filtreType = '';
   let seulementNonVues = true;
+  let filtrePeriode = '';
+  let filtreDate = '';
 
   function passerelle() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
@@ -74,6 +76,21 @@
     set('alertsFootSeuil', 'Seuil d’alerte rouge : ' + (etat.seuilRougeMin || 10) + ' minutes · configurable dans Settings');
   }
 
+  // Fenetre [debut, fin[ en ms selon la periode choisie (journee d'exploitation 06 h - 06 h)
+  function fenetre() {
+    const j = 86400000;
+    const d0 = debutJourMs();
+    if (filtrePeriode === 'jour') return [d0, d0 + j];
+    if (filtrePeriode === 'hier') return [d0 - j, d0];
+    if (filtrePeriode === '7j') return [d0 - 6 * j, d0 + j];
+    if (filtrePeriode === 'date' && filtreDate) {
+      const p = filtreDate.split('-').map(Number);
+      const d = new Date(p[0], p[1] - 1, p[2], 6, 0, 0, 0).getTime();
+      return [d, d + j];
+    }
+    return null;
+  }
+
   function render(etat) {
     const tbody = document.getElementById('alertsBody');
     if (!tbody) return;
@@ -83,6 +100,8 @@
       const f = filtreDt.toUpperCase();
       alertes = alertes.filter((a) => String(a.dt_code || '').toUpperCase().indexOf(f) >= 0);
     }
+    const fen = fenetre();
+    if (fen) alertes = alertes.filter((a) => ms(a) >= fen[0] && ms(a) < fen[1]);
     if (filtreType) alertes = alertes.filter((a) => a.type === filtreType);
     if (seulementNonVues) alertes = alertes.filter((a) => !a.acquittee && !TYPES_INFO[a.type]);
 
@@ -132,6 +151,15 @@
     if (dt) dt.addEventListener('input', () => { filtreDt = dt.value.trim(); render(MSUI.etat); });
     const ty = document.getElementById('fltType');
     if (ty) ty.addEventListener('change', () => { filtreType = ty.value; render(MSUI.etat); });
+    const per = document.getElementById('fltPeriode');
+    const dateBox = document.getElementById('fltDateBox');
+    const dat = document.getElementById('fltDate');
+    if (per) per.addEventListener('change', () => {
+      filtrePeriode = per.value;
+      if (dateBox) dateBox.hidden = per.value !== 'date';
+      render(MSUI.etat);
+    });
+    if (dat) dat.addEventListener('change', () => { filtreDate = dat.value; render(MSUI.etat); });
     const nv = document.getElementById('fltNonVues');
     if (nv) nv.addEventListener('change', () => { seulementNonVues = nv.checked; render(MSUI.etat); });
 

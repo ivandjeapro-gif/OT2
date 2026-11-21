@@ -3388,3 +3388,6 @@ body {
 #page-alerts .r-table .muted { color: var(--r-text-3); }
 #page-alerts .r-tablefoot { display: flex; justify-content: space-between; padding: 26px 0 0; font-size: 12.5px; color: var(--r-text-2); }
 #page-alerts .r-infoband .highlight-green { color: var(--r-text); background: none; font-weight: 700; }
+#page-alerts .r-filter-field:nth-child(3) { width: 220px; }
+#page-alerts #fltDateBox { width: 190px; }
+#page-alerts #fltDateBox[hidden] { display: none; }

@@ -87,6 +87,20 @@
                                 <option value="blast_rejete">Blast refusé</option>
                             </select>
                         </div>
+                        <div class="r-filter-field">
+                            <label class="r-filter-label" for="fltPeriode">Période</label>
+                            <select id="fltPeriode" class="form-select-sm r-input" title="Journée d'exploitation : 06 h à 06 h">
+                                <option value="">Toutes les dates</option>
+                                <option value="jour">Journée en cours</option>
+                                <option value="hier">Hier</option>
+                                <option value="7j">7 derniers jours</option>
+                                <option value="date">Une date précise…</option>
+                            </select>
+                        </div>
+                        <div class="r-filter-field" id="fltDateBox" hidden>
+                            <label class="r-filter-label" for="fltDate">Date</label>
+                            <input type="date" id="fltDate" class="form-input-sm r-input" />
+                        </div>
                         <label class="r-filter-check"><input type="checkbox" id="fltNonVues" checked /> Non vues seulement</label>
                         <button type="button" class="r-btn-dark team-btn" id="btnAcquitTout">Tout marquer vu</button>
                         <span class="alerts-compteur r-sr-only" id="alertsCompteur"></span>
