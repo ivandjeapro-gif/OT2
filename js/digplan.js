@@ -395,6 +395,8 @@
     const s = sources.find((x) => x.id === sourceSelectionnee);
     const label = $('#dpSourceLabel');
     if (label) label.textContent = s ? s.nom : '(aucune)';
+    const codes = $('#dpSourceCodes');
+    if (codes) codes.textContent = s && s.codes ? String(s.codes).trim() : '';
     const plusieurs = sources.length > 1;
     const prev = $('#dpSrcPrev');
     const next = $('#dpSrcNext');
@@ -432,14 +434,21 @@
         teneurSelectionnee = null;
       }
       if (!teneurSelectionnee && teneurs.length) teneurSelectionnee = teneurs[0].nom;
-      row.innerHTML = teneurs.length
-        ? teneurs.map((t) =>
-            '<button type="button" class="sg2-outline sg2-chip' + (t.nom === teneurSelectionnee ? ' sel' : '') +
-            '" data-teneur="' + esc(t.nom) + '">' + esc(t.nom) + '</button>').join('')
-        : '<span class="dp-note">Aucune teneur definie pour cette source (a configurer dans Senor Geology).</span>';
+      rendreChips();
     } catch (e) {
       setStatus('Teneurs injoignables (' + e.message + ')', false);
     }
+  }
+
+  function rendreChips() {
+    const row = $('#dpTeneursRow');
+    if (!row) return;
+    row.innerHTML = teneurs.length
+      ? teneurs.map((t) =>
+          '<button type="button" class="dp-chip' + (t.nom === teneurSelectionnee ? ' sel' : '') +
+          '" style="--fam:' + (window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a') +
+          '" data-teneur="' + esc(t.nom) + '">' + esc(t.nom) + '</button>').join('')
+      : '<span class="dp-vide">Aucune teneur pour cette source (à configurer dans Senor).</span>';
   }
 
   /* ================================= Blasts ======================================= */
@@ -879,13 +888,17 @@
     return coursOreColorMap[key];
   }
 
-  window.addEventListener('couleurs:pret', () => { try { rendrePlan(); } catch (e) { /* plan pas encore pret */ } });
+  window.addEventListener('couleurs:pret', () => {
+    try { rendreChips(); rendrePlan(); } catch (e) { /* plan pas encore pret */ }
+  });
 
   function rendrePlan() {
     const b = blastCourant();
     const oreblocs = (b && b.oreblocs) || [];
 
     $('#dpPlanTitle').textContent = b ? (b.numero || b.nom || '-') : '-';
+    const actif = $('#dpBlastActif');
+    if (actif) actif.textContent = b ? (b.numero || b.nom || '—') : '—';
     rendreMeta(b);
     $('#dpAuthor').textContent = '';
     $('#dpPageLabel').textContent = b ? (b.numero || '') + (b.page_label ? ' ' + b.page_label : '') : '';
@@ -922,30 +935,26 @@
     };
   }
 
-  /** N'affiche que les informations reellement connues. */
+  /** Ligne de contexte du plan : seulement ce qui est reellement connu (flitch, activite, pattern, source...). */
   function rendreMeta(b) {
     const grille = $('#dpMetaGrid');
     if (!grille) return;
     if (!b) { grille.innerHTML = ''; return; }
-
     const code = b.numero || b.nom || '';
     const d = decoderNomenclature(code);
-    const lignes = [];
+    const parts = [];
     if (d) {
-      lignes.push(['Blast', d.pattern]);
-      lignes.push(['Flitch', d.flitch]);
-      lignes.push(['Minage', d.profDebut + ' → ' + d.profFin]);
-      lignes.push(['Activite', d.activite]);
-      if (d.site) lignes.push(['Site', d.site]);
+      parts.push('Flitch ' + d.flitch);
+      parts.push('Plage ' + d.activite);
+      parts.push('Pattern ' + d.pattern);
+      if (d.profDebut && d.profFin) parts.push('Minage ' + d.profDebut + ' → ' + d.profFin);
+      if (d.site) parts.push(d.site);
     }
-    lignes.push(['Layer', code]);
-    // champs optionnels : affiches seulement s'ils sont renseignes
-    if (b.plan_date) lignes.push(['Date', b.plan_date]);
-    if (b.scale) lignes.push(['Scale', b.scale]);
-    if (b.source_nom) lignes.push(['Source', b.source_nom]);
-
-    grille.innerHTML = lignes.map((l) =>
-      '<span>' + esc(l[0]) + '</span><span>' + esc(l[1]) + '</span>').join('');
+    if (b.source_nom) parts.push(b.source_nom);
+    if (b.plan_date) parts.push(b.plan_date);
+    if (b.scale) parts.push('Échelle ' + b.scale);
+    const uniques = parts.filter((t, i) => parts.indexOf(t) === i);
+    grille.innerHTML = uniques.map((t) => '<span>' + esc(t) + '</span>').join('<i>·</i>');
   }
 
   // onglet Map : affiche telle quelle la carte importee (Name_Map), rien de genere.
@@ -1171,6 +1180,10 @@
     return dedans;
   }
 
+  // avancement par bloc (tonnes minees / theoriques), alimente par majDiagrammeOnline ; sert aux etiquettes du plan
+  let progressionBlocs = {};
+  let derniersEnCours = [];
+
   function rendreSvg(containerId, oreblocs, highlightIds) {
     const wrap = $('#' + containerId);
     if (!wrap) return;
@@ -1209,7 +1222,7 @@
         (h - (y - minY)).toFixed(1), // flip vertical : y croissant vers le haut
       ]);
       svg += '<polygon points="' + screenPts.map((p) => p.join(',')).join(' ') +
-        '" fill="' + fill + '" stroke="#e2e8f0" stroke-width="' + traitW.toFixed(3) + '"' +
+        '" fill="' + fill + '" fill-opacity=".30" stroke="' + fill + '" stroke-width="' + (traitW * 1.6).toFixed(3) + '"' +
         (enCours ? ' class="dp-ore-mining"' : '') + ' />';
       screenPts.forEach(([sx, sy]) => {
         num++;
@@ -1218,7 +1231,17 @@
       // etiquette du bloc pres de son centroide
       const cx = screenPts.reduce((s, p) => s + Number(p[0]), 0) / screenPts.length;
       const cy = screenPts.reduce((s, p) => s + Number(p[1]), 0) / screenPts.length;
-      svg += '<text x="' + cx.toFixed(1) + '" y="' + cy.toFixed(1) + '" class="dp-svg-label" font-size="' + (w / 45).toFixed(1) + '">' + esc(b.nom) + '</text>';
+      const pr = progressionBlocs[b.nom];
+      const fs = w / 45;
+      svg += '<text x="' + cx.toFixed(1) + '" y="' + (cy - fs * 0.2).toFixed(1) + '" class="dp-svg-label" font-size="' + fs.toFixed(1) + '">' + esc(b.nom) + '</text>';
+      if (pr && pr.theo) {
+        const pct = Math.round(pr.mine / pr.theo * 100);
+        const over = pr.mine > pr.theo;
+        svg += '<text x="' + cx.toFixed(1) + '" y="' + (cy + fs * 0.85).toFixed(1) + '" class="dp-svg-sous' + (over ? ' over' : '') + '" font-size="' + (fs * 0.62).toFixed(1) + '">' +
+          pct + ' %' + (over ? ' · OVERMINE' : (enCours ? ' · EN COURS' : '')) + '</text>';
+        svg += '<text x="' + cx.toFixed(1) + '" y="' + (cy + fs * 1.5).toFixed(1) + '" class="dp-svg-sous2" font-size="' + (fs * 0.55).toFixed(1) + '">' +
+          Math.round(pr.mine).toLocaleString('fr-FR') + ' / ' + Math.round(pr.theo).toLocaleString('fr-FR') + ' t</text>';
+      }
     });
     svg += '</svg>';
     wrap.innerHTML = svg;
@@ -1255,7 +1278,15 @@
   function rendreDiagramme(oreblocs) {
     const el = $('#dpDiagram');
     if (!el) return;
-    if (!oreblocs.length) { el.innerHTML = ''; if (diagTimer) { clearInterval(diagTimer); diagTimer = null; } return; }
+    if (!oreblocs.length) {
+      el.innerHTML = '';
+      if (diagTimer) { clearInterval(diagTimer); diagTimer = null; }
+      progressionBlocs = {};
+      const p0 = $('#dpAvancementPct'), t0 = $('#dpAvancementTonnes'), b0 = $('#dpAvancementBarre');
+      if (p0) p0.textContent = '--'; if (t0) t0.textContent = ''; if (b0) b0.style.width = '0';
+      rendreOvermine([]);
+      return;
+    }
     el.innerHTML = '<div class="dp-diag-legende">' +
       '<span><span class="dp-leg-mine"></span> Mine (reel)</span>' +
       '<span><span class="dp-leg-theo"></span> Theorique (plan)</span>' +
@@ -1290,6 +1321,20 @@
     }
 
     const noms = Object.keys(theo);
+    // avancement du blast : total mine / total theorique (le mine d'un bloc est plafonne a son theorique
+    // pour le pourcentage global : un overmine ne doit pas masquer un bloc encore a miner)
+    progressionBlocs = {};
+    noms.forEach((n) => { progressionBlocs[n] = { mine: mine[n] || 0, theo: theo[n] }; });
+    const totTheo = noms.reduce((s, n) => s + theo[n], 0);
+    const totMine = noms.reduce((s, n) => s + Math.min(mine[n] || 0, theo[n] || (mine[n] || 0)), 0);
+    const pctGlobal = totTheo ? Math.round(totMine / totTheo * 100) : 0;
+    const elPct = $('#dpAvancementPct'), elT = $('#dpAvancementTonnes'), elB = $('#dpAvancementBarre');
+    if (elPct) elPct.textContent = totTheo ? pctGlobal + ' %' : '--';
+    if (elT) elT.textContent = totTheo
+      ? Math.round(totMine).toLocaleString('fr-FR') + ' / ' + Math.round(totTheo).toLocaleString('fr-FR') + ' t minées' : '';
+    if (elB) elB.style.width = Math.min(100, pctGlobal) + '%';
+    const vue = $('#dpProgressView');
+    if (vue && !vue.hidden) rendreSvg('dpSvgWrapProgress', oreblocs, derniersEnCours);
     const maxT = Math.max.apply(null, noms.map((n) => Math.max(theo[n], mine[n] || 0))) || 1;
     box.innerHTML = noms.map((nom) => {
       const t = theo[nom];
@@ -1321,22 +1366,20 @@
   }
 
   function rendreOvermine(liste) {
+    const card = $('#dpOvermineCard');
     const box = $('#dpOvermineListe');
     if (!box) return;
-    if (!liste || !liste.length) {
-      box.innerHTML = '<div class="dp-overmine-vide">Aucun overmine — le minage reste dans le plan.</div>';
-      box.classList.remove('alerte');
-      return;
-    }
-    box.classList.add('alerte');
-    box.innerHTML = liste.map((o) =>
-      '<div class="dp-overmine-item">' +
-        '<i class="fas fa-triangle-exclamation"></i>' +
-        '<span class="dp-om-nom" title="' + esc(o.nom) + '">' + esc(o.nom) + '</span>' +
-        '<span class="dp-om-val">+' + Math.round(o.exces).toLocaleString('fr-FR') + ' t' +
-          ' <em>(' + Math.round(o.mine).toLocaleString('fr-FR') + ' / ' +
-          Math.round(o.theo).toLocaleString('fr-FR') + ')</em></span>' +
-      '</div>').join('');
+    if (card) card.hidden = !liste || !liste.length;
+    const titre = $('#dpOvermineTitre');
+    if (titre && liste && liste.length) titre.textContent = 'Overmine · ' + liste.length + (liste.length > 1 ? ' blocs' : ' bloc');
+    box.innerHTML = (liste || []).map((o) => {
+      const pct = o.theo ? Math.round(o.exces / o.theo * 100) : 0;
+      return '<div class="dp-overmine-item">' +
+        '<b title="' + esc(o.nom) + '">' + esc(o.nom) + ' : ' + Math.round(o.mine).toLocaleString('fr-FR') + ' t minées / ' +
+          Math.round(o.theo).toLocaleString('fr-FR') + ' t théoriques</b>' +
+        '<span>+' + Math.round(o.exces).toLocaleString('fr-FR') + ' t · dépassement de ' + pct + ' %</span>' +
+      '</div>';
+    }).join('');
   }
 
   function jgetPasserelle(path) {
@@ -1431,8 +1474,10 @@
         });
       } catch (e2) { /* engins indisponibles : les canaux A+D suffisent */ }
 
+      derniersEnCours = enCoursIds;
       rendreSvg('dpSvgWrapProgress', oreblocs, enCoursIds);
     } catch (e) {
+      derniersEnCours = [];
       rendreSvg('dpSvgWrapProgress', oreblocs, []);
     }
   }
@@ -1509,9 +1554,45 @@
     $('#dpTabProgress').addEventListener('click', () => activerTab('progress'));
   }
 
+  /* ---- Equipe de service (jour / nuit) : memes parametres equipe_jour / equipe_nuit que Senor et Home ---- */
+  async function chargerService() {
+    const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
+    const g = window.API;     // `API` est ici la fonction du backend Dig Plan : on lit l'objet global
+    if (!sj || !sn || !g) return;
+    const st = $('#dpServiceStatus');
+    try {
+      const [cfg, ident] = await Promise.all([g.getConfig(), g.getRows('sync_identifiants')]);
+      const p = (cfg && (cfg.params || cfg)) || {};
+      const codes = Array.from(new Set(((ident && ident.rows) || [])
+        .filter((r) => r.profil === 'SPOT' && r.actif === 1).map((r) => r.equipe).filter(Boolean))).sort();
+      [[sj, p.equipe_jour || ''], [sn, p.equipe_nuit || '']].forEach(([sel, val]) => {
+        const liste = val && codes.indexOf(val) < 0 ? codes.concat(val) : codes;
+        sel.innerHTML = '<option value="">Non définie</option>' +
+          liste.map((c) => '<option value="' + esc(c) + '"' + (c === val ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+      });
+      if (st) st.textContent = '';
+    } catch (e) {
+      if (st) st.textContent = 'Connexion requise';
+    }
+  }
+
+  async function enregistrerService(cle, valeur) {
+    const st = $('#dpServiceStatus');
+    try {
+      await window.API.saveConfig({ [cle]: valeur });
+      if (st) st.textContent = 'Équipe de service enregistrée.';
+    } catch (e) {
+      if (st) st.textContent = 'Enregistrement impossible : ' + ((e && e.message) || 'serveur indisponible');
+    }
+  }
+
   async function init() {
     if (!$('#page-digplan')) return;
     brancherEvenements();
+    chargerService();
+    const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
+    if (sj) sj.addEventListener('change', () => enregistrerService('equipe_jour', sj.value));
+    if (sn) sn.addEventListener('change', () => enregistrerService('equipe_nuit', sn.value));
     // sequentiel : chargerBlasts filtre sur la source courante, qui doit
     // donc etre connue avant (en parallele la liste partait non filtree).
     await chargerSources();

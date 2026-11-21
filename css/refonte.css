@@ -3674,3 +3674,113 @@ body {
 #page-senor .sg-tabs { gap: 26px; }
 #page-senor .sg-tab { white-space: nowrap; gap: 12px; }
 #page-senor .sg-tabs-maj { white-space: nowrap; }
+
+/* ===== PAGE DIG PLAN (maquette « Dig Plan · Bureau minéral V2 ») ===== */
+#page-digplan { --mono: var(--r-mono, 'IBM Plex Mono', ui-monospace, monospace); }
+#page-digplan .dp-grid { display: grid; grid-template-columns: 460px minmax(0, 1fr); gap: 36px; align-items: start; }
+@media (max-width: 1280px) { #page-digplan .dp-grid { grid-template-columns: 1fr; } }
+#page-digplan .dp-left { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+#page-digplan .dp-right { display: flex; flex-direction: column; min-width: 0; }
+#page-digplan .dp-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--r-text-3); }
+#page-digplan .dp-kicker i { font-style: normal; margin: 0 8px; }
+#page-digplan .dp-kicker-clair { color: rgba(236,233,223,.7); }
+
+/* source */
+#page-digplan .dp-source-card { background: #ece8dc; border-radius: var(--r-radius); padding: 22px 24px; }
+#page-digplan .dp-source-top { display: flex; justify-content: space-between; align-items: flex-start; }
+#page-digplan .dp-source-nav { display: flex; gap: 10px; }
+#page-digplan .dp-nav-btn { width: 44px; height: 44px; border: 0; border-radius: 4px; background: #f4f1e8; color: var(--r-text); cursor: pointer; }
+#page-digplan .dp-nav-btn:disabled { opacity: .4; cursor: default; }
+#page-digplan .dp-source-nom { font-size: 34px; font-weight: 800; letter-spacing: -.7px; line-height: 1.05; margin: 6px 0 8px; }
+#page-digplan .dp-source-codes { font-family: var(--mono); font-size: 12.5px; color: var(--r-text-2); min-height: 16px; }
+#page-digplan .dp-chips { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 28px; }
+#page-digplan .dp-chip { height: 34px; min-width: 100px; padding: 0 18px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--fam, #8d887a) 14%, #f4f1e8); color: var(--fam, #8d887a); font-family: var(--mono); font-size: 12.5px; cursor: pointer; text-align: left; }
+#page-digplan .dp-chip.sel { background: var(--fam, #8d887a); color: #fff; }
+#page-digplan .dp-vide { font-size: 13px; color: var(--r-text-3); }
+
+/* blast actif */
+#page-digplan .dp-titre { font-size: 26px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 6px; }
+#page-digplan .dp-blast-nom { font-family: var(--mono); font-size: 22px; color: var(--r-text); margin: 0 0 20px; word-break: break-all; }
+#page-digplan .dp-blast-actions { display: grid; grid-template-columns: 1.1fr 1fr 1fr 1fr 1fr; gap: 10px; }
+#page-digplan .dp-btn { height: 40px; padding: 0 8px; border: 0; border-radius: 4px; background: #ece8dc; color: var(--r-text); font: inherit; font-size: 13.5px; cursor: pointer; }
+#page-digplan .dp-btn:hover:not(:disabled) { background: #e2ddcd; }
+#page-digplan .dp-btn:disabled { opacity: .45; cursor: default; }
+#page-digplan .dp-btn-select { background: #1d2620; color: #fff; }
+#page-digplan .dp-btn-select:hover:not(:disabled) { background: #2c352b; }
+#page-digplan .dp-btn-ok { background: #1d2620; color: #fff; }
+
+/* fichiers du blast */
+#page-digplan .dp-form { margin-top: 30px; display: flex; flex-direction: column; gap: 8px; }
+#page-digplan .dp-kicker-fichiers { margin-bottom: 6px; }
+#page-digplan .dp-field { display: flex; }
+#page-digplan .dp-field-name { font-family: var(--mono); font-size: 12.5px; color: var(--r-text); }
+#page-digplan .dp-field.dp-field-name { flex-direction: column; gap: 6px; font-size: 12px; color: var(--r-text-3); }
+#page-digplan .dp-field.dp-field-name span { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+#page-digplan .dp-input { height: 40px; padding: 0 12px; border: 0; border-radius: 4px; background: #fff; font: inherit; font-size: 14px; color: var(--r-text); }
+#page-digplan .dp-input[readonly] { background: #ece8dc; }
+#page-digplan .dp-fichier { position: relative; background: #f4f1e8; border-radius: 3px; padding: 11px 44px 11px 14px; flex-direction: column; gap: 2px; }
+#page-digplan .dp-fichier small { font-size: 11.5px; color: var(--r-text-3); }
+#page-digplan .dp-file-trigger { position: absolute; inset: 0; border: 0; background: none; text-align: right; padding-right: 16px; cursor: pointer; color: transparent; font-size: 0; }
+#page-digplan .dp-file-trigger span { display: none; }
+#page-digplan .dp-file-trigger i { font-size: 13px; color: #cfc9b6; }
+#page-digplan .dp-file-trigger.has-file i { color: #1d6fd1; }
+#page-digplan .dp-file-trigger:disabled { cursor: default; }
+#page-digplan .dp-form-actions { display: flex; gap: 10px; margin-top: 6px; }
+
+/* avancement + overmine */
+#page-digplan .dp-avancement { background: #1f2a22; color: #ece9df; border-radius: var(--r-radius); padding: 20px 24px; margin-top: 28px; }
+#page-digplan .dp-avancement-ligne { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin: 12px 0 14px; }
+#page-digplan .dp-avancement-ligne b { font-family: var(--mono); font-size: 40px; font-weight: 500; color: #fff; }
+#page-digplan .dp-avancement-ligne span { font-size: 13.5px; color: rgba(236,233,223,.85); }
+#page-digplan .dp-avancement-barre { height: 4px; background: rgba(255,255,255,.14); border-radius: 2px; overflow: hidden; }
+#page-digplan .dp-avancement-barre i { display: block; height: 100%; width: 0; background: #fbd51a; transition: width .8s ease; }
+#page-digplan .dp-overmine-card { background: #fbede8; border-radius: var(--r-radius); padding: 20px 24px; margin-top: 18px; }
+#page-digplan .dp-overmine-card[hidden] { display: none; }
+#page-digplan .dp-overmine-card h3 { margin: 0 0 12px; font-size: 22px; font-weight: 500; color: #b3382a; }
+#page-digplan .dp-overmine-item { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+#page-digplan .dp-overmine-item b { font-weight: 500; font-size: 14.5px; color: var(--r-text); }
+#page-digplan .dp-overmine-item span { font-size: 13px; color: #b3382a; }
+#page-digplan .dp-service-card { background: var(--r-bg-panel, #fbfaf5); border: 1px solid var(--r-border); border-radius: var(--r-radius); padding: 18px 22px; margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+#page-digplan .dp-service-champ { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--r-text-3); }
+#page-digplan .dp-service-champ select { height: 40px; padding: 0 12px; border: 0; border-radius: 4px; background: #ece8dc; font: inherit; font-size: 14px; color: var(--r-text); }
+
+/* colonne droite */
+#page-digplan .dp-tabsbar { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+#page-digplan .dp-tab { height: 42px; min-width: 124px; padding: 0 18px; border: 0; border-radius: 4px; background: #ece8dc; color: var(--r-text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; border-bottom: 0; }
+#page-digplan .dp-tab.active { background: #1d2620; color: #fff; }
+#page-digplan .dp-tabsbar-note { margin-left: auto; font-size: 13px; color: var(--r-text-2); }
+#page-digplan .dp-plan-card { background: #fbfaf5; border: 1px solid var(--r-border-strong); padding: 28px 30px 26px; min-width: 0; }
+#page-digplan .dp-map-head { display: flex; align-items: baseline; gap: 44px; }
+#page-digplan .dp-orepro { font-size: 22px; font-weight: 600; letter-spacing: -.3px; }
+#page-digplan .dp-plan-title { font-family: var(--mono); font-size: 24px; color: var(--r-text); word-break: break-all; }
+#page-digplan .dp-author { margin-left: auto; font-size: 12.5px; color: var(--r-text-3); }
+#page-digplan .dp-meta-grid { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 22px; font-size: 13.5px; color: var(--r-text-2); }
+#page-digplan .dp-meta-grid i { font-style: normal; color: var(--r-text-3); }
+#page-digplan .dp-page-body { background: #ebe7da; border: 1px solid var(--r-border); min-height: 280px; }
+#page-digplan .dp-svg-wrap, #page-digplan .dp-map-image-wrap { width: 100%; }
+#page-digplan .dp-svg { width: 100%; max-height: 520px; }
+#page-digplan .dp-svg-label { fill: var(--r-text); font-family: var(--mono); font-weight: 500; text-anchor: middle; }
+#page-digplan .dp-svg-sous { fill: var(--r-text-2); font-family: var(--mono); text-anchor: middle; }
+#page-digplan .dp-svg-sous.over { fill: #b3382a; }
+#page-digplan .dp-svg-sous2 { fill: var(--r-text-3); font-family: var(--mono); text-anchor: middle; }
+#page-digplan .dp-progress-legend { font-size: 12px; color: var(--r-text-2); padding: 12px 16px 0; }
+#page-digplan .dp-progress-summary { padding: 6px 16px 14px; }
+#page-digplan .dp-table-wrap { margin-top: 26px; max-height: 340px; overflow: auto; }
+#page-digplan .dp-table { width: 100%; border-collapse: collapse; }
+#page-digplan .dp-table thead th { text-align: left; font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--r-text-3); padding: 12px 10px; border: 0; background: none; position: sticky; top: 0; background: #fbfaf5; }
+#page-digplan .dp-table tbody td { padding: 11px 10px; font-size: 14px; color: var(--r-text-2); border: 0; }
+#page-digplan .dp-table tbody td:first-child { font-weight: 700; color: var(--r-text); }
+#page-digplan .dp-table tbody tr:nth-child(odd) { background: #f1ede0; }
+#page-digplan .dp-table tbody tr.dp-row-ore { background: transparent; }
+#page-digplan .dp-table tbody tr.dp-row-ore:nth-child(odd) { background: #f1ede0; }
+#page-digplan .dp-svg-wrap, #page-digplan .dp-svg, #page-digplan .dp-progress-view { background: #ebe7da !important; }
+#page-digplan .dp-svg { border-radius: 0; }
+#page-digplan .dp-svg-num { fill: var(--r-text-3) !important; }
+#page-digplan .dp-progress-kpis { display: flex; gap: 12px; }
+#page-digplan .dp-kpi { background: #f4f1e8 !important; border: 0 !important; border-radius: 4px; padding: 12px 18px; display: flex; flex-direction: column; gap: 4px; color: var(--r-text) !important; }
+#page-digplan .dp-kpi b { font-family: var(--mono); font-size: 22px; font-weight: 500; color: var(--r-text) !important; }
+#page-digplan .dp-kpi span { font-size: 11px; color: var(--r-text-3) !important; text-transform: uppercase; letter-spacing: .08em; }
+#page-digplan .dp-form-actions[hidden] { display: none; }
+#page-digplan .dp-diagram[hidden] { display: none !important; }
+#page-digplan .dp-overmine-liste { display: block !important; background: none !important; border: 0 !important; padding: 0 !important; }
+#page-digplan .dp-overmine-item { display: flex !important; flex-direction: column !important; background: none !important; border: 0 !important; padding: 0 !important; border-radius: 0 !important; margin-bottom: 10px; }
