@@ -378,8 +378,11 @@ CREATE TABLE IF NOT EXISTS trajectoires (
 CREATE TABLE IF NOT EXISTS tablettes (
     serial TEXT PRIMARY KEY,           -- numero de serie adb (stable, USB comme Wi-Fi)
     nom TEXT DEFAULT '',               -- modele lu sur l'appareil
-    dt_code TEXT DEFAULT '',           -- DT-04 : le DT auquel la tablette est affectee
-    famille TEXT DEFAULT '',           -- famille du camion : 1500, 785, ADT...
+    dt_code TEXT DEFAULT '',           -- (ancien) remplace par profil + ident
+    famille TEXT DEFAULT '',           -- famille du camion / de l'engin : 1500, 785, ADT...
+    profil TEXT DEFAULT 'dt',          -- dt | exc | spotter | link : l'application installee sur la tablette
+    ident TEXT DEFAULT '',             -- DT-04 (dt), id de l'engin (exc), nom du spotter (spotter)
+    equipe TEXT DEFAULT '',            -- equipe du spotter
     apk TEXT DEFAULT '',               -- dernier APK installe
     installee_le TEXT DEFAULT '',
     derniere_vue TEXT DEFAULT '',
@@ -6273,7 +6276,15 @@ def enregistrer_alerte_office(conn, evenement):
 # installation de l'APK, depuis la console. adb est lance SUR CE POSTE : aucun service cloud n'est concerne.
 # Une installation = une famille de camion = un id DT : la console pousse `provision.json` dans le dossier
 # de l'app (lu par ProvisionPlugin cote tablette), l'app s'ouvre directement sur ce DT.
-PAQUET_DT = "com.lafigue.oretracking.dt"
+# Les 4 applications : un profil = une application. L'identite fixee par la console depend du profil.
+PROFILS = {
+    "dt":      {"nom": "DT", "paquet": "com.lafigue.oretracking.dt", "apk": r"^ore-dt-.*\.apk$"},
+    "exc":     {"nom": "Excavatrice", "paquet": "com.lafigue.oretracking.excavatrice",
+                "apk": r"^ore-(exc|excavator|excavatrice)-.*\.apk$"},
+    "spotter": {"nom": "Spotter", "paquet": "com.oretracking.ore_tracking.spotter", "apk": r"^ore-spotter-.*\.apk$"},
+    "link":    {"nom": "Link", "paquet": "com.oretracking.link", "apk": r"^OreTracking-Link-.*\.apk$"},
+}
+PAQUET_DT = PROFILS["dt"]["paquet"]
 PORT_ADB_WIFI = 5555
 _RE_ADRESSE = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{2,5}))?$")
 _RE_SERIE = re.compile(r"^[A-Za-z0-9._:\-]{3,64}$")
@@ -6339,7 +6350,7 @@ _SCRIPT_INFOS = (
     "echo tcp=$(getprop service.adb.tcp.port); "
     "echo ip=$(ip -f inet addr show 2>/dev/null | grep 'inet ' | grep -v ' 127[.]' | head -1); "
     "echo batterie=$(dumpsys battery | grep level | head -1); "
-    "echo version=$(dumpsys package " + PAQUET_DT + " | grep versionName | head -1); "
+    "for p in " + " ".join(x["paquet"] for x in PROFILS.values()) + "; do echo v:$p=$(dumpsys package $p | grep versionName | head -1); done; "
     "echo paquets=$(pm list packages | grep -i oretracking | tr '\\n' ' ')"
 )
 
@@ -6356,12 +6367,16 @@ def adb_infos(serie):
             d[k.strip()] = v.strip()
     m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", d.get("ip", ""))
     b = re.search(r"(\d+)", d.get("batterie", ""))
-    v = re.search(r"versionName=(\S+)", d.get("version", ""))
+    versions = {}
+    for k, val in d.items():
+        mv = re.search(r"versionName=(\S+)", val)
+        if k.startswith("v:") and mv:
+            versions[k[2:]] = mv.group(1)
     return {"modele": ((d.get("marque", "") + " " + d.get("modele", "")).strip()),
             "android": d.get("android", ""), "numero_serie": d.get("serie", ""),
             "ip": m.group(1) if m else "", "wifi_ouvert": d.get("tcp", "") == str(PORT_ADB_WIFI),
             "batterie": int(b.group(1)) if b else None,
-            "app_version": v.group(1) if v else "",
+            "versions": versions,
             "paquets": [x.replace("package:", "") for x in d.get("paquets", "").split()]}
 
 
@@ -6377,13 +6392,13 @@ def dossier_apk():
     return candidats[0] if candidats else ""
 
 
-def apk_disponibles():
-    """APK du DT du dossier (ore-dt-*.apk), du plus recent au plus ancien."""
+def apk_disponibles(profil="dt"):
+    """APK du profil dans le dossier, du plus recent au plus ancien."""
     d = dossier_apk()
     res = []
-    if d:
+    if d and os.path.isdir(d):
         for nom in os.listdir(d):
-            if re.match(r"^ore-dt-.*\.apk$", nom, re.I):
+            if re.match(PROFILS[profil]["apk"], nom, re.I):
                 f = os.path.join(d, nom)
                 res.append({"nom": nom, "taille_mo": round(os.path.getsize(f) / 1048576, 1),
                             "date": datetime.fromtimestamp(os.path.getmtime(f)).strftime("%Y-%m-%d %H:%M"),
@@ -6392,9 +6407,9 @@ def apk_disponibles():
     return d, res
 
 
-def apk_retenu(autoriser_test=False):
+def apk_retenu(autoriser_test=False, profil="dt"):
     """APK a installer : le dernier de PRODUCTION ; un APK de test (WebView deboguable) seulement si autorise."""
-    _, liste = apk_disponibles()
+    _, liste = apk_disponibles(profil)
     prod = [a for a in liste if not a["test"]]
     if prod:
         return prod[0], ""
@@ -6402,7 +6417,7 @@ def apk_retenu(autoriser_test=False):
         return liste[0], ""
     if liste:
         return None, "aucun APK de production (seulement des APK de test) : construisez-le ou autorisez l'APK de test"
-    return None, "aucun APK ore-dt-*.apk dans %s" % (dossier_apk() or "le dossier des APK")
+    return None, "aucun APK %s dans %s" % (PROFILS[profil]["nom"], dossier_apk() or "le dossier des APK")
 
 
 def zone_utm_site(conn):
@@ -6410,11 +6425,28 @@ def zone_utm_site(conn):
     return ("%s%s" % (z, h)) if z else ""
 
 
+def _etat_apps(paquets, versions):
+    return {pr: {"installee": d["paquet"] in paquets or d["paquet"] in versions, "version": versions.get(d["paquet"], "")}
+            for pr, d in PROFILS.items()}
+
+
 def tablettes_lister(conn):
-    """Tablettes detectees (adb) + tablettes connues (base), avec leur affectation."""
+    """Tablettes detectees (adb) + tablettes connues (base), avec leur profil et leur identite."""
     periph, erreur = adb_peripheriques()
     connues = {r["serial"]: dict(r) for r in conn.execute("SELECT * FROM tablettes")}
     vus, tablettes = set(), []
+
+    def fiche(serie, adresse, etat, transports, wifi, modele, info, k):
+        apps = _etat_apps(info.get("paquets", []), info.get("versions", {}))
+        profil = k.get("profil") or "dt"
+        return {
+            "serie": serie, "adresse_adb": adresse, "etat": etat, "connectee": etat == "device",
+            "transports": transports, "adresse_wifi": wifi, "modele": modele, "android": info.get("android", ""),
+            "ip": info.get("ip", ""), "wifi_ouvert": info.get("wifi_ouvert", False), "batterie": info.get("batterie"),
+            "profil": profil, "ident": k.get("ident", ""), "famille": k.get("famille", ""), "equipe": k.get("equipe", ""),
+            "apps": apps, "app_installee": apps[profil]["installee"], "app_version": apps[profil]["version"],
+            "apk": k.get("apk", ""), "installee_le": k.get("installee_le", "")}
+
     for p in periph:
         info = adb_infos(p["serie"]) if p["etat"] == "device" else {}
         serie = info.get("numero_serie") or p["serie"]
@@ -6428,39 +6460,25 @@ def tablettes_lister(conn):
             continue
         vus.add(serie)
         k = connues.get(serie, {})
-        tablettes.append({
-            "serie": serie, "adresse_adb": p["serie"], "etat": p["etat"], "connectee": p["etat"] == "device",
-            "transports": [p["transport"]], "adresse_wifi": p["serie"] if p["transport"] == "wifi" else "",
-            "modele": info.get("modele") or p["modele"] or k.get("nom", ""), "android": info.get("android", ""),
-            "ip": info.get("ip", ""), "wifi_ouvert": info.get("wifi_ouvert", False),
-            "batterie": info.get("batterie"),
-            "app_installee": PAQUET_DT in info.get("paquets", []) or bool(info.get("app_version")),
-            "app_version": info.get("app_version", ""), "autres_apps": [x for x in info.get("paquets", []) if x != PAQUET_DT],
-            "dt_code": k.get("dt_code", ""), "famille": k.get("famille", ""), "apk": k.get("apk", ""),
-            "installee_le": k.get("installee_le", ""),
-        })
-        if k or info:
-            conn.execute(
-                "INSERT INTO tablettes (serial, nom, derniere_vue) VALUES (?, ?, datetime('now','localtime')) "
-                "ON CONFLICT(serial) DO UPDATE SET nom=excluded.nom, derniere_vue=excluded.derniere_vue",
-                (serie, tablettes[-1]["modele"]))
-        else:
-            conn.execute("INSERT OR IGNORE INTO tablettes (serial, nom, derniere_vue) VALUES (?, ?, datetime('now','localtime'))",
-                         (serie, tablettes[-1]["modele"]))
+        modele = info.get("modele") or p["modele"] or k.get("nom", "")
+        tablettes.append(fiche(serie, p["serie"], p["etat"], [p["transport"]],
+                               p["serie"] if p["transport"] == "wifi" else "", modele, info, k))
+        conn.execute(
+            "INSERT INTO tablettes (serial, nom, derniere_vue) VALUES (?, ?, datetime('now','localtime')) "
+            "ON CONFLICT(serial) DO UPDATE SET nom=excluded.nom, derniere_vue=excluded.derniere_vue", (serie, modele))
     conn.commit()
     for serie, k in connues.items():          # connues mais absentes : on garde leur affectation
         if serie not in vus:
-            tablettes.append({"serie": serie, "adresse_adb": "", "etat": "absente", "connectee": False,
-                              "transports": [], "adresse_wifi": "", "modele": k.get("nom", ""), "android": "",
-                              "ip": "", "wifi_ouvert": False, "batterie": None, "app_installee": False,
-                              "app_version": "", "autres_apps": [], "dt_code": k.get("dt_code", ""),
-                              "famille": k.get("famille", ""), "apk": k.get("apk", ""),
-                              "installee_le": k.get("installee_le", "")})
-    dossier, apks = apk_disponibles()
-    retenu, motif = apk_retenu(False)
+            tablettes.append(fiche(serie, "", "absente", [], "", k.get("nom", ""), {}, k))
+    dossier = dossier_apk()
+    profils = {}
+    for pr, d in PROFILS.items():
+        _, apks = apk_disponibles(pr)
+        retenu, motif = apk_retenu(False, pr)
+        profils[pr] = {"nom": d["nom"], "retenu": retenu["nom"] if retenu else "", "motif": motif,
+                       "fichiers": [{k: v for k, v in a.items() if k != "chemin"} for a in apks]}
     return {"adb": {"chemin": adb_chemin(), "erreur": erreur}, "tablettes": tablettes,
-            "apk": {"dossier": dossier, "fichiers": [{k: v for k, v in a.items() if k != "chemin"} for a in apks],
-                    "retenu": retenu["nom"] if retenu else "", "motif": motif}}
+            "apk": {"dossier": dossier, "profils": profils}}
 
 
 def tablette_ouvrir_wifi(serie):
@@ -6493,25 +6511,78 @@ def tablette_connecter(adresse):
     return {"ok": ok, "adresse": cible, "detail": (sortie.strip() or err)}
 
 
-def tablette_affecter(conn, serie, dt, famille):
-    """Fixe l'affectation : une tablette = un DT = une famille. Un DT n'a qu'UNE tablette."""
+_RE_LIBRE = re.compile(r"[A-Za-z0-9 ._\-]{1,24}")
+_RE_NOM = re.compile(r"[^\W_][\w .'\-]{0,39}")
+
+
+def tablette_affecter(conn, serie, profil, ident, famille, equipe):
+    """Fixe le profil de la tablette et son identite. dt : DT + famille ; exc : id + famille ;
+    spotter : nom + equipe ; link : rien. Une identite n'appartient qu'a UNE tablette."""
     serie = str(serie or "").strip()
+    profil = str(profil or "dt").strip().lower()
+    ident = str(ident or "").strip()
     famille = str(famille or "").strip()
-    dt_brut = str(dt or "").strip().upper().replace("DT-", "").replace("DT", "")
+    equipe = str(equipe or "").strip()
     if not _RE_SERIE.match(serie):
         return 400, {"error": "numero de serie invalide"}
-    if not re.fullmatch(r"\d{1,3}", dt_brut):
-        return 400, {"error": "id DT attendu : un numero (4 ou DT-04)"}
-    if not re.fullmatch(r"[A-Za-z0-9 ._\-]{1,24}", famille):
-        return 400, {"error": "famille de camion requise (1500, 785, ADT...)"}
-    code = "DT-%02d" % int(dt_brut)
-    autre = conn.execute("SELECT serial, nom FROM tablettes WHERE dt_code=? AND serial<>?", (code, serie)).fetchone()
-    if autre:
-        return 409, {"error": "%s est deja affecte a la tablette %s (%s)" % (code, autre["serial"], autre["nom"] or "sans nom")}
+    if profil not in PROFILS:
+        return 400, {"error": "profil inconnu : %s" % profil}
+    if profil == "link":
+        ident, famille, equipe = "", "", ""
+    elif profil == "spotter":
+        famille = ""
+        if ident and not _RE_NOM.fullmatch(ident):
+            return 400, {"error": "nom du spotter invalide"}
+        if equipe and not _RE_NOM.fullmatch(equipe):
+            return 400, {"error": "equipe invalide"}
+    else:
+        equipe = ""
+        if ident:
+            if profil == "dt":
+                brut = ident.upper().replace("DT-", "").replace("DT", "")
+                if not re.fullmatch(r"\d{1,3}", brut):
+                    return 400, {"error": "id DT attendu : un numero (4 ou DT-04)"}
+                ident = "DT-%02d" % int(brut)
+            else:
+                ident = ident.upper()
+                if not _RE_LIBRE.fullmatch(ident):
+                    return 400, {"error": "id de l'excavatrice invalide"}
+        if famille and not _RE_LIBRE.fullmatch(famille):
+            return 400, {"error": "famille invalide (1500, 785, ADT...)"}
+    if ident:
+        autre = conn.execute("SELECT serial, nom FROM tablettes WHERE profil=? AND ident=? AND serial<>?",
+                             (profil, ident, serie)).fetchone()
+        if autre:
+            return 409, {"error": "%s est deja affecte a la tablette %s (%s)" % (ident, autre["serial"], autre["nom"] or "sans nom")}
     conn.execute("INSERT OR IGNORE INTO tablettes (serial) VALUES (?)", (serie,))
-    conn.execute("UPDATE tablettes SET dt_code=?, famille=? WHERE serial=?", (code, famille, serie))
+    conn.execute("UPDATE tablettes SET profil=?, ident=?, famille=?, equipe=?, dt_code='' WHERE serial=?",
+                 (profil, ident, famille, equipe, serie))
     conn.commit()
-    return 200, {"ok": True, "serie": serie, "dt_code": code, "famille": famille}
+    return 200, {"ok": True, "serie": serie, "profil": profil, "ident": ident, "famille": famille, "equipe": equipe}
+
+
+def tablette_incomplete(k):
+    """Motif si l'identite du profil n'est pas complete (sinon chaine vide)."""
+    pr = k.get("profil") or "dt"
+    if pr == "dt" and not (k.get("ident") and k.get("famille")):
+        return "choisissez le DT de cette tablette (sa famille suit)"
+    if pr == "exc" and not (k.get("ident") and k.get("famille")):
+        return "renseignez l'id et la famille de l'excavatrice"
+    if pr == "spotter" and not (k.get("ident") and k.get("equipe")):
+        return "renseignez le nom et l'equipe du spotter"
+    return ""
+
+
+def provision_contenu(k, zone):
+    """Contenu de provision.json selon le profil (None : le profil Link n'a pas d'identite)."""
+    pr = k.get("profil") or "dt"
+    if pr == "dt":
+        return {"profil": "dt", "dt": k["ident"].replace("DT-", ""), "camion": k["famille"], "zone": zone or ""}
+    if pr == "exc":
+        return {"profil": "exc", "id": k["ident"], "famille": k["famille"], "zone": zone or ""}
+    if pr == "spotter":
+        return {"profil": "spotter", "nom": k["ident"], "equipe": k["equipe"]}
+    return None
 
 
 def _job_log(job, texte, ok=True):
@@ -6519,45 +6590,52 @@ def _job_log(job, texte, ok=True):
         _jobs_tablettes[job]["etapes"].append({"texte": texte, "ok": ok})
 
 
-def tablette_installer(job, serie, adresse_adb, dt_code, famille, zone, autoriser_test, reinstaller):
+def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinstaller):
     """Installation complete (thread) : APK -> premier lancement -> provision.json -> relance."""
     cible = adresse_adb or serie
+    profil = k.get("profil") or "dt"
+    paquet = PROFILS[profil]["paquet"]
     try:
-        apk, motif = apk_retenu(autoriser_test)
+        apk, motif = apk_retenu(autoriser_test, profil)
         if not apk:
             raise RuntimeError(motif)
-        _job_log(job, "APK retenu : %s (%s Mo%s)" % (apk["nom"], apk["taille_mo"], ", TEST" if apk["test"] else ""))
+        _job_log(job, "APK %s : %s (%s Mo%s)" % (PROFILS[profil]["nom"], apk["nom"], apk["taille_mo"], ", TEST" if apk["test"] else ""))
         if reinstaller:
-            adb_lancer(["uninstall", PAQUET_DT], serie=cible, timeout=60)
+            adb_lancer(["uninstall", paquet], serie=cible, timeout=60)
             _job_log(job, "Ancienne version desinstallee (donnees de l'app effacees)")
-        code, sortie, err = adb_lancer(["install", "-r", apk["chemin"]], serie=cible, timeout=240)
+        code, sortie, err = adb_lancer(["install", "-r", apk["chemin"]], serie=cible, timeout=300)
         texte = (sortie + " " + err).strip()
         if code != 0 or "Success" not in texte:
             if "UPDATE_INCOMPATIBLE" in texte:
                 raise RuntimeError("une version signee avec une AUTRE cle est installee : relancez avec « reinstaller » "
                                    "(les donnees de l'app seront effacees)")
             raise RuntimeError("installation refusee : %s" % texte[-240:])
+        code, liste, _ = adb_lancer(["shell", "pm", "list", "packages", paquet], serie=cible, timeout=15)
+        if "package:" + paquet not in liste:
+            raise RuntimeError("l'APK installe n'est pas le paquet attendu pour le profil %s (%s)" % (PROFILS[profil]["nom"], paquet))
         _job_log(job, "APK installe")
-        # premier lancement : l'app cree son dossier de fichiers externes (getExternalFilesDir)
-        adb_lancer(["shell", "monkey", "-p", PAQUET_DT, "-c", "android.intent.category.LAUNCHER", "1"], serie=cible, timeout=20)
-        time.sleep(4.0)
-        contenu = json.dumps({"dt": dt_code.replace("DT-", ""), "camion": famille, "zone": zone or ""}, ensure_ascii=True)
-        tmp = os.path.join(tempfile.gettempdir(), "provision_%s.json" % re.sub(r"[^A-Za-z0-9]", "", serie))
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(contenu)
-        dest = "/sdcard/Android/data/%s/files" % PAQUET_DT
-        adb_lancer(["shell", "mkdir", "-p", dest], serie=cible, timeout=15)
-        code, _, err = adb_lancer(["push", tmp, dest + "/provision.json"], serie=cible, timeout=30)
-        os.remove(tmp)
-        if code != 0:
-            raise RuntimeError("fichier de provisionnement non ecrit : %s" % err[-200:])
-        code, relu, _ = adb_lancer(["shell", "cat", dest + "/provision.json"], serie=cible, timeout=15)
-        if code != 0 or dt_code.replace("DT-", "") not in relu:
-            raise RuntimeError("provisionnement non verifie sur la tablette")
-        _job_log(job, "Affectation ecrite sur la tablette : %s, famille %s" % (dt_code, famille))
-        adb_lancer(["shell", "am", "force-stop", PAQUET_DT], serie=cible, timeout=15)
-        adb_lancer(["shell", "monkey", "-p", PAQUET_DT, "-c", "android.intent.category.LAUNCHER", "1"], serie=cible, timeout=20)
-        _job_log(job, "Application lancee sur %s" % dt_code)
+        lancer = ["shell", "monkey", "-p", paquet, "-c", "android.intent.category.LAUNCHER", "1"]
+        contenu = provision_contenu(k, zone)
+        if contenu is not None:
+            # premier lancement : l'app cree son dossier de fichiers externes (getExternalFilesDir)
+            adb_lancer(lancer, serie=cible, timeout=20)
+            time.sleep(4.0)
+            tmp = os.path.join(tempfile.gettempdir(), "provision_%s.json" % re.sub(r"[^A-Za-z0-9]", "", serie))
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(json.dumps(contenu, ensure_ascii=True))
+            dest = "/sdcard/Android/data/%s/files" % paquet
+            adb_lancer(["shell", "mkdir", "-p", dest], serie=cible, timeout=15)
+            code, _, err = adb_lancer(["push", tmp, dest + "/provision.json"], serie=cible, timeout=30)
+            os.remove(tmp)
+            if code != 0:
+                raise RuntimeError("fichier de provisionnement non ecrit : %s" % err[-200:])
+            code, relu, _ = adb_lancer(["shell", "cat", dest + "/provision.json"], serie=cible, timeout=15)
+            if code != 0 or json.dumps(contenu, ensure_ascii=True) not in relu:
+                raise RuntimeError("provisionnement non verifie sur la tablette")
+            _job_log(job, "Identite ecrite sur la tablette : %s" % libelle_identite(k))
+            adb_lancer(["shell", "am", "force-stop", paquet], serie=cible, timeout=15)
+        adb_lancer(lancer, serie=cible, timeout=20)
+        _job_log(job, "Application %s lancee" % PROFILS[profil]["nom"])
         conn = get_conn()
         try:
             conn.execute("UPDATE tablettes SET apk=?, installee_le=datetime('now','localtime') WHERE serial=?", (apk["nom"], serie))
@@ -6573,10 +6651,22 @@ def tablette_installer(job, serie, adresse_adb, dt_code, famille, zone, autorise
             _jobs_tablettes[job]["erreur"] = str(e)
 
 
-def tablette_reinitialiser(serie, adresse_adb):
+def libelle_identite(k):
+    pr = k.get("profil") or "dt"
+    if pr == "dt":
+        return "%s, famille %s" % (k.get("ident", ""), k.get("famille", ""))
+    if pr == "exc":
+        return "%s, famille %s" % (k.get("ident", ""), k.get("famille", ""))
+    if pr == "spotter":
+        return "%s, equipe %s" % (k.get("ident", ""), k.get("equipe", ""))
+    return PROFILS[pr]["nom"]
+
+
+def tablette_reinitialiser(serie, adresse_adb, profil="dt"):
     cible = adresse_adb or serie
-    code, _, err = adb_lancer(["shell", "rm", "-f", "/sdcard/Android/data/%s/files/provision.json" % PAQUET_DT], serie=cible, timeout=15)
-    adb_lancer(["shell", "am", "force-stop", PAQUET_DT], serie=cible, timeout=15)
+    paquet = PROFILS.get(profil, PROFILS["dt"])["paquet"]
+    code, _, err = adb_lancer(["shell", "rm", "-f", "/sdcard/Android/data/%s/files/provision.json" % paquet], serie=cible, timeout=15)
+    adb_lancer(["shell", "am", "force-stop", paquet], serie=cible, timeout=15)
     return {"ok": code == 0, "erreur": err}
 
 
@@ -6735,21 +6825,25 @@ class Handler(BaseHTTPRequestHandler):
             if sous == "wifi":
                 return self._send_json(200, tablette_ouvrir_wifi(str(body.get("adresse_adb") or serie)))
             if sous == "affecter":
-                code, rep_ = tablette_affecter(conn, serie, body.get("dt"), body.get("famille"))
+                code, rep_ = tablette_affecter(conn, serie, body.get("profil"), body.get("ident"),
+                                               body.get("famille"), body.get("equipe"))
                 return self._send_json(code, rep_)
             if sous == "reinitialiser":
-                return self._send_json(200, tablette_reinitialiser(serie, str(body.get("adresse_adb") or "")))
+                k = conn.execute("SELECT profil FROM tablettes WHERE serial=?", (serie,)).fetchone()
+                return self._send_json(200, tablette_reinitialiser(serie, str(body.get("adresse_adb") or ""), (k["profil"] if k else "dt")))
             if sous == "installer":
-                k = conn.execute("SELECT dt_code, famille FROM tablettes WHERE serial=?", (serie,)).fetchone()
-                if not k or not k["dt_code"] or not k["famille"]:
-                    return self._send_json(409, {"error": "affectez d'abord un DT et une famille a cette tablette"})
+                row = conn.execute("SELECT * FROM tablettes WHERE serial=?", (serie,)).fetchone()
+                k = dict(row) if row else None
+                manque = tablette_incomplete(k) if k else "affectez d'abord un profil a cette tablette"
+                if manque:
+                    return self._send_json(409, {"error": manque})
                 with _jobs_verrou:
                     if any(j["serie"] == serie and j["etat"] == "en_cours" for j in _jobs_tablettes.values()):
                         return self._send_json(409, {"error": "une installation est deja en cours sur cette tablette"})
                     job = "inst_%d" % int(time.time() * 1000)
                     _jobs_tablettes[job] = {"job": job, "serie": serie, "etat": "en_cours", "etapes": [], "erreur": ""}
                 threading.Thread(target=tablette_installer, daemon=True, args=(
-                    job, serie, str(body.get("adresse_adb") or ""), k["dt_code"], k["famille"], zone_utm_site(conn),
+                    job, serie, str(body.get("adresse_adb") or ""), k, zone_utm_site(conn),
                     bool(body.get("autoriser_test")), bool(body.get("reinstaller")))).start()
                 return self._send_json(202, {"job": job})
             return self._send_json(404, {"error": "endpoint inconnu: /api/tablettes/" + sous})
@@ -8842,6 +8936,13 @@ def main():
                       ("offroad_distance", "REAL DEFAULT 0")):
         if nom not in cols:
             conn.execute("ALTER TABLE engins ADD COLUMN %s %s" % (nom, decl))
+    conn.commit()
+    cols_t = [r[1] for r in conn.execute("PRAGMA table_info(tablettes)")]
+    for nom, decl in (("profil", "TEXT DEFAULT 'dt'"), ("ident", "TEXT DEFAULT ''"), ("equipe", "TEXT DEFAULT ''")):
+        if nom not in cols_t:
+            conn.execute("ALTER TABLE tablettes ADD COLUMN %s %s" % (nom, decl))
+    conn.execute("UPDATE tablettes SET ident=dt_code WHERE ident='' AND dt_code<>''")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_tablettes_ident ON tablettes(profil, ident) WHERE ident <> ''")
     conn.commit()
     cols = [r[1] for r in conn.execute("PRAGMA table_info(missions)")]
     if "arrivee" not in cols:
