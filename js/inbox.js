@@ -14,32 +14,17 @@
     'septembre', 'octobre', 'novembre', 'décembre'];
   const ms = (v) => new Date(String(v.created_at).replace(' ', 'T') + 'Z').getTime();
 
-  /* Filtre Ore / Waste : selon la DESTINATION du voyage. Une Dumping Area
-   * dont le nom contient waste/dump/sterile = Waste ; tout le reste
-   * (ROM pads, destinations de teneur) = Ore. */
   let filtreMateriel = '';
   let filtrePeriode = '';
   let filtreDate = '';
 
-  function estWaste(v) {
-    return /waste|dump|sterile/.test(String(v.da_nom || '').toLowerCase());
-  }
-
-  // Grade : meme regle que le Dashboard et la passerelle (KPI_GRADES de Server_Senor_Geology.py) :
-  // code de teneur = 4e segment du NOM du bloc (260_LMP2_113_MG_FR_021_OP -> MG).
-  // Aucun seuil de g/t : le grade vient de la nomenclature, pas d'un chiffre.
-  const GRADES = {
-    HG: ['high', 'High Grade'], SHG: ['high', 'High Grade'],
-    MG: ['medium', 'Medium Grade'], MG1: ['medium', 'Medium Grade'], MG2: ['medium', 'Medium Grade'],
-    LG: ['low', 'Low Grade'], LG1: ['low', 'Low Grade'], LG2: ['low', 'Low Grade'],
-    MO: ['marginal', 'Marginal Ore'], WST: ['waste', 'Waste'],
-  };
+  // Matiere et grade : calcules par la passerelle (/api/voyages : champs `sterile` et `grade`, meme regle
+  // que les KPI du Dashboard). La page ne devine rien : ni seuil, ni nom de dumping area.
+  const estWaste = (v) => v.sterile === true;
+  const LIBELLE_GRADE = { high: 'High Grade', medium: 'Medium Grade', low: 'Low Grade', marginal: 'Marginal Ore' };
   function grade(v) {
-    const parties = String(v.orebloc_nom || '').split('_');
-    const g = GRADES[(parties[3] || '').toUpperCase()];
-    if (g) return { cle: g[0], lbl: g[1] };
     if (estWaste(v)) return { cle: 'waste', lbl: 'Waste' };
-    return { cle: 'inconnu', lbl: 'Non classé' };
+    return LIBELLE_GRADE[v.grade] ? { cle: v.grade, lbl: LIBELLE_GRADE[v.grade] } : { cle: 'inconnu', lbl: 'Non classé' };
   }
 
   // Conformite : conforme / a controler (compromis) / non conforme

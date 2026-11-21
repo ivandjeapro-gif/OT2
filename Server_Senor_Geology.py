@@ -3106,6 +3106,17 @@ KPI_GRADES = {"HG": "high", "SHG": "high", "MG": "medium", "MG1": "medium",
               "MG2": "medium", "LG": "low", "LG1": "low", "LG2": "low", "MO": "marginal"}
 
 
+def classer_voyage(nom, destination, minerai):
+    """(sterile, grade) d'un voyage : SOURCE UNIQUE de la classification (KPI du jour, KPI cumules,
+    page Inbox). grade = 'high' / 'medium' / 'low' / 'marginal' d'apres le code de teneur du nom du
+    bloc, '' si inconnu ; sterile = bloc WST, destination W ou bloc non minerai (sauf code de teneur connu)."""
+    code = code_teneur_bloc(nom)
+    dest = str(destination or "").strip().upper()
+    minerai = (code != "WST" and dest != "W") if minerai is None else bool(minerai)
+    sterile = (code == "WST" or dest == "W" or not minerai) and code not in KPI_GRADES
+    return sterile, KPI_GRADES.get(code, "")
+
+
 def code_teneur_bloc(nom):
     """Code du 4e segment du nom (260_LMP2_113_MG_FR_021_OP -> MG), '' sinon."""
     parties = str(nom or "").split("_")
@@ -3127,16 +3138,13 @@ def kpi_voyages(conn, jour=None):
         if r["nom"] is None:
             res["sans_bloc"] += 1          # voyage sans orebloc connu : tonnage non classe
             continue
-        code = code_teneur_bloc(r["nom"])
-        dest = str(r["destination"] or "").strip().upper()
-        sterile = code == "WST" or dest == "W" or not r["minerai"]
-        if sterile and code not in KPI_GRADES:
+        sterile, g = classer_voyage(r["nom"], r["destination"], bool(r["minerai"]))
+        if sterile:
             res["waste_t"] += t
             continue
         onces = t * float(r["au_teneur"] or 0) / GRAMMES_PAR_ONCE
         res["minerais_t"] += t
         res["onces"] += onces
-        g = KPI_GRADES.get(code)
         if g:
             res["grades"][g]["tonnes"] += t
             res["grades"][g]["onces"] += onces
@@ -5380,17 +5388,14 @@ def kpi_chargements(conn, lignes, jour):
         b = blocs.get(nom)
         if b is None:
             res["blocs_inconnus"] += 1
-        code = code_teneur_bloc(nom)
-        dest = str(r.get("teneur") or (b["destination"] if b is not None else "") or "").strip().upper()
-        minerai = bool(b["minerai"]) if b is not None else (code != "WST" and dest != "W")
-        sterile = code == "WST" or dest == "W" or not minerai
-        if sterile and code not in KPI_GRADES:
+        dest = r.get("teneur") or (b["destination"] if b is not None else "")
+        sterile, g = classer_voyage(nom, dest, bool(b["minerai"]) if b is not None else None)
+        if sterile:
             res["waste_t"] += t
             continue
         onces = t * float((b["au_teneur"] if b is not None else 0) or 0) / GRAMMES_PAR_ONCE
         res["minerais_t"] += t
         res["onces"] += onces
-        g = KPI_GRADES.get(code)
         if g:
             res["grades"][g]["tonnes"] += t
             res["grades"][g]["onces"] += onces
@@ -7786,11 +7791,16 @@ class Handler(BaseHTTPRequestHandler):
 
                 if path == "/api/voyages" and method == "GET":
                     rows = [dict(r) for r in conn.execute(
-                        "SELECT v.*, o.nom AS orebloc_nom, d.nom AS da_nom "
+                        "SELECT v.*, o.nom AS orebloc_nom, o.destination AS orebloc_destination, "
+                        "o.minerai AS orebloc_minerai, d.nom AS da_nom "
                         "FROM voyages v "
                         "LEFT JOIN oreblocs o ON o.id = v.orebloc_id "
                         "LEFT JOIN dumping_areas d ON d.id = v.dumping_area_id "
                         "ORDER BY v.id DESC LIMIT 500")]
+                    # classification calculee ICI (meme regle que les KPI) : la page n'a rien a deviner
+                    for r in rows:
+                        r["sterile"], r["grade"] = classer_voyage(
+                            r["orebloc_nom"], r.pop("orebloc_destination", ""), r.pop("orebloc_minerai", None))
                     return self._send_json(200, {"voyages": rows})
 
                 # Alignement immediat des missions sur Serveur_SG (la boucle le fait
