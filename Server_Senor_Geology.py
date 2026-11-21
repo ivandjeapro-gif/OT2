@@ -6578,11 +6578,34 @@ def tablette_incomplete(k):
     return ""
 
 
-def provision_contenu(k, zone):
+def connexion_dt(conn, code):
+    """Parametres de connexion d'un DT, tels que saisis dans la console (Settings > Connexion) :
+    serveur n°1 = Serveur_OT, serveur n°2 = Serveur_SG, et l'acces MQTT PROPRE a ce DT (jamais celui d'un autre)."""
+    res = {}
+    url1, jeton1 = office_conf()
+    if url1:
+        res["serveur1"] = {"url": url1, "token": jeton1}
+    url2, jeton2, _ = sg_conf()
+    if url2:
+        res["serveur2"] = {"url": url2, "token": jeton2}
+    conf = mqtt_conf() or {}
+    pub = conf.get("public") or {}
+    cpt = conn.execute("SELECT mdp FROM mqtt_comptes WHERE code=? AND actif=1", (code,)).fetchone() if conn else None
+    if pub.get("hote") and cpt and cpt["mdp"]:
+        res["mqtt"] = {"hote": pub["hote"], "port": int(pub.get("port", 443)), "tls": bool(pub.get("tls", True)),
+                       "identifiant": code, "mdp": cpt["mdp"]}
+    return res
+
+
+def provision_contenu(k, zone, conn=None):
     """Contenu de provision.json selon le profil (None : Spotter et Link n'ont pas d'identite fixee)."""
     pr = k.get("profil") or "dt"
     if pr == "dt":
-        return {"profil": "dt", "dt": k["ident"].replace("DT-", ""), "camion": k["famille"], "zone": zone or ""}
+        contenu = {"profil": "dt", "dt": k["ident"].replace("DT-", ""), "camion": k["famille"], "zone": zone or ""}
+        connexion = connexion_dt(conn, k["ident"]) if conn is not None else {}
+        if connexion:
+            contenu["connexion"] = connexion
+        return contenu
     if pr == "exc":
         return {"profil": "exc", "id": k["ident"], "famille": k["famille"], "zone": zone or ""}
     return None
@@ -6618,24 +6641,22 @@ def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinsta
             raise RuntimeError("l'APK installe n'est pas le paquet attendu pour le profil %s (%s)" % (PROFILS[profil]["nom"], paquet))
         _job_log(job, "APK installe")
         lancer = ["shell", "monkey", "-p", paquet, "-c", "android.intent.category.LAUNCHER", "1"]
-        contenu = provision_contenu(k, zone)
+        conn_p = get_conn()
+        try:
+            contenu = provision_contenu(k, zone, conn_p)
+        finally:
+            conn_p.close()
         if contenu is not None:
             # premier lancement : l'app cree son dossier de fichiers externes (getExternalFilesDir)
             adb_lancer(lancer, serie=cible, timeout=20)
             time.sleep(4.0)
-            tmp = os.path.join(tempfile.gettempdir(), "provision_%s.json" % re.sub(r"[^A-Za-z0-9]", "", serie))
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(json.dumps(contenu, ensure_ascii=True))
-            dest = "/sdcard/Android/data/%s/files" % paquet
-            adb_lancer(["shell", "mkdir", "-p", dest], serie=cible, timeout=15)
-            code, _, err = adb_lancer(["push", tmp, dest + "/provision.json"], serie=cible, timeout=30)
-            os.remove(tmp)
-            if code != 0:
-                raise RuntimeError("fichier de provisionnement non ecrit : %s" % err[-200:])
-            code, relu, _ = adb_lancer(["shell", "cat", dest + "/provision.json"], serie=cible, timeout=15)
-            if code != 0 or json.dumps(contenu, ensure_ascii=True) not in relu:
-                raise RuntimeError("provisionnement non verifie sur la tablette")
+            erreur = ecrire_provision(cible, serie, paquet, contenu)
+            if erreur:
+                raise RuntimeError(erreur)
             _job_log(job, "Identite ecrite sur la tablette : %s" % libelle_identite(k))
+            if contenu.get("connexion"):
+                _job_log(job, "Connexion ecrite : %s" % ", ".join(
+                    {"serveur1": "serveur n°1", "serveur2": "serveur n°2", "mqtt": "MQTT"}[x] for x in contenu["connexion"]))
             adb_lancer(["shell", "am", "force-stop", paquet], serie=cible, timeout=15)
         adb_lancer(lancer, serie=cible, timeout=20)
         _job_log(job, "Application %s lancee" % PROFILS[profil]["nom"])
@@ -6652,6 +6673,48 @@ def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinsta
         with _jobs_verrou:
             _jobs_tablettes[job]["etat"] = "erreur"
             _jobs_tablettes[job]["erreur"] = str(e)
+
+
+def ecrire_provision(cible, serie, paquet, contenu):
+    """Pousse provision.json dans le dossier de l'app et le RELIT. Retourne '' si tout va bien, sinon le motif."""
+    texte = json.dumps(contenu, ensure_ascii=True)
+    tmp = os.path.join(tempfile.gettempdir(), "provision_%s.json" % re.sub(r"[^A-Za-z0-9]", "", serie))
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(texte)
+        dest = "/sdcard/Android/data/%s/files" % paquet
+        adb_lancer(["shell", "mkdir", "-p", dest], serie=cible, timeout=15)
+        code, _, err = adb_lancer(["push", tmp, dest + "/provision.json"], serie=cible, timeout=30)
+        if code != 0:
+            return "fichier de provisionnement non ecrit : %s" % err[-200:]
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    code, relu, _ = adb_lancer(["shell", "cat", dest + "/provision.json"], serie=cible, timeout=15)
+    if code != 0 or texte not in relu:
+        return "provisionnement non verifie sur la tablette"
+    return ""
+
+
+def tablette_envoyer_parametres(conn, serie, adresse_adb):
+    """Renvoie provision.json (identite + connexion) sans reinstaller : l'app le relit d'elle-meme (60 s)."""
+    row = conn.execute("SELECT * FROM tablettes WHERE serial=?", (serie,)).fetchone()
+    k = dict(row) if row else None
+    if not k:
+        return 404, {"error": "tablette inconnue"}
+    manque = tablette_incomplete(k)
+    if manque:
+        return 409, {"error": manque}
+    contenu = provision_contenu(k, zone_utm_site(conn), conn)
+    if contenu is None:
+        return 409, {"error": "ce profil n'a pas de parametres a envoyer"}
+    paquet = PROFILS[k.get("profil") or "dt"]["paquet"]
+    erreur = ecrire_provision(adresse_adb or serie, serie, paquet, contenu)
+    if erreur:
+        return 502, {"error": erreur}
+    return 200, {"ok": True, "connexion": sorted((contenu.get("connexion") or {}).keys())}
 
 
 def libelle_identite(k):
@@ -6955,6 +7018,9 @@ class Handler(BaseHTTPRequestHandler):
             if sous == "affecter":
                 code, rep_ = tablette_affecter(conn, serie, body.get("profil"), body.get("ident"),
                                                body.get("famille"), body.get("equipe"))
+                return self._send_json(code, rep_)
+            if sous == "parametres":
+                code, rep_ = tablette_envoyer_parametres(conn, serie, str(body.get("adresse_adb") or ""))
                 return self._send_json(code, rep_)
             if sous == "reinitialiser":
                 k = conn.execute("SELECT profil FROM tablettes WHERE serial=?", (serie,)).fetchone()

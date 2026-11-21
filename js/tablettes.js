@@ -112,6 +112,7 @@
           '<span class="pm-actions pm-tab-actions">' +
             (t.connectee && t.transports.indexOf('usb') >= 0 && t.transports.indexOf('wifi') < 0 ? '<button type="button" class="pm-lien" data-tab-wifi="' + esc(t.serie) + '" title="Ouvre le port adb Wi-Fi (5555) : la tablette peut ensuite être débranchée">Ouvrir le Wi-Fi</button>' : '') +
             (t.connectee ? '<button type="button" class="pm-btn-sombre pm-tab-installer" data-tab-installer="' + esc(t.serie) + '"' + (manque ? ' disabled title="' + esc(manque) + '"' : '') + (job && job.etat === 'en_cours' ? ' disabled' : '') + '>' + (t.app_installee ? 'Mettre à jour' : 'Installer') + '</button>' : '') +
+            (t.connectee && t.app_installee && t.profil === 'dt' && !manque ? '<button type="button" class="pm-lien" data-tab-parametres="' + esc(t.serie) + '" title="Renvoie le DT et la connexion (serveurs, MQTT) à la tablette, sans réinstaller">Envoyer les paramètres</button>' : '') +
             (t.connectee && t.app_installee && t.profil !== 'link' && t.profil !== 'spotter' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
           '</span>' +
         '</div>' + etapes + '</div>';
@@ -216,6 +217,16 @@
       if (i) { installer(i.dataset.tabInstaller, false); return; }
       const r = e.target.closest('[data-tab-reinstaller]');
       if (r) { installer(r.dataset.tabReinstaller, true); return; }
+      const pa = e.target.closest('[data-tab-parametres]');
+      if (pa) {
+        const t = etat.tablettes.find((x) => x.serie === pa.dataset.tabParametres);
+        statut('Envoi des paramètres…', true);
+        try {
+          const d = await appel('/api/tablettes/parametres', 'POST', { serie: pa.dataset.tabParametres, adresse_adb: t && t.adresse_adb });
+          statut('Paramètres envoyés' + (d.connexion && d.connexion.length ? ' (' + d.connexion.map((x) => ({ serveur1: 'serveur n°1', serveur2: 'serveur n°2', mqtt: 'MQTT' }[x] || x)).join(', ') + ')' : '') + ' : l\'app les reprend d\'elle-même.', true);
+        } catch (err) { statut(err.message, false); }
+        return;
+      }
       const ri = e.target.closest('[data-tab-reinit]');
       if (ri) {
         const t = etat.tablettes.find((x) => x.serie === ri.dataset.tabReinit);
