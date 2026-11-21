@@ -3802,3 +3802,23 @@ body {
 #page-digplan .dp-bar-fill.theo { background: rgba(255,255,255,.22); }
 #page-digplan .dp-bar-fill.mine { background: var(--fam, #fbd51a); }
 #page-digplan .dp-overmine-item { align-items: flex-start !important; text-align: left; }
+
+/* Dig Plan : TROIS compartiments (controles | plan | suivi) */
+#page-digplan .dp-grid { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(300px, 360px); gap: 32px; }
+#page-digplan .dp-side { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+#page-digplan .dp-side > :first-child { margin-top: 0; }
+@media (max-width: 1500px) {
+  #page-digplan .dp-grid { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); }
+  #page-digplan .dp-side { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+  #page-digplan .dp-side > * { margin-top: 0 !important; }
+}
+@media (max-width: 1000px) { #page-digplan .dp-grid { grid-template-columns: 1fr; } }
+/* zone de la carte : fond clair, hauteur fixe raisonnable, image entiere et centree */
+#page-digplan .dp-page-body { min-height: 0; display: block; background: #ebe7da; }
+#page-digplan .dp-map-view, #page-digplan .dp-progress-view { display: block; }
+#page-digplan .dp-map-view[hidden], #page-digplan .dp-progress-view[hidden] { display: none; }
+#page-digplan .dp-map-image-wrap { height: clamp(380px, 62vh, 720px); background: #ebe7da; border: 0; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+#page-digplan .dp-map-image-wrap img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+#page-digplan .dp-svg-wrap { height: clamp(380px, 62vh, 720px); }
+#page-digplan .dp-svg { width: 100%; height: 100%; max-height: none; }
+#page-digplan .dp-table-wrap { max-height: 300px; }

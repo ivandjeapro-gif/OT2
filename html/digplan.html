@@ -146,30 +146,6 @@
                                 <div class="sg2-status" id="dpStatus"></div>
                             </form>
 
-                            <div class="dp-avancement" id="dpAvancement">
-                                <span class="dp-kicker dp-kicker-clair">Avancement du blast</span>
-                                <div class="dp-avancement-ligne">
-                                    <b id="dpAvancementPct">--</b>
-                                    <span id="dpAvancementTonnes">--</span>
-                                </div>
-                                <div class="dp-avancement-barre"><i id="dpAvancementBarre"></i></div>
-                                <!-- detail par bloc : mine (reel) vs theorique (plan), donnees de la passerelle -->
-                                <div class="dp-diagram" id="dpDiagram"></div>
-                            </div>
-
-                            <div class="dp-overmine-card" id="dpOvermineCard" hidden>
-                                <h3 id="dpOvermineTitre">Overmine</h3>
-                                <div class="dp-overmine-liste" id="dpOvermineListe"></div>
-                            </div>
-
-                            <div class="dp-service-card" id="dpServiceCard">
-                                <span class="dp-kicker">Équipe de service</span>
-                                <label class="dp-service-champ"><span>Jour · 06 h – 18 h</span>
-                                    <select id="dpEquipeJour"><option value="">Non définie</option></select></label>
-                                <label class="dp-service-champ"><span>Nuit · 18 h – 06 h</span>
-                                    <select id="dpEquipeNuit"><option value="">Non définie</option></select></label>
-                                <span class="sg2-status" id="dpServiceStatus"></span>
-                            </div>
                         </div>
 
                         <!-- COLONNE DROITE : plan OREPro 3D (Map / Progress) -->
@@ -212,6 +188,34 @@
                                         <tbody id="dpTableBody"></tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- COLONNE 3 : suivi (avancement, overmine, equipe de service) -->
+                        <div class="dp-side">
+                            <div class="dp-avancement" id="dpAvancement">
+                                <span class="dp-kicker dp-kicker-clair">Avancement du blast</span>
+                                <div class="dp-avancement-ligne">
+                                    <b id="dpAvancementPct">--</b>
+                                    <span id="dpAvancementTonnes">--</span>
+                                </div>
+                                <div class="dp-avancement-barre"><i id="dpAvancementBarre"></i></div>
+                                <!-- detail par bloc : mine (reel) vs theorique (plan), donnees de la passerelle -->
+                                <div class="dp-diagram" id="dpDiagram"></div>
+                            </div>
+
+                            <div class="dp-overmine-card" id="dpOvermineCard" hidden>
+                                <h3 id="dpOvermineTitre">Overmine</h3>
+                                <div class="dp-overmine-liste" id="dpOvermineListe"></div>
+                            </div>
+
+                            <div class="dp-service-card" id="dpServiceCard">
+                                <span class="dp-kicker">Équipe de service</span>
+                                <label class="dp-service-champ"><span>Jour · 06 h – 18 h</span>
+                                    <select id="dpEquipeJour"><option value="">Non définie</option></select></label>
+                                <label class="dp-service-champ"><span>Nuit · 18 h – 06 h</span>
+                                    <select id="dpEquipeNuit"><option value="">Non définie</option></select></label>
+                                <span class="sg2-status" id="dpServiceStatus"></span>
                             </div>
                         </div>
 
