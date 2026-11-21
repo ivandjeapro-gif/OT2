@@ -51,3 +51,6 @@ Server_Senor_Geology
 # journal local de recette du broker MQTT (propre a chaque PC)
 deploiement/mqtt/windows/derniere_verification.log
 deploiement/mqtt/windows/diagnostic.log
+
+# APK : binaires, jamais dans le depot (depot public)
+apk/*.apk
