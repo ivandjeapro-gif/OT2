@@ -4,7 +4,7 @@
  * Un profil = une application : DT, Excavatrice, Spotter ou Link (mesure).
  *   1. La passerelle detecte les tablettes (adb : USB ou Wi-Fi) ;
  *   2. on choisit le profil de chaque tablette et son identite :
- *      DT = id + famille (sync_flotte) ; Excavatrice = id + famille ; Spotter = nom + equipe ; Link = aucune ;
+ *      DT = id + famille (sync_flotte) ; Excavatrice = id + famille ; Spotter et Link = aucune (le spotter se connecte lui-meme) ;
  *   3. « Installer » pousse l'APK du profil, ecrit le provisionnement sur la tablette et lance l'app.
  * « Ouvrir le Wi-Fi » = adb tcpip 5555 (tablette branchee en USB) puis adb connect : on peut ensuite
  * debrancher le cable.
@@ -34,7 +34,6 @@
 
   let etat = { tablettes: [], apk: {}, adb: {} };
   let flotte = [];                 // [{ code: 'DT-04', famille: '1500' }]
-  let spotters = [];               // [{ id: 'SP-01', nom: 'Jean', equipe: 'A' }] : sync_identifiants, profil SPOT
   const PROFILS = [['dt', 'DT'], ['exc', 'Excavatrice'], ['spotter', 'Spotter'], ['link', 'Link']];
   const jobs = {};                 // serie -> { job, etapes, etat, erreur }
   let minuteur = null;
@@ -48,14 +47,6 @@
         .map((r) => ({ code: String(r.code).toUpperCase(), famille: String(r.famille || '') }))
         .sort((a, b) => a.code.localeCompare(b.code));
     } catch (e) { /* non connecte : saisie manuelle de secours */ }
-    try {
-      const d = await API.getRows('sync_identifiants');
-      spotters = ((d && d.rows) || [])
-        .filter((r) => r.actif !== 0 && String(r.profil || '').toUpperCase() === 'SPOT')
-        .map((r) => ({ id: String(r.identifiant || ''), nom: String(r.nom || r.identifiant || ''), equipe: String(r.equipe || '') }))
-        .filter((r) => r.nom)
-        .sort((a, b) => a.equipe.localeCompare(b.equipe) || a.nom.localeCompare(b.nom));
-    } catch (e) { /* idem */ }
   }
 
   function statut(texte, ok) {
@@ -121,7 +112,7 @@
           '<span class="pm-actions pm-tab-actions">' +
             (t.connectee && t.transports.indexOf('usb') >= 0 && t.transports.indexOf('wifi') < 0 ? '<button type="button" class="pm-lien" data-tab-wifi="' + esc(t.serie) + '" title="Ouvre le port adb Wi-Fi (5555) : la tablette peut ensuite être débranchée">Ouvrir le Wi-Fi</button>' : '') +
             (t.connectee ? '<button type="button" class="pm-btn-sombre pm-tab-installer" data-tab-installer="' + esc(t.serie) + '"' + (manque ? ' disabled title="' + esc(manque) + '"' : '') + (job && job.etat === 'en_cours' ? ' disabled' : '') + '>' + (t.app_installee ? 'Mettre à jour' : 'Installer') + '</button>' : '') +
-            (t.connectee && t.app_installee && t.profil !== 'link' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
+            (t.connectee && t.app_installee && t.profil !== 'link' && t.profil !== 'spotter' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
           '</span>' +
         '</div>' + etapes + '</div>';
     }).join('');
@@ -129,23 +120,12 @@
 
   function incomplete(t) {
     if (t.profil === 'dt' || t.profil === 'exc') return t.ident && t.famille ? '' : (t.profil === 'dt' ? 'Choisissez le DT' : 'Renseignez l\'id et la famille');
-    if (t.profil === 'spotter') return t.ident && t.equipe ? '' : 'Renseignez le nom et l\'équipe';
     return '';
   }
 
   function identite(t, dis) {
     const s = esc(t.serie);
-    if (t.profil === 'link') return '<small>Aucune identité</small>';
-    if (t.profil === 'spotter' && spotters.length) {
-      const courant = spotters.findIndex((x) => x.nom === t.ident && x.equipe === t.equipe);
-      const opts = '<option value="">Choisir…</option>' + spotters.map((x, i) => '<option value="' + i + '"' + (i === courant ? ' selected' : '') + '>' + esc(x.nom) + (x.equipe ? ' · équipe ' + esc(x.equipe) : '') + '</option>').join('') +
-        (t.ident && courant < 0 ? '<option value="-1" selected>' + esc(t.ident) + (t.equipe ? ' · équipe ' + esc(t.equipe) : '') + '</option>' : '');
-      return '<select data-tab-spotter="' + s + '"' + dis + '>' + opts + '</select><small>' + (t.equipe ? 'Équipe ' + esc(t.equipe) : 'Nom + équipe') + '</small>';
-    }
-    if (t.profil === 'spotter') {
-      return '<input type="text" data-tab-champ="equipe" data-serie="' + s + '" value="' + esc(t.equipe) + '" placeholder="Équipe"' + dis + ' />' +
-             '<input type="text" data-tab-champ="ident" data-serie="' + s + '" value="' + esc(t.ident) + '" placeholder="Nom"' + dis + ' />';
-    }
+    if (t.profil === 'link' || t.profil === 'spotter') return '<small>Aucune identité</small>';
     const dt = t.profil === 'dt';
     const liste = flotte.filter((d) => (/^DT-/i.test(d.code)) === dt);
     if (!liste.length && !dt) {
@@ -263,12 +243,6 @@
       if (sel) {
         const d = flotte.find((x) => x.code === sel.value);
         enregistrer(sel.dataset.tabFlotte, { ident: sel.value, famille: d ? d.famille : '' });
-        return;
-      }
-      const sp = e.target.closest('[data-tab-spotter]');
-      if (sp) {
-        const x = spotters[Number(sp.value)];
-        if (x) enregistrer(sp.dataset.tabSpotter, { ident: x.nom, equipe: x.equipe, famille: '' });
         return;
       }
       const ch = e.target.closest('[data-tab-champ]');

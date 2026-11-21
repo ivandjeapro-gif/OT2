@@ -6517,7 +6517,7 @@ _RE_NOM = re.compile(r"[^\W_][\w .'\-]{0,39}")
 
 def tablette_affecter(conn, serie, profil, ident, famille, equipe):
     """Fixe le profil de la tablette et son identite. dt : DT + famille ; exc : id + famille ;
-    spotter : nom + equipe ; link : rien. Une identite n'appartient qu'a UNE tablette."""
+    spotter et link : rien (le spotter se connecte lui-meme). Une identite n'appartient qu'a UNE tablette."""
     serie = str(serie or "").strip()
     profil = str(profil or "dt").strip().lower()
     ident = str(ident or "").strip()
@@ -6527,14 +6527,8 @@ def tablette_affecter(conn, serie, profil, ident, famille, equipe):
         return 400, {"error": "numero de serie invalide"}
     if profil not in PROFILS:
         return 400, {"error": "profil inconnu : %s" % profil}
-    if profil == "link":
+    if profil in ("link", "spotter"):        # le spotter se connecte lui-meme : rien n'est fige sur la tablette
         ident, famille, equipe = "", "", ""
-    elif profil == "spotter":
-        famille = ""
-        if ident and not _RE_NOM.fullmatch(ident):
-            return 400, {"error": "nom du spotter invalide"}
-        if equipe and not _RE_NOM.fullmatch(equipe):
-            return 400, {"error": "equipe invalide"}
     else:
         equipe = ""
         if ident:
@@ -6568,20 +6562,16 @@ def tablette_incomplete(k):
         return "choisissez le DT de cette tablette (sa famille suit)"
     if pr == "exc" and not (k.get("ident") and k.get("famille")):
         return "renseignez l'id et la famille de l'excavatrice"
-    if pr == "spotter" and not (k.get("ident") and k.get("equipe")):
-        return "renseignez le nom et l'equipe du spotter"
     return ""
 
 
 def provision_contenu(k, zone):
-    """Contenu de provision.json selon le profil (None : le profil Link n'a pas d'identite)."""
+    """Contenu de provision.json selon le profil (None : Spotter et Link n'ont pas d'identite fixee)."""
     pr = k.get("profil") or "dt"
     if pr == "dt":
         return {"profil": "dt", "dt": k["ident"].replace("DT-", ""), "camion": k["famille"], "zone": zone or ""}
     if pr == "exc":
         return {"profil": "exc", "id": k["ident"], "famille": k["famille"], "zone": zone or ""}
-    if pr == "spotter":
-        return {"profil": "spotter", "nom": k["ident"], "equipe": k["equipe"]}
     return None
 
 
@@ -6657,8 +6647,6 @@ def libelle_identite(k):
         return "%s, famille %s" % (k.get("ident", ""), k.get("famille", ""))
     if pr == "exc":
         return "%s, famille %s" % (k.get("ident", ""), k.get("famille", ""))
-    if pr == "spotter":
-        return "%s, equipe %s" % (k.get("ident", ""), k.get("equipe", ""))
     return PROFILS[pr]["nom"]
 
 
