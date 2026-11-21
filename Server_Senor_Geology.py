@@ -6805,12 +6805,13 @@ def jetons_diffuser(forcer=False):
         corps = jetons_corps(conn)
         # l'empreinte ignore l'echeance des tolerances : seul un changement de generation ou de secret renvoie
         stable = {"secret": corps["secret"], "appareils": {c: {"gen": a["gen"], "prev": a.get("prev", 0)} for c, a in corps["appareils"].items()}}
-        empreinte = _empreinte(json.dumps(stable, sort_keys=True))
+        base_empreinte = json.dumps(stable, sort_keys=True)
         cibles = (("ot", office_conf(), "JETONS_EMPREINTE_OT"), ("sg", sg_conf()[:2], "JETONS_EMPREINTE_SG"))
         for nom, (url, jeton), param in cibles:
             if not url:
                 _jetons_etat[nom] = "serveur non configure"
                 continue
+            empreinte = _empreinte(base_empreinte + "|" + url)    # une nouvelle adresse de serveur recoit de nouveau le secret
             if not forcer and param_lire(param, "") == empreinte:
                 continue
             if not forcer and _jetons_etat[nom] and time.time() - _jetons_etat["dernier_essai"] < CONNEXION_REESSAI_S:
