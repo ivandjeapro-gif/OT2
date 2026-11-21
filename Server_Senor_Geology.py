@@ -2320,6 +2320,28 @@ def extraire_corps_signe(ligne):
     return ligne[:idx] + "}"
 
 
+def verifier_signature_pelle(conn, code, ligne):
+    """Trame d'EXCAVATRICE (CRC « ck » + signature « sg » placee avant le CRC) : 'ok', 'non_signee' ou 'invalide'.
+    Meme calcul que l'app (radio-protocol.ts : signerLigne) : HMAC-SHA256 du texte sans « ck » ni « sg », 32 premiers hexa."""
+    t1 = re.sub(r',"ck":"[0-9a-f]{4}"\}$', "}", str(ligne).strip())
+    m = re.search(r',"sg":"([0-9a-f]{32})"\}$', t1)
+    if not m:
+        return "non_signee"
+    row = conn.execute("SELECT cle_hex, cle_prec, prec_jusqua FROM cles_dt WHERE dt_code=? AND actif=1", (code,)).fetchone()
+    if not row:
+        return "invalide"                                 # pelle inconnue de la console
+    corps = t1[:m.start()] + "}"
+    cles = [row["cle_hex"]] + ([row["cle_prec"]] if row["cle_prec"] and (row["prec_jusqua"] or 0) > time.time() else [])
+    for cle_hex in cles:
+        try:
+            attendu = hmac.new(bytes.fromhex(cle_hex), corps.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+        except ValueError:
+            continue
+        if hmac.compare_digest(attendu, m.group(1)):
+            return "ok"
+    return "invalide"
+
+
 def verifier_signature_trame(conn, dt_code, corps_signe, ts, sig):
     """Verifie la signature HMAC-SHA256 d'une trame XBee pour dt_code.
     Rejette si : aucune cle active enregistree pour ce DT, horodatage
@@ -2369,6 +2391,13 @@ def traiter_trame_xbee(conn, ligne):
     if not code:
         print("XBEE: trame sans id ignoree:", ligne[:200])
         return None
+    # Trame d'EXCAVATRICE entendue sur la radio (elles portent « ck », pas « sig ») : on constate seulement QUI parle
+    # (signature valide ou non) ; elle n'est pas une position de DT et n'est pas rejetee comme telle.
+    if "sig" not in trame and "ck" in trame:
+        resultat = verifier_signature_pelle(conn, str(code), ligne)
+        _xbee_etat["pelles_" + resultat] = _xbee_etat.get("pelles_" + resultat, 0) + 1
+        _xbee_etat["derniere_pelle"] = {"id": str(code), "resultat": resultat, "le": now_iso()}
+        return "pelle"
     corps_signe = extraire_corps_signe(ligne)
     if not verifier_signature_trame(conn, code, corps_signe, trame.get("ts"), trame.get("sig")):
         print("XBEE: trame non authentifiee rejetee pour id=%s" % code)
@@ -2400,7 +2429,8 @@ def traiter_trame_xbee(conn, ligne):
 
 
 _xbee_etat = {"pyserial": serial is not None, "connecte": False, "port": "", "baud": 0, "erreur": "",
-              "valides": 0, "rejetees": 0, "derniere_valide": "", "derniere_recue": ""}
+              "valides": 0, "rejetees": 0, "derniere_valide": "", "derniere_recue": "",
+              "pelles_ok": 0, "pelles_non_signee": 0, "pelles_invalide": 0, "derniere_pelle": None}
 
 
 def xbee_conf():
@@ -2478,7 +2508,9 @@ def ecouteur_xbee():
                             res = traiter_trame_xbee(conn, brut.decode("utf-8", errors="replace"))
                     finally:
                         conn.close()
-                    if res:
+                    if res == "pelle":
+                        pass                     # trame d'excavatrice : comptee a part (pelles_*)
+                    elif res:
                         _xbee_etat["valides"] += 1
                         _xbee_etat["derniere_valide"] = now_iso()
                     else:

@@ -282,7 +282,9 @@
     box.innerHTML = !radio.pyserial
       ? '<b>Radio désactivée</b><small>pyserial n\'est pas installé sur ce poste</small>'
       : (radio.connecte
-        ? '<b>Connectée</b><small>' + esc(radio.port) + ' · ' + radio.baud + ' bauds · ' + radio.valides + ' position(s) valide(s) · ' + radio.rejetees + ' rejetée(s)' + (radio.derniere_valide ? ' · dernière ' + esc(radio.derniere_valide.slice(11, 19)) : '') + '</small>'
+        ? '<b>Connectée</b><small>' + esc(radio.port) + ' · ' + radio.baud + ' bauds · ' + radio.valides + ' position(s) de DT valide(s) · ' + radio.rejetees + ' rejetée(s)' + (radio.derniere_valide ? ' · dernière ' + esc(radio.derniere_valide.slice(11, 19)) : '') + '</small>' +
+          '<small>Excavatrices entendues : ' + (radio.pelles_ok || 0) + ' signée(s) valide(s) · ' + (radio.pelles_non_signee || 0) + ' non signée(s) · ' + (radio.pelles_invalide || 0) + ' invalide(s)' +
+          (radio.derniere_pelle ? ' · dernière ' + esc(radio.derniere_pelle.id) + ' (' + ({ ok: 'signature valide', non_signee: 'non signée', invalide: 'signature invalide' }[radio.derniere_pelle.resultat] || radio.derniere_pelle.resultat) + ') à ' + esc(radio.derniere_pelle.le.slice(11, 19)) : '') + '</small>'
         : '<b>' + (radio.configure_port ? 'Non connectée' : 'Aucun port choisi') + '</b><small>' + esc(radio.erreur || (radio.configure_port ? '' : 'Branchez la radio, puis choisissez son port')) + '</small>');
     if (document.activeElement === sp || document.activeElement === sb) return;
     const ex = $('#radioExiger');
