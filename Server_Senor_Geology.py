@@ -6631,7 +6631,12 @@ def provision_contenu(k, zone, conn=None):
             contenu["connexion"] = connexion
         return contenu
     if pr == "exc":
-        return {"profil": "exc", "id": k["ident"], "famille": k["famille"], "zone": zone or ""}
+        contenu = {"profil": "exc", "id": k["ident"], "famille": k["famille"], "zone": zone or ""}
+        # l'excavatrice ne parle qu'au serveur n°1 : adresse + jeton PROPRE a cette tablette
+        serveur1 = (connexion_dt(conn, k["ident"]) if conn is not None else {}).get("serveur1")
+        if serveur1:
+            contenu["connexion"] = {"serveur1": serveur1}
+        return contenu
     return None
 
 
