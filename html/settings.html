@@ -605,21 +605,6 @@
                             <div class="pm-thead"><span>Récepteur</span><span>Configuration</span><span>Tablette</span><span>Engin</span><span class="pm-droite">Actions</span></div>
                             <div id="gnssListe"><div class="pm-vide">Chargement…</div></div>
                         </div>
-
-                        <!-- Radio XBee : montee des positions GNSS vers le serveur central -->
-                                <div class="pm-bloc equip-list" id="xbeePanel">
-                                    <span class="lbl">Radio XBee</span>
-                                    <p class="pm-bloc-texte">Clé HMAC : empreinte enregistrée, jamais en clair.</p>
-                                    <form class="pm-bloc-action" id="xbeeForm">
-                                        <button type="submit" class="pm-btn-bloc" id="btnConnectXbee" title="Connecter la radio XBee (Web Serial)">Connecter par câble</button>
-                                    </form>
-                                    <div class="account-status" id="xbeeStatus"></div>
-                                    <form class="pm-ajout-ligne" id="xbeeCleForm">
-                                        <input type="text" id="xbeeCleHex" placeholder="Clé HMAC (64 car. hex)" />
-                                        <button type="submit" class="pm-btn-sombre" title="Enregistrer la cle HMAC pour le DT affecte a cette tablette">Enregistrer la clé</button>
-                                    </form>
-                                    <div class="account-status" id="xbeeCleStatus"></div>
-                                </div>
                     </div><!-- /onglet gnss -->
                 </section>
 
@@ -672,7 +657,6 @@
     <script src="../js/tablettes.js"></script>
     <script src="../js/gnss.js"></script>
     <script src="../js/gnss-serial.js"></script>
-    <script src="../js/xbee-serial.js"></script>
     <script src="../js/app.js"></script>
 </body>
 </html>

@@ -33,6 +33,7 @@
   }
 
   let etat = { tablettes: [], apk: {}, adb: {} };
+  let clesRadio = [];                           // cles radio des DT (empreintes seulement)
   let jetons = { jetons: [], actifs: false };   // jetons par tablette (generation, renouvellement, revocation)
   let flotte = [];                 // [{ code: 'DT-04', famille: '1500' }]
   const PROFILS = [['dt', 'DT'], ['exc', 'Excavatrice'], ['spotter', 'Spotter'], ['link', 'Link']];
@@ -121,6 +122,7 @@
             (t.connectee ? '<button type="button" class="pm-btn-sombre pm-tab-installer" data-tab-installer="' + esc(t.serie) + '"' + (manque ? ' disabled title="' + esc(manque) + '"' : '') + (job && job.etat === 'en_cours' ? ' disabled' : '') + '>' + (t.app_installee ? 'Mettre à jour' : 'Installer') + '</button>' : '') +
             ((t.profil === 'dt' || t.profil === 'exc') && t.ident ? '<button type="button" class="pm-lien" data-tab-jeton="renouveler" data-code="' + esc(t.ident) + '" title="Nouveau jeton : l\'ancien reste valable 7 jours, le temps que la tablette reçoive le nouveau">Renouveler le jeton</button>' +
               '<button type="button" class="pm-lien danger" data-tab-jeton="revoquer" data-code="' + esc(t.ident) + '" title="Coupe l\'accès de cette tablette immédiatement">Révoquer</button>' : '') +
+            (t.profil === 'dt' && t.ident ? '<button type="button" class="pm-lien" data-tab-cle-radio="' + esc(t.ident) + '" title="Nouvelle clé de signature des positions envoyées par radio ; l\'ancienne reste valable 7 jours">Renouveler la clé radio</button>' : '') +
             (t.connectee && t.app_installee && (t.profil === 'dt' || t.profil === 'exc') && !manque ? '<button type="button" class="pm-lien" data-tab-parametres="' + esc(t.serie) + '" title="Renvoie le DT et la connexion (serveurs, MQTT) à la tablette, sans réinstaller">Envoyer les paramètres</button>' : '') +
             (t.connectee && t.app_installee && t.profil !== 'link' && t.profil !== 'spotter' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
           '</span>' +
@@ -133,7 +135,9 @@
     const j = (jetons.jetons || []).find((x) => x.code === t.ident);
     if (!j) return '';
     const etatJ = j.action === 'revoque' ? 'jeton révoqué : à reprovisionner' : (j.action === 'renouvele' ? 'jeton renouvelé' + (j.tolerance ? ' (ancien valable 7 jours)' : '') : 'jeton n°' + j.gen);
-    return '<small>' + esc(jetons.actifs ? etatJ : 'jeton maître (jetons par tablette en attente des serveurs)') + '</small>';
+    const cle = clesRadio.find((x) => x.dt_code === t.ident);
+    const etatCle = t.profil !== 'dt' ? '' : (cle ? (cle.actif ? 'clé radio ' + cle.empreinte + (cle.tolerance ? ' (ancienne valable 7 jours)' : '') : 'clé radio révoquée') : 'clé radio : créée à l\'envoi des paramètres');
+    return '<small>' + esc(jetons.actifs ? etatJ : 'jeton maître (jetons par tablette en attente des serveurs)') + '</small>' + (etatCle ? '<small>' + esc(etatCle) + '</small>' : '');
   }
 
   function incomplete(t) {
@@ -161,6 +165,7 @@
     try {
       etat = await appel('/api/tablettes');
       try { jetons = await appel('/api/jetons'); } catch (e) { jetons = { jetons: [], actifs: false }; }
+      try { clesRadio = (await appel('/api/cles_dt')).cles_dt || []; } catch (e) { clesRadio = []; }
       if (!silencieux) statut('', true);
     } catch (e) {
       const ancienne = e.status === 404 || /endpoint inconnu/i.test(e.message);
@@ -235,6 +240,22 @@
       if (i) { installer(i.dataset.tabInstaller, false); return; }
       const r = e.target.closest('[data-tab-reinstaller]');
       if (r) { installer(r.dataset.tabReinstaller, true); return; }
+      const kr = e.target.closest('[data-tab-cle-radio]');
+      if (kr) {
+        const code = kr.dataset.tabCleRadio;
+        const t = etat.tablettes.find((x) => x.ident === code);
+        try {
+          await appel('/api/cles_dt', 'POST', { dt_code: code });
+          if (t && t.connectee) {
+            await appel('/api/tablettes/parametres', 'POST', { serie: t.serie, adresse_adb: t.adresse_adb });
+            statut('Clé radio de ' + code + ' renouvelée et envoyée à la tablette.', true);
+          } else {
+            statut('Clé radio de ' + code + ' renouvelée : à envoyer à la tablette (« Envoyer les paramètres »), l\'ancienne reste valable 7 jours.', true);
+          }
+        } catch (err) { statut(err.message, false); }
+        rafraichir(true);
+        return;
+      }
       const jt = e.target.closest('[data-tab-jeton]');
       if (jt) {
         const action = jt.dataset.tabJeton;

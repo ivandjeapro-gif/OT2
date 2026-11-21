@@ -573,7 +573,10 @@ CREATE TABLE IF NOT EXISTS cles_dt (
     dt_code TEXT PRIMARY KEY,
     cle_hex TEXT NOT NULL,
     actif INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    cle_prec TEXT DEFAULT '',              -- cle precedente, encore acceptee jusqu'a prec_jusqua (renouvellement)
+    prec_jusqua REAL DEFAULT 0,
+    maj_le TEXT DEFAULT ''
 );
 
 -- Systeme de coordonnees geographiques retenu pour la mine (ligne unique,
@@ -2246,7 +2249,7 @@ def verifier_signature_trame(conn, dt_code, corps_signe, ts, sig):
     absent/hors tolerance (rejeu ou derive d'horloge), ou signature
     invalide. Retourne True/False."""
     row = conn.execute(
-        "SELECT cle_hex FROM cles_dt WHERE dt_code=? AND actif=1", (dt_code,)).fetchone()
+        "SELECT cle_hex, cle_prec, prec_jusqua FROM cles_dt WHERE dt_code=? AND actif=1", (dt_code,)).fetchone()
     if not row:
         return False
     if corps_signe is None or ts is None or not sig:
@@ -2257,12 +2260,18 @@ def verifier_signature_trame(conn, dt_code, corps_signe, ts, sig):
         return False
     if abs(time.time() - ts_f) > HMAC_TOLERANCE_S:
         return False
-    try:
-        cle = bytes.fromhex(row["cle_hex"])
-    except Exception:
-        return False
-    attendu = hmac.new(cle, corps_signe.encode("utf-8"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(attendu, str(sig))
+    candidates = [row["cle_hex"]]
+    if row["cle_prec"] and (row["prec_jusqua"] or 0) > time.time():
+        candidates.append(row["cle_prec"])           # renouvellement en cours : l'ancienne cle reste valable quelques jours
+    for cle_hex in candidates:
+        try:
+            cle = bytes.fromhex(cle_hex)
+        except Exception:
+            continue
+        attendu = hmac.new(cle, corps_signe.encode("utf-8"), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(attendu, str(sig)):
+            return True
+    return False
 
 
 def traiter_trame_xbee(conn, ligne):
@@ -6627,6 +6636,9 @@ def provision_contenu(k, zone, conn=None):
     if pr == "dt":
         contenu = {"profil": "dt", "dt": k["ident"].replace("DT-", ""), "camion": k["famille"], "zone": zone or ""}
         connexion = connexion_dt(conn, k["ident"]) if conn is not None else {}
+        cle = cle_radio_courante(conn, k["ident"]) if conn is not None else ""
+        if cle:
+            connexion["xbee"] = {"cle": cle}          # signature des positions envoyees par radio
         if connexion:
             contenu["connexion"] = connexion
         return contenu
@@ -6702,6 +6714,61 @@ def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinsta
         with _jobs_verrou:
             _jobs_tablettes[job]["etat"] = "erreur"
             _jobs_tablettes[job]["erreur"] = str(e)
+
+
+# ------------------------------------------------------------------ cles radio par DT ---
+# Cle HMAC-SHA256 propre a chaque DT : la tablette signe ses positions envoyees par radio XBee (liaison sans 4G) ;
+# la passerelle ne les accepte que si la signature est valide et recente. La cle est GENEREE ICI, envoyee a la
+# tablette dans provision.json, et n'est jamais renvoyee par l'API (seule son empreinte est visible).
+CLE_RADIO_TOLERANCE_S = 7 * 24 * 3600
+
+
+def cle_radio_courante(conn, code):
+    """Cle (hex) du DT, creee au premier besoin ; '' si le code n'est pas valable ou si la cle est revoquee."""
+    code = str(code or "").strip()
+    if not re.match(r"^[A-Za-z0-9_-]{2,40}$", code):
+        return ""
+    r = conn.execute("SELECT cle_hex, actif FROM cles_dt WHERE dt_code=?", (code,)).fetchone()
+    if r and r["actif"]:
+        return r["cle_hex"]
+    if r and not r["actif"]:
+        return ""
+    cle = secrets.token_hex(32)
+    conn.execute("INSERT INTO cles_dt (dt_code, cle_hex, actif, maj_le) VALUES (?, ?, 1, ?)", (code, cle, now_iso()))
+    conn.commit()
+    return cle
+
+
+def cle_radio_renouveler(conn, code):
+    """Nouvelle cle ; l'ancienne reste acceptee 7 jours (le temps que la tablette recoive la nouvelle). Reactive une cle revoquee."""
+    code = str(code or "").strip()
+    if not re.match(r"^[A-Za-z0-9_-]{2,40}$", code):
+        return 400, {"error": "code DT invalide"}
+    r = conn.execute("SELECT cle_hex, actif FROM cles_dt WHERE dt_code=?", (code,)).fetchone()
+    nouvelle = secrets.token_hex(32)
+    if not r:
+        conn.execute("INSERT INTO cles_dt (dt_code, cle_hex, actif, maj_le) VALUES (?, ?, 1, ?)", (code, nouvelle, now_iso()))
+    else:
+        precedente = r["cle_hex"] if r["actif"] else ""
+        conn.execute("UPDATE cles_dt SET cle_prec=?, prec_jusqua=?, cle_hex=?, actif=1, maj_le=? WHERE dt_code=?",
+                     (precedente, time.time() + CLE_RADIO_TOLERANCE_S if precedente else 0, nouvelle, now_iso(), code))
+    conn.commit()
+    return 200, {"ok": True, "dt_code": code, "empreinte": _empreinte(nouvelle)[:8], "tolerance_jours": CLE_RADIO_TOLERANCE_S // 86400}
+
+
+def cle_radio_revoquer(conn, code):
+    code = str(code or "").strip()
+    conn.execute("UPDATE cles_dt SET actif=0, cle_prec='', prec_jusqua=0, maj_le=? WHERE dt_code=?", (now_iso(), code))
+    conn.commit()
+    return 200, {"ok": True, "dt_code": code}
+
+
+def cles_radio_lister(conn):
+    """Etat des cles : jamais la cle elle-meme, seulement son empreinte."""
+    maintenant = time.time()
+    return [{"dt_code": r["dt_code"], "actif": bool(r["actif"]), "empreinte": _empreinte(r["cle_hex"])[:8],
+             "maj_le": r["maj_le"] or r["created_at"], "tolerance": bool(r["cle_prec"] and (r["prec_jusqua"] or 0) > maintenant)}
+            for r in conn.execute("SELECT * FROM cles_dt ORDER BY dt_code")]
 
 
 # ------------------------------------------------------------------ jetons par tablette ---
@@ -8602,31 +8669,20 @@ class Handler(BaseHTTPRequestHandler):
                 # Provisionnement des cles secretes partagees avec les
                 # tablettes embarquees (authentification des trames XBee).
                 if path == "/api/cles_dt" and method == "GET":
-                    rows = [dict(r) for r in conn.execute(
-                        "SELECT * FROM cles_dt WHERE actif=1 ORDER BY dt_code")]
-                    return self._send_json(200, {"cles_dt": rows})
+                    return self._send_json(200, {"cles_dt": cles_radio_lister(conn)})   # empreintes seulement
 
                 if path == "/api/cles_dt" and method == "POST":
                     body = json.loads(self._read_body() or b"{}")
-                    dt_code = (body.get("dt_code") or "").strip()
-                    if not dt_code:
-                        return self._send_json(400, {"error": "dt_code requis"})
-                    cle_hex = secrets.token_hex(32)
-                    conn.execute(
-                        "INSERT INTO cles_dt (dt_code, cle_hex, actif) VALUES (?, ?, 1) "
-                        "ON CONFLICT(dt_code) DO UPDATE SET cle_hex=excluded.cle_hex, actif=1",
-                        (dt_code, cle_hex))
-                    conn.commit()
-                    return self._send_json(201, {"ok": True, "dt_code": dt_code, "cle_hex": cle_hex})
+                    code, rep_ = cle_radio_renouveler(conn, body.get("dt_code"))
+                    return self._send_json(201 if code == 200 else code, rep_)
 
                 if path == "/api/cles_dt" and method == "DELETE":
                     qs = self._qs()
                     dt_code = (qs.get("dt_code", [""])[0] or "").strip()
                     if not dt_code:
                         return self._send_json(400, {"error": "dt_code requis"})
-                    conn.execute("UPDATE cles_dt SET actif=0 WHERE dt_code=?", (dt_code,))
-                    conn.commit()
-                    return self._send_json(200, {"ok": True, "dt_code": dt_code})
+                    code, rep_ = cle_radio_revoquer(conn, dt_code)
+                    return self._send_json(code, rep_)
 
                 # ------------------------------------------------- sources --
                 # Delegue les sources minieres d'une mine (Main Pit,
@@ -9403,6 +9459,10 @@ def main():
         if nom not in cols:
             conn.execute("ALTER TABLE engins ADD COLUMN %s %s" % (nom, decl))
     conn.commit()
+    cols_k = [r[1] for r in conn.execute("PRAGMA table_info(cles_dt)")]
+    for nom, decl in (("cle_prec", "TEXT DEFAULT ''"), ("prec_jusqua", "REAL DEFAULT 0"), ("maj_le", "TEXT DEFAULT ''")):
+        if nom not in cols_k:
+            conn.execute("ALTER TABLE cles_dt ADD COLUMN %s %s" % (nom, decl))
     cols_t = [r[1] for r in conn.execute("PRAGMA table_info(tablettes)")]
     for nom, decl in (("profil", "TEXT DEFAULT 'dt'"), ("ident", "TEXT DEFAULT ''"), ("equipe", "TEXT DEFAULT ''")):
         if nom not in cols_t:
