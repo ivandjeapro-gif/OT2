@@ -107,8 +107,8 @@
         '<td class="r-orebloc">' + MSUI.esc(v.orebloc_nom || ('#' + v.orebloc_id)) + '</td>' +
         '<td>' + MSUI.esc(v.da_nom || ('#' + v.dumping_area_id)) + '</td>' +
         '<td>' + (Math.round((Number(v.volume_t) || 0) * 10) / 10).toLocaleString('fr-FR') + ' t</td>' +
-        '<td><span class="r-grade"><i class="g-' + g.cle + '"></i>' + g.lbl + '</span></td>' +
-        '<td class="r-conf">' + (c ? c.lbl : '—') + '</td>' +
+        '<td><span class="r-grade"' + (g.cle === 'inconnu' ? ' title="Grade inconnu : bloc ' + MSUI.esc(v.orebloc_nom ? 'sans code de teneur reconnu' : 'introuvable') + '"' : '') + '><i class="g-' + g.cle + '"></i>' + g.lbl + '</span></td>' +
+        '<td class="r-conf"' + (c ? '' : ' title="Pas de verdict : bloc ou dumping instruction introuvable au moment du voyage"') + '>' + (c ? c.lbl : 'Non évaluée') + '</td>' +
         '</tr>';
     }).join('');
     set('inboxPied', '1–' + affiches.length + ' sur ' + voyages.length + (voyages.length > 1 ? ' voyages' : ' voyage'));
