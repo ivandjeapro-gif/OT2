@@ -285,6 +285,8 @@
         ? '<b>Connectée</b><small>' + esc(radio.port) + ' · ' + radio.baud + ' bauds · ' + radio.valides + ' position(s) valide(s) · ' + radio.rejetees + ' rejetée(s)' + (radio.derniere_valide ? ' · dernière ' + esc(radio.derniere_valide.slice(11, 19)) : '') + '</small>'
         : '<b>' + (radio.configure_port ? 'Non connectée' : 'Aucun port choisi') + '</b><small>' + esc(radio.erreur || (radio.configure_port ? '' : 'Branchez la radio, puis choisissez son port')) + '</small>');
     if (document.activeElement === sp || document.activeElement === sb) return;
+    const ex = $('#radioExiger');
+    if (ex && document.activeElement !== ex) ex.checked = !!radio.exiger_signature;
     const ports = radio.ports || [];
     sp.innerHTML = '<option value="">Aucun</option>' + ports.map((p) => '<option value="' + esc(p.device) + '"' + (p.device === radio.configure_port ? ' selected' : '') + '>' + esc(p.device) + ' · ' + esc(p.description) + '</option>').join('') +
       (radio.configure_port && !ports.some((p) => p.device === radio.configure_port) ? '<option value="' + esc(radio.configure_port) + '" selected>' + esc(radio.configure_port) + ' (absent)</option>' : '');
@@ -407,6 +409,16 @@
         statut('Radio enregistrée : la passerelle la rouvre d\'elle-même (quelques secondes).', true);
       } catch (err) { statut(err.message, false); }
       setTimeout(chargerRadio, 6500);
+    });
+    $('#radioExiger').addEventListener('change', async (e) => {
+      const veut = e.target.checked;
+      if (veut && window.Splash && Splash.confirmer && !await Splash.confirmer('Exiger la signature des excavatrices ?', {
+        titre: 'Signature des excavatrices', danger: true, libelleOk: 'Exiger',
+        details: 'Les DT ignoreront toute trame de pelle non signée. Vérifiez d\'abord que chaque excavatrice et chaque DT a reçu ses clés (« Envoyer les paramètres »), sinon une pelle légitime ne sera plus entendue.' })) { e.target.checked = false; return; }
+      try {
+        await appel('/api/radio', 'POST', { exiger_signature: veut });
+        statut(veut ? 'Signature exigée : à partir de la prochaine lecture des paramètres par chaque DT.' : 'Signature non exigée : toutes les trames passent.', true);
+      } catch (err) { statut(err.message, false); e.target.checked = !veut; }
     });
     $('#gnssDetecter').addEventListener('click', detecter);
     $('#gnssConfigurer').addEventListener('click', configurer);

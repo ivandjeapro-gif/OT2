@@ -122,7 +122,7 @@
             (t.connectee ? '<button type="button" class="pm-btn-sombre pm-tab-installer" data-tab-installer="' + esc(t.serie) + '"' + (manque ? ' disabled title="' + esc(manque) + '"' : '') + (job && job.etat === 'en_cours' ? ' disabled' : '') + '>' + (t.app_installee ? 'Mettre à jour' : 'Installer') + '</button>' : '') +
             ((t.profil === 'dt' || t.profil === 'exc') && t.ident ? '<button type="button" class="pm-lien" data-tab-jeton="renouveler" data-code="' + esc(t.ident) + '" title="Nouveau jeton : l\'ancien reste valable 7 jours, le temps que la tablette reçoive le nouveau">Renouveler le jeton</button>' +
               '<button type="button" class="pm-lien danger" data-tab-jeton="revoquer" data-code="' + esc(t.ident) + '" title="Coupe l\'accès de cette tablette immédiatement">Révoquer</button>' : '') +
-            (t.profil === 'dt' && t.ident ? '<button type="button" class="pm-lien" data-tab-cle-radio="' + esc(t.ident) + '" title="Nouvelle clé de signature des positions envoyées par radio ; l\'ancienne reste valable 7 jours">Renouveler la clé radio</button>' : '') +
+            ((t.profil === 'dt' || t.profil === 'exc') && t.ident ? '<button type="button" class="pm-lien" data-tab-cle-radio="' + esc(t.ident) + '" title="Nouvelle clé de signature des positions envoyées par radio ; l\'ancienne reste valable 7 jours">Renouveler la clé radio</button>' : '') +
             (t.connectee && t.app_installee && (t.profil === 'dt' || t.profil === 'exc') && !manque ? '<button type="button" class="pm-lien" data-tab-parametres="' + esc(t.serie) + '" title="Renvoie le DT et la connexion (serveurs, MQTT) à la tablette, sans réinstaller">Envoyer les paramètres</button>' : '') +
             (t.connectee && t.app_installee && t.profil !== 'link' && t.profil !== 'spotter' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
           '</span>' +
@@ -136,7 +136,7 @@
     if (!j) return '';
     const etatJ = j.action === 'revoque' ? 'jeton révoqué : à reprovisionner' : (j.action === 'renouvele' ? 'jeton renouvelé' + (j.tolerance ? ' (ancien valable 7 jours)' : '') : 'jeton n°' + j.gen);
     const cle = clesRadio.find((x) => x.dt_code === t.ident);
-    const etatCle = t.profil !== 'dt' ? '' : (cle ? (cle.actif ? 'clé radio ' + cle.empreinte + (cle.tolerance ? ' (ancienne valable 7 jours)' : '') : 'clé radio révoquée') : 'clé radio : créée à l\'envoi des paramètres');
+    const etatCle = !(t.profil === 'dt' || t.profil === 'exc') ? '' : (cle ? (cle.actif ? 'clé radio ' + cle.empreinte + (cle.tolerance ? ' (ancienne valable 7 jours)' : '') : 'clé radio révoquée') : 'clé radio : créée à l\'envoi des paramètres');
     return '<small>' + esc(jetons.actifs ? etatJ : 'jeton maître (jetons par tablette en attente des serveurs)') + '</small>' + (etatCle ? '<small>' + esc(etatCle) + '</small>' : '');
   }
 

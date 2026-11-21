@@ -2443,7 +2443,7 @@ def xbee_ecrire_conf(conn, port, baud):
 def xbee_etat_public():
     port, baud = xbee_conf()
     return dict(_xbee_etat, configure_port=port, configure_baud=baud, bauds=list(XBEE_BAUDS), ports=xbee_ports(),
-                environnement=bool(os.environ.get("XBEE_PORT")))
+                environnement=bool(os.environ.get("XBEE_PORT")), exiger_signature=radio_exiger_signature())
 
 
 def ecouteur_xbee():
@@ -6783,7 +6783,8 @@ def provision_contenu(k, zone, conn=None):
         connexion = connexion_dt(conn, k["ident"]) if conn is not None else {}
         cle = cle_radio_courante(conn, k["ident"]) if conn is not None else ""
         if cle:
-            connexion["xbee"] = {"cle": cle}          # signature des positions envoyees par radio
+            # cle du DT (signature de ses positions de secours) + cles des pelles (qui parle ?) + exigence
+            connexion["xbee"] = {"cle": cle, "pelles": cles_pelles(conn), "exiger": radio_exiger_signature()}
         if connexion:
             contenu["connexion"] = connexion
         return contenu
@@ -6791,8 +6792,12 @@ def provision_contenu(k, zone, conn=None):
         contenu = {"profil": "exc", "id": k["ident"], "famille": k["famille"], "zone": zone or ""}
         # l'excavatrice ne parle qu'au serveur n°1 : adresse + jeton PROPRE a cette tablette
         serveur1 = (connexion_dt(conn, k["ident"]) if conn is not None else {}).get("serveur1")
-        if serveur1:
-            contenu["connexion"] = {"serveur1": serveur1}
+        connexion = {"serveur1": serveur1} if serveur1 else {}
+        cle = cle_radio_courante(conn, k["ident"]) if conn is not None else ""
+        if cle:
+            connexion["xbee"] = {"cle": cle}          # signature des trames de CETTE pelle
+        if connexion:
+            contenu["connexion"] = connexion
         return contenu
     return None
 
@@ -6906,6 +6911,30 @@ def cle_radio_revoquer(conn, code):
     conn.execute("UPDATE cles_dt SET actif=0, cle_prec='', prec_jusqua=0, maj_le=? WHERE dt_code=?", (now_iso(), code))
     conn.commit()
     return 200, {"ok": True, "dt_code": code}
+
+
+def cles_pelles(conn):
+    """Cles radio des excavatrices du site (id de la pelle -> cles valables : la courante, et l'ancienne pendant la tolerance).
+    Donnees a chaque DT pour savoir QUELLE pelle parle."""
+    maintenant = time.time()
+    res = {}
+    for t in conn.execute("SELECT ident FROM tablettes WHERE profil='exc' AND ident<>''").fetchall():
+        r = conn.execute("SELECT cle_hex, actif, cle_prec, prec_jusqua FROM cles_dt WHERE dt_code=?", (t["ident"],)).fetchone()
+        if not r:
+            cle = cle_radio_courante(conn, t["ident"])
+            cles = [cle] if cle else []
+        elif r["actif"]:
+            cles = [r["cle_hex"]] + ([r["cle_prec"]] if r["cle_prec"] and (r["prec_jusqua"] or 0) > maintenant else [])
+        else:
+            cles = []
+        if cles:
+            res[t["ident"]] = cles
+    return res
+
+
+def radio_exiger_signature():
+    """La console exige-t-elle que les DT ignorent les trames de pelle non signees ? (arrete par defaut : mise en service progressive)"""
+    return str(param_lire_base("RADIO_EXIGER_SIGNATURE", "")).strip() in ("1", "oui", "true")
 
 
 def cles_radio_lister(conn):
@@ -7771,7 +7800,11 @@ class Handler(BaseHTTPRequestHandler):
                 conn = get_conn()
                 try:
                     body = json.loads(self._read_body() or b"{}")
-                    code, rep_ = xbee_ecrire_conf(conn, body.get("port"), body.get("baud"))
+                    if "exiger_signature" in body and "port" not in body:
+                        param_ecrire(conn, "RADIO_EXIGER_SIGNATURE", "1" if body.get("exiger_signature") else "")
+                        code, rep_ = 200, {"ok": True, "exiger_signature": radio_exiger_signature()}
+                    else:
+                        code, rep_ = xbee_ecrire_conf(conn, body.get("port"), body.get("baud"))
                 finally:
                     conn.close()
                 return self._send_json(code, rep_)
