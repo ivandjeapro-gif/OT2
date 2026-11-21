@@ -142,11 +142,10 @@
 
     // periode
     const per = document.getElementById('inboxPeriode');
-    const dateBox = document.getElementById('inboxDateBox');
     const dat = document.getElementById('inboxDateSel');
     if (per) per.addEventListener('change', () => {
       filtrePeriode = per.value;
-      if (dateBox) dateBox.hidden = per.value !== 'date';
+      if (dat) dat.hidden = per.value !== 'date';
       render(MSUI.etat);
     });
     if (dat) dat.addEventListener('change', () => { filtreDate = dat.value; render(MSUI.etat); });
