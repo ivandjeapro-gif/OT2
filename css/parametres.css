@@ -416,3 +416,8 @@
 .pm-chip.actif small { color: rgba(255,255,255,.7); }
 .pm-chip:disabled { opacity: .5; cursor: default; }
 @media (max-width: 1100px) { .pm-apk-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pm-tab-barre { align-items: flex-end; }
+.pm-tab-test { margin-right: auto; align-self: center; }
+.pm-tab-ip-ligne { align-items: stretch; }
+.pm-tab-ip-ligne input, .pm-tab-ip-ligne .pm-btn-sombre, .pm-tab-detecter { box-sizing: border-box; height: 44px; margin: 0; padding-top: 0; padding-bottom: 0; line-height: 44px; }
+.pm-tab-ip-ligne .pm-btn-sombre, .pm-tab-detecter { padding-left: 22px; padding-right: 22px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
