@@ -442,6 +442,49 @@
     }
   }
 
+  // ---- codes de teneur : table {code -> grade} tenue par la passerelle (/api/codes_teneur) ----
+  const passerelleCodes = () => (window.OTCFG && OTCFG.passerelle)
+    ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+  const listeCodes = (txt) => String(txt || '').split(/[,\s;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+
+  async function chargerCodesTeneur() {
+    const st = $('#codesTeneurStatus');
+    try {
+      const r = await fetch(passerelleCodes() + '/api/codes_teneur', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      document.querySelectorAll('#codesTeneurForm [data-grade]').forEach((inp) => {
+        inp.value = Object.keys(d.codes || {}).filter((c) => d.codes[c] === inp.dataset.grade).join(', ');
+      });
+      const ster = $('#codesSteriles');
+      if (ster) ster.value = (d.steriles || []).join(', ');
+      if (st) st.textContent = '';
+    } catch (e) {
+      if (st) st.textContent = 'Passerelle injoignable : codes non chargés';
+    }
+  }
+
+  async function enregistrerCodesTeneur(e) {
+    e.preventDefault();
+    const st = $('#codesTeneurStatus');
+    const codes = {};
+    document.querySelectorAll('#codesTeneurForm [data-grade]').forEach((inp) => {
+      listeCodes(inp.value).forEach((c) => { codes[c] = inp.dataset.grade; });
+    });
+    try {
+      const r = await fetch(passerelleCodes() + '/api/codes_teneur', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes, steriles: listeCodes(($('#codesSteriles') || {}).value) }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      if (st) st.textContent = 'Codes de teneur enregistrés.';
+      chargerCodesTeneur();
+    } catch (err) {
+      if (st) st.textContent = 'Enregistrement impossible : ' + err.message;
+    }
+  }
+
   function renderTeams(rows) {
     renderService(rows);
     const box = $('#teamContainer');
@@ -1676,6 +1719,11 @@
         if (excavFamilleAutre) excavFamilleAutre.style.display = excavFamille.value === 'AUTRE' ? '' : 'none';
       });
     }
+
+    // codes de teneur (classement des voyages)
+    chargerCodesTeneur();
+    const formCodes = $('#codesTeneurForm');
+    if (formCodes) formCodes.addEventListener('submit', enregistrerCodesTeneur);
 
     // equipe de service
     const selJ = $('#equipeJour'), selN = $('#equipeNuit');

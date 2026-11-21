@@ -3102,8 +3102,37 @@ def etat_offroad(conn):
 #   - grades     : tonnage par code de teneur du NOM de bloc (4e segment,
 #                  cf. nomenclature) : HG (+ SHG), MG, LG, MO
 GRAMMES_PAR_ONCE = 31.1035
+# 21/11 : table PAR DEFAUT ; reglable dans Settings (params CODES_TENEUR = JSON {code: grade} et
+# CODES_STERILES = codes separes par des virgules). Les lectures passent par codes_teneur() / codes_steriles().
 KPI_GRADES = {"HG": "high", "SHG": "high", "MG": "medium", "MG1": "medium",
               "MG2": "medium", "LG": "low", "LG1": "low", "LG2": "low", "MO": "marginal"}
+GRADES_VALIDES = ("high", "medium", "low", "marginal")
+CODES_STERILES_DEFAUT = ("WST",)
+_codes_cache = {"brut": None, "table": KPI_GRADES}
+
+
+def codes_teneur():
+    """Table {code de teneur: grade} en vigueur (reglage Settings, sinon KPI_GRADES)."""
+    brut = param_lire("CODES_TENEUR", "")
+    if brut != _codes_cache["brut"]:
+        table = KPI_GRADES
+        if brut:
+            try:
+                lue = json.loads(brut)
+                propre = {str(k).strip().upper(): str(v).strip().lower() for k, v in lue.items()
+                          if str(v).strip().lower() in GRADES_VALIDES and str(k).strip()}
+                if propre:
+                    table = propre
+            except (ValueError, AttributeError):
+                table = KPI_GRADES
+        _codes_cache["brut"], _codes_cache["table"] = brut, table
+    return _codes_cache["table"]
+
+
+def codes_steriles():
+    brut = param_lire("CODES_STERILES", "")
+    codes = tuple(c.strip().upper() for c in brut.split(",") if c.strip())
+    return codes or CODES_STERILES_DEFAUT
 
 
 def classer_voyage(nom, destination, minerai):
@@ -3112,9 +3141,10 @@ def classer_voyage(nom, destination, minerai):
     bloc, '' si inconnu ; sterile = bloc WST, destination W ou bloc non minerai (sauf code de teneur connu)."""
     code = code_teneur_bloc(nom)
     dest = str(destination or "").strip().upper()
-    minerai = (code != "WST" and dest != "W") if minerai is None else bool(minerai)
-    sterile = (code == "WST" or dest == "W" or not minerai) and code not in KPI_GRADES
-    return sterile, KPI_GRADES.get(code, "")
+    steriles, grades = codes_steriles(), codes_teneur()
+    minerai = (code not in steriles and dest != "W") if minerai is None else bool(minerai)
+    sterile = (code in steriles or dest == "W" or not minerai) and code not in grades
+    return sterile, grades.get(code, "")
 
 
 def code_teneur_bloc(nom):
@@ -5260,9 +5290,10 @@ def _vers_latlng(x, y, zone, hemi):
 
 def _grade_bloc(nom, destination):
     code = code_teneur_bloc(nom)
-    if code in KPI_GRADES:
-        return KPI_GRADES[code]
-    if code == "WST" or str(destination or "").strip().upper() == "W":
+    grades = codes_teneur()
+    if code in grades:
+        return grades[code]
+    if code in codes_steriles() or str(destination or "").strip().upper() == "W":
         return "waste"
     return ""
 
@@ -6283,6 +6314,9 @@ class Handler(BaseHTTPRequestHandler):
         # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;
         # sous le verrou global elles se disputaient la place des positions (donc des alertes).
         # Lecture seule : hors verrou, comme /api/suivi_dt et /api/kpi.
+        if path == "/api/codes_teneur" and method == "GET":
+            return self._send_json(200, {"codes": codes_teneur(), "steriles": list(codes_steriles()),
+                                         "grades": list(GRADES_VALIDES)})
         if path == "/api/offroad" and method == "GET":
             conn = get_conn()
             try:
@@ -7880,6 +7914,36 @@ class Handler(BaseHTTPRequestHandler):
                         ecrits.append(champ)
                     return self._send_json(200, {"ok": True, "enregistres": ecrits,
                                                  "reglages": offroad_reglages()})
+
+                # Codes de teneur (Settings) : {"codes": {"HG": "high", ...}, "steriles": ["WST"]}
+                if path == "/api/codes_teneur" and method == "POST":
+                    body = json.loads(self._read_body() or b"{}")
+                    codes = body.get("codes")
+                    steriles = body.get("steriles")
+                    if not isinstance(codes, dict) or not isinstance(steriles, list):
+                        return self._send_json(400, {"error": "codes (objet) et steriles (liste) attendus"})
+                    propre = {}
+                    for k, v in codes.items():
+                        k = str(k).strip().upper()
+                        v = str(v).strip().lower()
+                        if not re.fullmatch(r"[A-Z0-9]{1,8}", k):
+                            return self._send_json(400, {"error": "code invalide : %r (1 a 8 lettres/chiffres)" % k})
+                        if v not in GRADES_VALIDES:
+                            return self._send_json(400, {"error": "grade invalide pour %s : %r" % (k, v)})
+                        propre[k] = v
+                    st = []
+                    for c in steriles:
+                        c = str(c).strip().upper()
+                        if not re.fullmatch(r"[A-Z0-9]{1,8}", c):
+                            return self._send_json(400, {"error": "code sterile invalide : %r" % c})
+                        if c in propre:
+                            return self._send_json(400, {"error": "%s est a la fois un grade et sterile" % c})
+                        st.append(c)
+                    if not propre:
+                        return self._send_json(400, {"error": "au moins un code de teneur requis"})
+                    param_ecrire(conn, "CODES_TENEUR", json.dumps(propre, sort_keys=True))
+                    param_ecrire(conn, "CODES_STERILES", ",".join(st))
+                    return self._send_json(200, {"ok": True, "codes": codes_teneur(), "steriles": list(codes_steriles())})
 
                 if path == "/api/alertes" and method == "POST":
                     # acquittement : {"id": N} ou {"tous": true}
