@@ -6757,7 +6757,7 @@ def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinsta
             _job_log(job, "Identite ecrite sur la tablette : %s" % libelle_identite(k))
             if contenu.get("connexion"):
                 _job_log(job, "Connexion ecrite : %s" % ", ".join(
-                    {"serveur1": "serveur n°1", "serveur2": "serveur n°2", "mqtt": "MQTT"}[x] for x in contenu["connexion"]))
+                    {"serveur1": "serveur n°1", "serveur2": "serveur n°2", "mqtt": "MQTT", "xbee": "cle radio"}.get(x, x) for x in contenu["connexion"]))
             adb_lancer(["shell", "am", "force-stop", paquet], serie=cible, timeout=15)
         adb_lancer(lancer, serie=cible, timeout=20)
         _job_log(job, "Application %s lancee" % PROFILS[profil]["nom"])
