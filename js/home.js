@@ -17,7 +17,7 @@
     const brut = String(v.raison || '');
     const code = (brut.match(/\((DT-?\d+)\)/i) || [])[1];
     const aTraiter = (etat.alertes || [])
-      .filter((a) => !a.acquittee && !MSUI.estInfo(a)).length;
+      .filter(MSUI.aTraiter).length;
 
     if (/offroad/i.test(brut)) {
       return code
@@ -57,7 +57,7 @@
     const titre = document.getElementById('homeVoyantTxt');
     if (titre) {
       const aTraiter = (etat.alertes || [])
-        .filter((a) => !a.acquittee && !MSUI.estInfo(a)).length;
+        .filter(MSUI.aTraiter).length;
       if (etat.passerelleDown) {
         titre.textContent = 'Passerelle injoignable';
       } else if (v.niveau === 'rouge') {
@@ -81,7 +81,7 @@
   const COMPTEURS = { suivi: null, kpi: null };
 
   function rendreStats(etat) {
-    const alertes = (etat.alertes || []).filter((a) => !a.acquittee && !MSUI.estInfo(a));
+    const alertes = (etat.alertes || []).filter(MSUI.aTraiter);
     const missions = (etat.missions || []).filter((m) => m.statut === 'en_cours');
 
     const set = (id, val) => {
@@ -177,7 +177,7 @@
     const seuilMs = (etat.seuilRougeMin || 10) * 60000;
 
     for (const a of (etat.alertes || [])) {
-      if (a.acquittee || MSUI.estInfo(a)) continue;
+      if (!MSUI.aTraiter(a)) continue;
       const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
       const vieux = Date.now() - t > seuilMs;
       // maquette : titre + sous-titre, decoupe sur « : » ou « — »

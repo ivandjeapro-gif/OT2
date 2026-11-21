@@ -213,8 +213,13 @@
           if (!Array.isArray(liste)) return;
           var n = liste.filter(function (a) {
             if (a.acquittee) return false;
-            if (window.MSUI && typeof MSUI.estInfo === 'function') return !MSUI.estInfo(a);
-            return true;
+            if (window.MSUI && typeof MSUI.aTraiter === 'function') return MSUI.aTraiter(a);
+            // pages sans MSUI : meme regle (ni info, ni rejet de blast, shift en cours)
+            if (/^(fin_mission|arrivee|mission|retour_piste|retour_trajet|blast_rejete)$/.test(a.type)) return false;
+            var d = new Date(), h = d.getHours();
+            d.setMinutes(0, 0, 0);
+            if (h >= 6 && h < 18) d.setHours(6); else if (h >= 18) d.setHours(18); else { d.setDate(d.getDate() - 1); d.setHours(18); }
+            return !(new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime() < d.getTime());
           }).length;
           badge.textContent = n > 0 ? String(n).padStart(2, '0') : '\u00a0';
           memoriser({ badge: badge.textContent });
