@@ -1132,6 +1132,10 @@
       r.addEventListener('change', majVisibiliteUtm);
     });
 
+    // choisir une couleur = ne plus etre en « Auto » (sinon la couleur etait ignoree a l'enregistrement)
+    const selCouleur = $('#sgNewTeneurCouleur');
+    if (selCouleur) selCouleur.addEventListener('input', () => { $('#sgNewTeneurAuto').checked = false; });
+
     // onglets
     const tabs = document.querySelectorAll('.sg-tab');
     const ouvrirOnglet = (nom) => {

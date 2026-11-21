@@ -7889,10 +7889,13 @@ class Handler(BaseHTTPRequestHandler):
                     # (dernier voyage du bloc < 15 min). Tout ce qui est plus
                     # vieux est considere mort : pas de clignotement fantome.
                     decl = [dict(r) for r in conn.execute(
-                        "SELECT m.exca_code, m.orebloc_id, o.nom AS bloc, m.declared_at "
+                        "SELECT m.exca_code, m.orebloc_id, o.nom AS bloc, datetime(m.declared_at, 'localtime') AS declared_at "
                         "FROM minage_actuel m LEFT JOIN oreblocs o ON o.id = m.orebloc_id")]
+                    # 21/11 : la table voyages n'a pas de colonne `horodatage` (c'est created_at, en UTC) :
+                    # la requete echouait, donc TOUT l'etat du minage (Dig Plan, Home) restait muet.
+                    # Heures rendues en heure locale, comme `maintenant`.
                     activite = [dict(r) for r in conn.execute(
-                        "SELECT v.orebloc_id, o.nom AS bloc, MAX(v.horodatage) AS dernier_voyage "
+                        "SELECT v.orebloc_id, o.nom AS bloc, datetime(MAX(v.created_at), 'localtime') AS dernier_voyage "
                         "FROM voyages v LEFT JOIN oreblocs o ON o.id = v.orebloc_id "
                         "WHERE v.orebloc_id IS NOT NULL "
                         "GROUP BY v.orebloc_id")]

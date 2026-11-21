@@ -338,7 +338,7 @@
 
   // ---------------------------------------------------------------- Le terrain
   // Trois lignes du panneau, toutes calculees : jamais de texte en dur.
-  const TERRAIN = { etat: null, blasts: [], equipes: null, relais: null, cloud: null };
+  const TERRAIN = { etat: null, blasts: [], equipes: null, relais: null, cloud: null, minage: null, sources: [] };
 
   function ecrireItem(id, titre, detail) {
     const el = document.getElementById(id);
@@ -357,12 +357,40 @@
   }
 
   // Excavatrices en minage (statut OMEX : dans un orebloc ET position fraiche) : code, pit, blast.
+  // Minage : d'abord ce que le SPOTTER a declare (pelle + bloc, valable 30 min, /api/minage_actuel), sinon
+  // les pelles dont le statut est OMEX (en minage) localisees dans un bloc.
+  const MINAGE_FRAICHEUR_MIN = 30;
+  const heureLocale = (t) => new Date(String(t || '').replace(' ', 'T')).getTime();
+
+  // Pit d'un bloc : la source (Senor) dont les codes admis figurent dans le nom du bloc
+  // (275_OM_LMP2_014 -> LMP2 -> « Main Pit »). Rien n'est ecrit en dur.
+  function pitDeNom(nom) {
+    const segs = String(nom || '').toUpperCase().split(/[_\s.-]+/);
+    const src = (TERRAIN.sources || []).find((x) =>
+      String(x.codes || '').toUpperCase().split(/[,\s;]+/).filter(Boolean).some((c) => segs.indexOf(c) >= 0));
+    return src ? src.nom : '';
+  }
+
   function rendreMinage() {
+    const m = TERRAIN.minage;
+    if (m) {
+      const maintenant = m.maintenant ? heureLocale(m.maintenant) : Date.now();
+      const actives = (m.declarations || []).filter((d) =>
+        (maintenant - heureLocale(d.declared_at)) / 60000 <= MINAGE_FRAICHEUR_MIN);
+      if (actives.length) {
+        const pit = pitDeNom(actives[0].bloc);
+        const codes = actives.map((d) => d.exca_code).join(', ');
+        const blocs = Array.from(new Set(actives.map((d) => d.bloc || ('#' + d.orebloc_id))));
+        ecrireItem('terrainMinage', (pit ? pit + ' · ' : '') + codes,
+          'Minage déclaré · ' + blocs.join(', '));
+        return;
+      }
+    }
     const etat = TERRAIN.etat;
     if (!etat) return;
     const exca = (etat.engins || []).filter((e) => e.type === 'EXCA' && e.statut === 'OMEX' && e.actif !== 0);
     if (!exca.length) {
-      ecrireItem('terrainMinage', 'Aucune excavatrice en minage', 'Elles apparaissent ici dès qu\'une pelle travaille dans un bloc.');
+      ecrireItem('terrainMinage', 'Aucune excavatrice en minage', 'Le spotter déclare le minage (pelle + bloc) depuis Senor.');
       return;
     }
     const blastDe = (e) => {
@@ -375,13 +403,8 @@
       }
       return null;
     };
-    const pitDe = (b) => {
-      const n = String((b && (b.numero || b.nom)) || '').toUpperCase();
-      return /LMP/.test(n) ? 'Main Pit' : (/LWP/.test(n) ? 'West Pit' : '');
-    };
-    const premiere = exca[0];
-    const b = blastDe(premiere);
-    const pit = pitDe(b);
+    const b = blastDe(exca[0]);
+    const pit = pitDeNom(b && (b.numero || b.nom));
     const codes = exca.map((e) => e.code).join(', ');
     ecrireItem('terrainMinage', (pit ? pit + ' · ' : '') + codes,
       'Minage en cours' + (b ? ' · ' + (b.numero || b.nom) : '') + (exca.length > 1 ? ' · ' + exca.length + ' excavatrices' : ''));
@@ -429,6 +452,10 @@
     const base = basePasserelleHome();
     fetch(base + '/api/blasts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d && d.blasts) TERRAIN.blasts = d.blasts; rendreTerrain(); }).catch(() => {});
+    fetch(base + '/api/minage_actuel', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.minage = d && d.declarations ? d : null; rendreMinage(); }).catch(() => {});
+    fetch(base + '/api/sources', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.sources = (d && d.sources) || []; rendreMinage(); }).catch(() => {});
     fetch(base + '/api/relais', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { TERRAIN.relais = d; rendreLiaisons(); }).catch(() => { TERRAIN.relais = null; rendreLiaisons(); });
     if (typeof API !== 'undefined' && API.getConfig) {
