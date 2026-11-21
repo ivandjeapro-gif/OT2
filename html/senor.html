@@ -107,6 +107,7 @@
                                 <button type="button" class="sg-tab" data-sgtab="sources">Sources &amp; teneurs <span class="sg-tab-n" id="sgTabSources">--</span></button>
                                 <button type="button" class="sg-tab" data-sgtab="aires">Dumping areas <span class="sg-tab-n" id="sgTabAires">--</span></button>
                                 <button type="button" class="sg-tab" data-sgtab="trails">Trails <span class="sg-tab-n" id="sgTabTrails">--</span></button>
+                                <button type="button" class="sg-tab" data-sgtab="equipes">Équipes <span class="sg-tab-n" id="sgTabEquipes">--</span></button>
                                 <span class="sg-tabs-maj" id="sgMaj"></span>
                             </div>
 
@@ -241,6 +242,43 @@
                                 </div>
                                 <div class="sg2-status" id="sgGeoStatus"></div>
                             </div>
+
+                            <!-- ONGLET EQUIPES : equipes spotter + equipe de service (deplace depuis Settings) -->
+                            <div class="sg-pane" data-sgpane="equipes" hidden>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Équipes spotter <small id="cptEquipes"></small></h2>
+                                </div>
+                                <div class="sg-service" id="serviceBox">
+                                    <label class="sg-champ"><span>Équipe de service · jour (06 h – 18 h)</span>
+                                        <select id="equipeJour" class="sg-input"><option value="">Non définie</option></select></label>
+                                    <label class="sg-champ"><span>Équipe de service · nuit (18 h – 06 h)</span>
+                                        <select id="equipeNuit" class="sg-input"><option value="">Non définie</option></select></label>
+                                    <span class="sg2-status" id="serviceStatus"></span>
+                                </div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Équipes</h2>
+                                    <button type="button" class="sg-btn" id="sgBtnEquipeAdd"><i class="fas fa-plus"></i> Ajouter une équipe</button>
+                                </div>
+                                <form class="sg-form" id="teamAddForm" style="display:none">
+                                    <input type="text" id="newTeamName" class="sg-input" placeholder="Code (SP-002)" required />
+                                    <input type="text" id="newTeamChef" class="sg-input" placeholder="Nom du chef" required />
+                                    <select id="newTeamColor" class="sg-input sg-input-court">
+                                        <option value="#0E74B2">Bleu</option>
+                                        <option value="#EE7A2A">Orange</option>
+                                        <option value="#CFC39A">Sable</option>
+                                        <option value="#3D8A4A">Vert</option>
+                                        <option value="#8A5CC2">Violet</option>
+                                        <option value="#D6607F">Rose</option>
+                                        <option value="#14A3A3">Turquoise</option>
+                                        <option value="#E0B413">Jaune</option>
+                                    </select>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Créer</button>
+                                    <button type="button" class="sg-btn" id="sgEquipeCancel">Fermer</button>
+                                </form>
+                                <div class="sg2-status" id="teamStatus"></div>
+                                <div class="sg-liste sg-equipes" id="teamContainer"><div class="sg-vide">Chargement…</div></div>
+                            </div>
                         </div>
 
                         <!-- COLONNE DROITE : terrain en direct, equipes, derniere alerte -->
@@ -269,48 +307,15 @@
                                 <div id="sgSuiviCumuls" class="suivi-cumuls" hidden></div>
                             </div>
 
-                            <!-- SPOTTER : gestion des equipes (pleine largeur) -->
-                        <div class="panel sg2-area-spotter sg2-side-card">
-                            <div class="panel-label">
-                                <i class="fas fa-users"></i> Spotter
-                            </div>
-                            <div class="panel-content">
-                                <div class="team-section">
-                                    <div class="team-intro">
-                                        Chaque equipe de spotters travaille independamment sur le terrain :
-                                        son chef est responsable de ses membres. Une equipe <b>inactive</b> reste
-                                        enregistree mais n'apparait plus dans les affectations.
-                                    </div>
-
-                                    <!-- Liste des equipes -->
-                                    <div id="teamContainer">
-                                        <div class="account-item muted">Chargement...</div>
-                                    </div>
-
-                                    <!-- Creation : nouvelle equipe (exige un chef d'equipe) -->
-                                    <div class="team-create">
-                                        <div class="team-create-title">
-                                            <i class="fas fa-plus-circle"></i> Nouvelle equipe
-                                        </div>
-                                        <div class="team-create-note">
-                                            Donnez un code (ex. SP-002) et le nom de son chef : l'equipe nait avec lui.
-                                        </div>
-                                        <form class="team-add-form" id="teamAddForm">
-                                            <div class="team-form-row">
-                                                <input type="text" class="form-input-sm" id="newTeamName" placeholder="Code de l'equipe (ex. SP-002)" required />
-                                                <input type="text" class="form-input-sm" id="newTeamChef" placeholder="Nom du chef d'equipe" required />
-                                                <input type="color" class="form-color-sm" id="newTeamColor" value="#3b82f6" title="Couleur de l'equipe" />
-                                                <button type="submit" class="btn-add-sm">
-                                                    <i class="fas fa-plus"></i> Creer
-                                                </button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                    <div class="account-status" id="teamStatus"></div>
+                            <!-- EQUIPE DE SERVICE : resume du shift en cours (la gestion est dans l'onglet Equipes) -->
+                            <div class="sg-service-card">
+                                <div class="sg-service-head">
+                                    <span class="sg-kicker">Équipe de service</span>
+                                    <button type="button" class="sg-lien" id="sgGererEquipes">Gérer <i class="fas fa-arrow-right"></i></button>
                                 </div>
+                                <h3 class="sg-service-titre" id="sgServiceTitre">--</h3>
+                                <div class="sg-service-membres" id="sgServiceMembres"></div>
                             </div>
-                        </div>
-                    
 
                             <a class="sg-last-alert" href="alerts.html" id="sgDerniereAlerte" hidden>
                                 <i class="fas fa-triangle-exclamation"></i>

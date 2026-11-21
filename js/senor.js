@@ -256,6 +256,40 @@
     } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
   }
 
+  /* ---- Carte « Equipe de service » : l'equipe du shift en cours et ses membres ----
+   * Choix fait dans l'onglet Equipes (params equipe_jour / equipe_nuit) ; meme regle que Home. */
+  async function rendreResumeService() {
+    const titre = $('#sgServiceTitre'), box = $('#sgServiceMembres');
+    if (!titre || typeof API === 'undefined') return;
+    try {
+      const [cfg, ident] = await Promise.all([API.getConfig(), API.getRows('sync_identifiants')]);
+      const p = (cfg && (cfg.params || cfg)) || {};
+      const rows = ((ident && ident.rows) || []).filter((r) => r.profil === 'SPOT');
+      const nbEquipes = new Set(rows.filter((r) => r.actif === 1).map((r) => r.equipe).filter(Boolean)).size;
+      const tab = $('#sgTabEquipes');
+      if (tab) tab.textContent = deuxN(nbEquipes);
+      const h = new Date().getHours();
+      const jour = h >= 6 && h < 18;
+      const code = jour ? (p.equipe_jour || '') : (p.equipe_nuit || '');
+      const shift = jour ? 'jour' : 'nuit';
+      if (!code) {
+        titre.textContent = 'Non définie';
+        box.innerHTML = '<span class="sg-service-vide">Shift de ' + shift + '</span>';
+        return;
+      }
+      const membres = rows.filter((r) => r.equipe === code && r.actif === 1)
+        .sort((a, b) => (String(b.role).toUpperCase() === 'CHEF_EQUIPE') - (String(a.role).toUpperCase() === 'CHEF_EQUIPE'));
+      titre.textContent = 'Équipe ' + code + ' · ' + shift;
+      box.innerHTML = membres.length ? membres.map((m) =>
+        '<span class="sg-service-membre' + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' chef' : '') + '">' +
+        esc(m.nom || m.identifiant) + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' · chef' : '') + '</span>').join('')
+        : '<span class="sg-service-vide">Aucun membre actif</span>';
+    } catch (e) {
+      titre.textContent = '--';
+      box.innerHTML = '<span class="sg-service-vide">Connexion requise</span>';
+    }
+  }
+
   async function chargerSources() {
     try {
       const d = await jsend('/api/sources', 'GET');
@@ -1290,6 +1324,21 @@
     const annulTraj = $('#sgTrajCancel');
     if (annulTraj) annulTraj.addEventListener('click', () => { $('#sgTrajForm').style.display = 'none'; });
 
+    // equipes : formulaire d'ajout + bouton « Gerer » de la carte de service
+    const btnEq = $('#sgBtnEquipeAdd');
+    if (btnEq) btnEq.addEventListener('click', () => {
+      const f = $('#teamAddForm');
+      f.style.display = f.style.display === 'none' ? '' : 'none';
+    });
+    const annulEq = $('#sgEquipeCancel');
+    if (annulEq) annulEq.addEventListener('click', () => { $('#teamAddForm').style.display = 'none'; });
+    ['#equipeJour', '#equipeNuit'].forEach((sel) => {
+      const el = $(sel);
+      if (el) el.addEventListener('change', () => setTimeout(rendreResumeService, 800));
+    });
+    rendreResumeService();
+    setInterval(() => { if (!document.hidden) rendreResumeService(); }, 60000);
+
     // onglets
     const tabs = document.querySelectorAll('.sg-tab');
     const ouvrirOnglet = (nom) => {
@@ -1301,6 +1350,8 @@
       });
     };
     tabs.forEach((t) => t.addEventListener('click', () => ouvrirOnglet(t.dataset.sgtab)));
+    const btnGerer = $('#sgGererEquipes');
+    if (btnGerer) btnGerer.addEventListener('click', () => ouvrirOnglet('equipes'));
     // « Nouvelle source » : onglet Sources & teneurs + ouverture du formulaire d'ajout
     const btnNouvelle = $('#sgBtnNouvelleSource');
     if (btnNouvelle) btnNouvelle.addEventListener('click', () => {

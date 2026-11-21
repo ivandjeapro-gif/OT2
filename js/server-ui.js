@@ -499,7 +499,7 @@
     const compteur = $('#cptEquipes');
     if (!membres.length) {
       box.innerHTML = '<div class="pm-vide">Aucune équipe créée. Utilisez « Créer une équipe » ci-dessus.</div>';
-      if (compteur) compteur.textContent = '0 enregistrée · mêmes équipes que dans Senor';
+      if (compteur) compteur.textContent = '0 enregistrée';
       return;
     }
     // regroupement par code d'equipe (champ `equipe` du membre)
@@ -511,7 +511,7 @@
     const cles = Object.keys(equipes).sort();
     const nbActives = cles.filter((c) => equipes[c].some((r) => r.actif === 1)).length;
     if (compteur) compteur.textContent = nbActives + (nbActives > 1 ? ' actives' : ' active') + ' · ' + cles.length +
-      (cles.length > 1 ? ' enregistrées' : ' enregistrée') + ' · mêmes équipes que dans Senor';
+      (cles.length > 1 ? ' enregistrées' : ' enregistrée');
     // un panneau « Modifier » ouvert le reste apres rechargement de la liste
     const ouverts = new Set(Array.from(box.querySelectorAll('.pm-eq.ouvert')).map((x) => x.dataset.equipe));
     box.innerHTML = cles.map((cle) => {

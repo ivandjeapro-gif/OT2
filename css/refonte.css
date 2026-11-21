@@ -3619,3 +3619,58 @@ body {
 #page-senor .sg-secours summary { cursor: pointer; font-size: 12.5px; color: rgba(236,233,223,.7); padding: 6px 0; }
 #page-senor .sg-secours .suivi-minage { margin-top: 10px; }
 #page-senor .sg-minage-waste { font-style: normal; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #cfc9b6; margin-left: 6px; }
+
+/* ===== SENOR : onglet Equipes (rendu par server-ui.js, classes pm-*) + carte Equipe de service ===== */
+#page-senor .sg-service { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; background: #ece8dc; border-radius: 4px; padding: 18px 20px; margin-top: 14px; }
+#page-senor .sg-champ { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 220px; }
+#page-senor .sg-champ > span { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--r-text-3); }
+#page-senor .sg-champ .sg-input { width: 100%; }
+#page-senor .sg-service .sg2-status { flex-basis: 100%; min-height: 0; }
+
+#page-senor .sg-equipes .pm-vide { padding: 22px 4px; color: var(--r-text-3); font-size: 14px; background: none; }
+#page-senor .sg-equipes .pm-eq { border-bottom: 1px solid var(--r-border); margin: 0; background: none !important; border-radius: 0; }
+#page-senor .sg-equipes .pm-eq.ouvert { background: #f6f3ea !important; }
+#page-senor .sg-equipes .pm-ligne-eq { display: grid; grid-template-columns: 110px minmax(0, 1fr) 30px 150px auto; align-items: center; gap: 16px; padding: 18px 4px; min-height: 0; margin: 0; background: none !important; }
+#page-senor .sg-equipes .pm-code { font-family: var(--mono); font-size: 14px; color: var(--r-text); }
+#page-senor .sg-equipes .pm-eq.desactive .pm-code, #page-senor .sg-equipes .pm-eq.desactive .pm-eq-nom b { color: var(--r-text-3); }
+#page-senor .sg-equipes .pm-eq-nom { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#page-senor .sg-equipes .pm-eq-nom b { font-size: 17px; font-weight: 500; color: var(--r-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#page-senor .sg-equipes .pm-eq-nom small { font-size: 12.5px; color: var(--r-text-3); }
+#page-senor .sg-equipes .pm-eq-couleur i { display: block; width: 22px; height: 22px; border-radius: 3px; }
+#page-senor .sg-equipes .pm-eq-etat { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--r-text-2); }
+#page-senor .sg-equipes .pm-switch { position: relative; width: 38px; height: 22px; border: 0; border-radius: 11px; background: #cfc9b6; cursor: pointer; padding: 0; flex: none; }
+#page-senor .sg-equipes .pm-switch i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
+#page-senor .sg-equipes .pm-switch.on { background: #1d2620; }
+#page-senor .sg-equipes .pm-switch.on i { transform: translateX(16px); background: #f2b705; }
+#page-senor .sg-equipes .pm-actions { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+#page-senor .sg-equipes .pm-lien { border: 0; background: none; padding: 6px 8px; color: #1d6fd1; font-size: 13px; cursor: pointer; }
+#page-senor .sg-equipes .pm-lien:hover { text-decoration: underline; }
+#page-senor .sg-equipes .pm-lien.danger { color: #b3382a; }
+#page-senor .sg-equipes .pm-menu-btn { border: 0; background: none; color: var(--r-text-3); font-size: 18px; line-height: 1; padding: 4px 10px; cursor: pointer; border-radius: 4px; }
+#page-senor .sg-equipes .pm-menu-btn:hover { background: #ece8dc; color: var(--r-text); }
+#page-senor .sg-equipes .pm-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 190px; padding: 6px; display: flex; flex-direction: column; background: #fff; border-radius: 4px; box-shadow: 0 10px 28px rgba(30,34,28,.16), 0 0 0 1px rgba(30,34,28,.06); }
+#page-senor .sg-equipes .pm-menu[hidden] { display: none; }
+#page-senor .sg-equipes .pm-menu button { border: 0; background: none; text-align: left; padding: 9px 10px; border-radius: 3px; font-size: 13.5px; color: var(--r-text); cursor: pointer; }
+#page-senor .sg-equipes .pm-menu button:hover { background: #f4f1e8; }
+#page-senor .sg-equipes .pm-menu button.danger { color: #b3382a; }
+#page-senor .sg-equipes .pm-eq-membres { padding: 4px 4px 18px 126px; }
+#page-senor .sg-equipes .pm-eq-membres[hidden] { display: none; }
+#page-senor .sg-equipes .pm-membre { display: grid; grid-template-columns: 1.5fr 1fr auto; gap: 12px; align-items: center; min-height: 40px; padding: 0 12px; margin-bottom: 4px; background: #fff; border-radius: 4px; }
+#page-senor .sg-equipes .pm-membre-nom { font-size: 14px; color: var(--r-text); }
+#page-senor .sg-equipes .pm-membre-role { font-size: 12.5px; color: var(--r-text-3); }
+#page-senor .sg-equipes .pm-membre-role.chef { color: #1d6fd1; font-weight: 600; }
+#page-senor .sg-equipes .pm-membre-ajout { display: grid; grid-template-columns: 1.6fr 1fr auto; gap: 10px; margin-top: 12px; }
+#page-senor .sg-equipes .pm-membre-ajout input, #page-senor .sg-equipes .pm-membre-ajout select { height: 40px; padding: 0 12px; border: 0; border-radius: 4px; background: #fff; font: inherit; font-size: 14px; min-width: 0; }
+#page-senor .sg-equipes .pm-btn-sombre { height: 40px; padding: 0 16px; border: 0; border-radius: 4px; background: #1d2620; color: #fff; font: inherit; font-size: 13.5px; cursor: pointer; }
+#page-senor .sg-equipes .pm-btn-sombre:hover { background: #2c352b; }
+
+#page-senor .sg-service-card { background: var(--r-bg-panel, #fbfaf5); border: 1px solid var(--r-border); border-radius: 12px; padding: 22px 24px; }
+#page-senor .sg-service-head { display: flex; justify-content: space-between; align-items: center; }
+#page-senor .sg-service-titre { font-size: 24px; font-weight: 600; letter-spacing: -.3px; margin: 14px 0 10px; color: var(--r-text); }
+#page-senor .sg-service-membres { display: flex; flex-wrap: wrap; gap: 8px; }
+#page-senor .sg-service-membre { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 3px; background: #ece8dc; font-size: 13px; color: var(--r-text); }
+#page-senor .sg-service-membre.chef { background: #1d2620; color: #f2b705; }
+#page-senor .sg-service-vide { font-size: 13px; color: var(--r-text-3); }
+#page-senor .sg-tabs { gap: 26px; }
+#page-senor .sg-tab { white-space: nowrap; gap: 12px; }
+#page-senor .sg-tabs-maj { white-space: nowrap; }

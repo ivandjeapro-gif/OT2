@@ -87,7 +87,6 @@
                     <div class="settings-onglets r-onglets" id="settingsOnglets">
                         <button class="onglet actif" data-onglet="connexion">Connexion</button>
                         <button class="onglet" data-onglet="flotte">Flotte</button>
-                        <button class="onglet" data-onglet="equipes">Équipes</button>
                         <button class="onglet" data-onglet="terrain">Terrain</button>
                     </div>
 
@@ -530,52 +529,6 @@
                             </section>
                         </div>
                     </div><!-- /onglet flotte -->
-
-                    <!-- ===== ONGLET EQUIPES : equipes spotter (maquette « Paramètres › Équipes ») ===== -->
-                    <div class="onglet-pane pm-equipes" data-onglet="equipes" hidden>
-                        <h2 class="pm-titre-onglet">Équipes spotter</h2>
-                        <p class="pm-sous" id="cptEquipes">Chargement…</p>
-
-                        <!-- Equipe de service : choisie par l'admin, affichee sur Home -->
-                        <div class="pm-eq-creation" id="serviceBox">
-                            <label class="pm-champ"><span class="lbl">Équipe de service · jour (06 h – 18 h)</span>
-                                <select id="equipeJour"><option value="">Non définie</option></select></label>
-                            <label class="pm-champ"><span class="lbl">Équipe de service · nuit (18 h – 06 h)</span>
-                                <select id="equipeNuit"><option value="">Non définie</option></select></label>
-                            <small class="pm-sous" id="serviceStatus">Le choix reste actif jusqu'au prochain changement ; Home affiche l'équipe du shift en cours.</small>
-                        </div>
-
-                        <!-- Creation : une equipe nait avec son chef -->
-                        <form class="pm-eq-creation" id="teamAddForm">
-                            <label class="pm-champ"><span class="lbl">Code</span>
-                                <input type="text" id="newTeamName" placeholder="SP-002" required /></label>
-                            <label class="pm-champ"><span class="lbl">Chef d'équipe</span>
-                                <input type="text" id="newTeamChef" placeholder="Nom du chef" required /></label>
-                            <label class="pm-champ"><span class="lbl">Couleur</span>
-                                <select id="newTeamColor">
-                                    <option value="#0E74B2">Bleu</option>
-                                    <option value="#EE7A2A">Orange</option>
-                                    <option value="#CFC39A">Sable</option>
-                                    <option value="#3D8A4A">Vert</option>
-                                    <option value="#8A5CC2">Violet</option>
-                                    <option value="#D6607F">Rose</option>
-                                    <option value="#14A3A3">Turquoise</option>
-                                    <option value="#E0B413">Jaune</option>
-                                </select></label>
-                            <button type="submit" class="pm-btn-sombre">+ Créer une équipe</button>
-                        </form>
-                        <div class="account-status" id="teamStatus"></div>
-
-                        <div class="pm-table pm-table-eq">
-                            <div class="pm-thead"><span>Code</span><span>Équipe / chef</span><span>Couleur</span><span>État</span><span class="pm-droite">Actions</span></div>
-                            <div id="teamContainer"><div class="pm-vide">Chargement…</div></div>
-                        </div>
-
-                        <div class="pm-note">
-                            <b>Une équipe inactive reste enregistrée.</b>
-                            <span>Elle disparaît seulement des affectations et des sélections opérationnelles.</span>
-                        </div>
-                    </div><!-- /onglet equipes -->
 
                     <!-- ===== ONGLET TERRAIN : tablette, GNSS, radio, affectation (maquette « Paramètres › Terrain ») ===== -->
                     <div class="onglet-pane pm-terrain" data-onglet="terrain" hidden>
