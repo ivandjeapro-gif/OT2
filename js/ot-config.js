@@ -147,26 +147,27 @@
         });
       } catch (e) { checkpoints = null; }   // passerelle ancienne : onglet garde
 
-      // Trajectoires (21/11) : source -> dumping area + checkpoints ORDONNES (lignes de passage en UTM).
-      // Serveur_SG les tire par sync_ref : ses missions suivent donc ce qui est defini dans Senor.
-      let trajectoires;
+      // Itineraires (21/11) : une trajectoire de Senor (source -> dumping area, checkpoints ORDONNES) devient des
+      // lignes { itineraire, depart, arrivee, ordre, checkpoint } : le format que Serveur_OT range dans
+      // dig_itineraires et que Serveur_SG tire par sync_ref (ref_itineraires) pour tracer le chemin de la mission.
+      let itineraires;
       try {
         const rt2 = await fetch(base + '/api/trajectoires');
         if (rt2.ok) {
           const dtj = await rt2.json();
-          const cps = {};
-          ((await (await fetch(base + '/api/checkpoints')).json()).checkpoints || []).forEach(function (c) { cps[c.id] = c; });
-          trajectoires = (dtj.trajectoires || []).map(function (t) {
-            return {
-              source: t.source, dumping_area: t.dumping_area,
-              checkpoints: t.checkpoints.map(function (c) {
-                const full = cps[c.id] || {};
-                return { nom: c.nom, points: [[full.x1, full.y1], [full.x2, full.y2]] };
-              }),
-            };
+          itineraires = [];
+          (dtj.trajectoires || []).forEach(function (t) {
+            t.checkpoints.forEach(function (c, i) {
+              itineraires.push({
+                itineraire: t.source + ' > ' + t.dumping_area, depart: t.source, arrivee: t.dumping_area,
+                ordre: i + 1, checkpoint: c.nom,
+              });
+            });
           });
         }
-      } catch (e) { trajectoires = undefined; }   // passerelle ancienne : trajectoires de OT conservees
+      } catch (e) { itineraires = undefined; }   // passerelle ancienne : itineraires de OT conserves
+      // Aucune trajectoire definie dans Senor : on n'envoie rien, pour ne pas effacer des itineraires saisis a la main chez OT.
+      if (itineraires && !itineraires.length) itineraires = undefined;
 
       const sources = brutes.map(function (s) { return { nom: s.nom }; });
       const teneurs = [];
@@ -196,7 +197,7 @@
 
       return OTCFG.appelOt('POST', 'dig_referentiel', null, {
         sources: sources, teneurs: teneurs, dumping_areas: dumpingAreas,
-        geo: geo, checkpoints: checkpoints || undefined, trajectoires: trajectoires,
+        geo: geo, checkpoints: checkpoints || undefined, itineraires: itineraires,
       });
     },
 
