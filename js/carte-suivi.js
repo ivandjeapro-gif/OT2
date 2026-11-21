@@ -372,7 +372,7 @@
                 const cle = e.etat + '|' + (e.cap_deg || '') + '|' + (e.vitesse_kmh >= 3) + '|' + (choisi === e.code);
                 let m = marqueurs[e.code];
                 if (!m) {
-                    m = L.marker([e.lat, e.lng], { zIndexOffset: e.type === 'DT' ? 600 : 400 }).addTo(map);
+                    m = L.marker([e.lat, e.lng], { zIndexOffset: e.etat === 'signal_perdu' ? 200 : e.type === 'DT' ? 600 : 400 }).addTo(map);
                     m._code = e.code;
                     m.on('click', () => choisir(choisi === e.code ? null : e.code));
                     marqueurs[e.code] = m;
@@ -381,7 +381,8 @@
                 }
                 if (m._cle !== cle) {
                     m.setIcon(iconeEngin(e, choisi === e.code));
-                    m.setZIndexOffset(e.etat === 'hors_piste' || choisi === e.code ? 1200 : e.type === 'DT' ? 600 : 400);
+                    // un DT sans signal passe SOUS les engins vivants : il ne masque plus un camion qui émet au même endroit
+                    m.setZIndexOffset(e.etat === 'hors_piste' || choisi === e.code ? 1200 : e.etat === 'signal_perdu' ? 200 : e.type === 'DT' ? 600 : 400);
                     m._cle = cle;
                 }
                 const permanent = opts.labels || e.etat === 'hors_piste' || choisi === e.code;
