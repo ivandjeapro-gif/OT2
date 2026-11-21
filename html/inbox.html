@@ -80,14 +80,16 @@
                         </div>
                         <div class="r-filtercard-period">
                             <label class="r-filter-label" for="inboxPeriode">Période</label>
-                            <select id="inboxPeriode" class="r-input" title="Journée d'exploitation : 06 h à 06 h">
-                                <option value="">Toutes les dates</option>
-                                <option value="jour">Journée en cours</option>
-                                <option value="hier">Hier</option>
-                                <option value="7j">7 derniers jours</option>
-                                <option value="date">Une date précise…</option>
-                            </select>
-                            <input type="date" id="inboxDateSel" class="r-input" hidden />
+                            <div class="r-period-row">
+                                <select id="inboxPeriode" class="r-input" title="Journée d'exploitation : 06 h à 06 h">
+                                    <option value="">Toutes les dates</option>
+                                    <option value="jour">Journée en cours</option>
+                                    <option value="hier">Hier</option>
+                                    <option value="7j">7 derniers jours</option>
+                                    <option value="date">Une date précise…</option>
+                                </select>
+                                <input type="date" id="inboxDateSel" class="r-input" hidden />
+                            </div>
                         </div>
                         <div class="r-filtercard-aside">
                             <span class="r-filtercard-date" id="inboxDate">--</span>

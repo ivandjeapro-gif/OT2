@@ -3401,9 +3401,11 @@ body {
 #page-inbox .r-chip .r-chip-count { font-family: var(--mono); font-size: 12px; color: var(--r-text-3); }
 #page-inbox .r-chip.is-active { background: #1d2620; color: #fff; }
 #page-inbox .r-chip.is-active .r-chip-count { color: #f2b705; }
-#page-inbox .r-filtercard-period { display: flex; flex-direction: column; width: 220px; }
+#page-inbox .r-filtercard-period { display: flex; flex-direction: column; }
+#page-inbox .r-period-row { display: flex; gap: 12px; align-items: center; }
+#page-inbox .r-period-row .r-input { width: 220px; }
+#page-inbox .r-period-row input[type=date] { width: 170px; }
 #page-inbox .r-filtercard-period .r-input { height: 44px; padding: 0 14px; background: #fff; border: 0; border-radius: 4px; font-size: 14px; color: var(--r-text); box-sizing: border-box; }
-#page-inbox .r-filtercard-period input[type=date] { margin-top: 8px; }
 #page-inbox .r-filtercard-period input[hidden] { display: none; }
 #page-inbox .r-filtercard-aside { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 14px; }
 #page-inbox .r-filtercard-date { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--r-text-3); }
