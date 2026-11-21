@@ -178,7 +178,7 @@
       return { niveau: 'orange', raison: 'Alerte a traiter' };
     }
     // devie = DT ecarte du trajet, mission toujours en cours (devoie = legacy)
-    if (ETAT.missions.some((m) => Number(m.devie) === 1 || m.statut === 'devoie')) {
+    if (ETAT.missions.some((m) => m.statut === 'en_cours' && Number(m.devie) === 1)) {
       return { niveau: 'orange', raison: 'DT devie' };
     }
     return { niveau: 'vert', raison: 'Tout va bien' };

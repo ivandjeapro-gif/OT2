@@ -213,7 +213,7 @@
     }
     // missions deviees
     for (const m of (etat.missions || [])) {
-      if (m.statut === 'en_cours' && Number(m.devie) === 1 || m.statut === 'devoie') {
+      if (m.statut === 'en_cours' && Number(m.devie) === 1) {
         items.push({
           urgence: 1,
           titre: 'Mission déviée',
