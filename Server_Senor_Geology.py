@@ -84,8 +84,8 @@ HOST = "0.0.0.0"
 # XBEE_PORT n'est pas renseigne (pas de radio branchee en dev). A activer sur
 # site en fixant la variable d'environnement, ex. XBEE_PORT=COM5 (Windows) ou
 # XBEE_PORT=/dev/ttyUSB0 (Linux).
-# 21/11 : ces deux reglages se font aussi depuis la console (Settings > GNSS > Radio de la passerelle) : la variable
-# d'environnement, si elle existe, reste prioritaire.
+# 21/11 : ces deux reglages se font depuis la console (Settings > GNSS > Radio de la passerelle) ; la variable
+# d'environnement n'est qu'un repli tant que la console n'a rien choisi.
 XBEE_BAUDS = (9600, 19200, 38400, 57600, 115200, 230400)
 
 # Descente des ordres par MQTT (4G) : chaque DT ecoute son propre canal
@@ -116,6 +116,11 @@ def param_lire(cle, defaut=""):
     env = os.environ.get(cle, "")
     if env:
         return env
+    return param_lire_base(cle, defaut)
+
+
+def param_lire_base(cle, defaut=""):
+    """Valeur d'un reglage dans la base (console), sans regarder l'environnement."""
     with _params_verrou:
         if cle in _params_cache:
             return _params_cache[cle] or defaut
@@ -2323,10 +2328,11 @@ _xbee_etat = {"pyserial": serial is not None, "connecte": False, "port": "", "ba
 
 
 def xbee_conf():
-    """(port, vitesse) de la radio de la passerelle : variable d'environnement, sinon reglage de la console."""
-    port = param_lire("XBEE_PORT", "").strip()
+    """(port, vitesse) de la radio de la passerelle : reglage de la console, sinon variable d'environnement."""
+    # la console prime ; la variable d'environnement ne sert que tant qu'aucun port n'est choisi dans la console
+    port = (param_lire_base("XBEE_PORT", "") or os.environ.get("XBEE_PORT", "")).strip()
     try:
-        baud = int(param_lire("XBEE_BAUD", "9600"))
+        baud = int(param_lire_base("XBEE_BAUD", "") or os.environ.get("XBEE_BAUD", "") or "9600")
     except ValueError:
         baud = 9600
     return port, (baud if baud in XBEE_BAUDS else 9600)

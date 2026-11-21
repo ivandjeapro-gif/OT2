@@ -289,7 +289,6 @@
     sp.innerHTML = '<option value="">Aucun</option>' + ports.map((p) => '<option value="' + esc(p.device) + '"' + (p.device === radio.configure_port ? ' selected' : '') + '>' + esc(p.device) + ' · ' + esc(p.description) + '</option>').join('') +
       (radio.configure_port && !ports.some((p) => p.device === radio.configure_port) ? '<option value="' + esc(radio.configure_port) + '" selected>' + esc(radio.configure_port) + ' (absent)</option>' : '');
     sb.innerHTML = (radio.bauds || []).map((b) => '<option value="' + b + '"' + (b === radio.configure_baud ? ' selected' : '') + '>' + b + ' bauds</option>').join('');
-    sp.disabled = sb.disabled = !!radio.environnement;
   }
 
   function rendre() { rendreProfil(); rendreRecepteur(); rendreListe(); chargerRadio(); }
