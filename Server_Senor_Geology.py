@@ -403,6 +403,18 @@ CREATE TABLE IF NOT EXISTS gnss (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_gnss_tablette ON gnss(tablette) WHERE tablette <> '';
 
+-- 21/11 : JETONS PAR TABLETTE. Un jeton = code.generation.signature (HMAC du code et de la generation avec un secret
+-- que seuls la console et les serveurs connaissent). Renouveler = generation + 1 (l'ancienne reste valable quelques jours) ;
+-- revoquer = generation + 1 sans delai.
+CREATE TABLE IF NOT EXISTS jetons_appareils (
+    code TEXT PRIMARY KEY,             -- DT-04, EX-2000...
+    gen INTEGER NOT NULL DEFAULT 1,    -- generation courante
+    prev INTEGER NOT NULL DEFAULT 0,   -- generation precedente encore acceptee (0 = aucune)
+    prev_jusqua REAL NOT NULL DEFAULT 0,   -- epoch (s) de fin de tolerance
+    maj_le TEXT DEFAULT '',
+    action TEXT DEFAULT ''             -- inscrit | renouvele | revoque
+);
+
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nom TEXT NOT NULL,              -- source miniere : Main Pit, Second Pit...
@@ -6060,6 +6072,10 @@ def boucle_comptes_mqtt():
             _mqtt_etat["erreur"] = "%s: %s" % (type(e).__name__, e)
             print("MQTT comptes : erreur %s" % e)
         try:
+            jetons_diffuser()
+        except Exception as e:
+            print("Jetons des tablettes : erreur %s" % e)
+        try:
             connexion_diffuser()
         except Exception as e:
             _connexion_etat["erreur"] = "%s: %s" % (type(e).__name__, e)
@@ -6589,11 +6605,13 @@ def connexion_dt(conn, code):
     serveur n°1 = Serveur_OT, serveur n°2 = Serveur_SG, et l'acces MQTT PROPRE a ce DT (jamais celui d'un autre)."""
     res = {}
     url1, jeton1 = office_conf()
-    if url1:
-        res["serveur1"] = {"url": url1, "token": jeton1}
     url2, jeton2, _ = sg_conf()
+    # jeton PROPRE a la tablette quand les serveurs le connaissent ; sinon (transition) le jeton maitre, que l'on retirera
+    propre = jeton_courant(conn, code) if (conn is not None and jetons_actifs()) else ""
+    if url1:
+        res["serveur1"] = {"url": url1, "token": propre or jeton1}
     if url2:
-        res["serveur2"] = {"url": url2, "token": jeton2}
+        res["serveur2"] = {"url": url2, "token": propre or jeton2}
     conf = mqtt_conf() or {}
     pub = conf.get("public") or {}
     cpt = conn.execute("SELECT mdp FROM mqtt_comptes WHERE code=? AND actif=1", (code,)).fetchone() if conn else None
@@ -6681,6 +6699,142 @@ def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinsta
             _jobs_tablettes[job]["erreur"] = str(e)
 
 
+# ------------------------------------------------------------------ jetons par tablette ---
+# Le jeton « maitre » (OFFICE_TOKEN / SG_TOKEN) ne sert plus qu'a la console, a la passerelle et au SaaS. Chaque tablette
+# DT / excavatrice recoit SON jeton : <code>.<generation>.<signature>. Les serveurs (Apps Script) le verifient avec le meme
+# secret, ne lui ouvrent que les actions d'une tablette, et le refusent des qu'il est revoque.
+JETON_TOLERANCE_S = 7 * 24 * 3600      # un jeton renouvele : l'ancien reste valable 7 jours, le temps de recevoir le nouveau
+_RE_CODE_APP = re.compile(r"^[A-Za-z0-9_-]{2,40}$")
+_jetons_etat = {"ot": "", "sg": "", "dernier_essai": 0.0}
+
+
+def jeton_secret(conn):
+    """Secret de signature (cree au premier besoin, jamais affiche ni journalise)."""
+    secret = param_lire("JETON_SECRET", "")
+    if len(secret) < 32:
+        secret = secrets.token_urlsafe(48)
+        param_ecrire(conn, "JETON_SECRET", secret)
+    return secret
+
+
+def jeton_calculer(secret, code, gen):
+    """Meme calcul que les Apps Script : HMAC-SHA256 de « code|generation », base64 URL sans bourrage, 32 caracteres."""
+    mac = hmac.new(secret.encode("utf-8"), ("%s|%d" % (code, gen)).encode("utf-8"), hashlib.sha256).digest()
+    return "%s.%d.%s" % (code, gen, base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")[:32])
+
+
+def jetons_inscrire(conn):
+    """Une ligne par tablette qui doit pouvoir se connecter : DT de la flotte et tablettes DT / excavatrice affectees."""
+    codes = set((flotte_dt_saas() or {}).keys())
+    for r in conn.execute("SELECT profil, ident FROM tablettes WHERE ident<>'' AND profil IN ('dt','exc')"):
+        codes.add(r["ident"])
+    for code in sorted(c for c in codes if _RE_CODE_APP.match(c or "")):
+        conn.execute("INSERT OR IGNORE INTO jetons_appareils (code, maj_le, action) VALUES (?, ?, 'inscrit')", (code, now_iso()))
+    conn.commit()
+
+
+def jeton_courant(conn, code):
+    """Jeton de la tablette, ou '' si le code n'est pas inscrit."""
+    if not _RE_CODE_APP.match(str(code or "")):
+        return ""
+    jetons_inscrire(conn)
+    r = conn.execute("SELECT gen FROM jetons_appareils WHERE code=?", (code,)).fetchone()
+    return jeton_calculer(jeton_secret(conn), code, r["gen"]) if r else ""
+
+
+def jeton_renouveler(conn, code):
+    r = conn.execute("SELECT gen FROM jetons_appareils WHERE code=?", (code,)).fetchone()
+    if not r:
+        return 404, {"error": "tablette inconnue"}
+    conn.execute("UPDATE jetons_appareils SET prev=gen, prev_jusqua=?, gen=gen+1, maj_le=?, action='renouvele' WHERE code=?",
+                 (time.time() + JETON_TOLERANCE_S, now_iso(), code))
+    conn.commit()
+    _jetons_etat["dernier_essai"] = 0.0
+    return 200, {"ok": True, "code": code, "gen": r["gen"] + 1, "tolerance_jours": JETON_TOLERANCE_S // 86400}
+
+
+def jeton_revoquer(conn, code):
+    r = conn.execute("SELECT gen FROM jetons_appareils WHERE code=?", (code,)).fetchone()
+    if not r:
+        return 404, {"error": "tablette inconnue"}
+    conn.execute("UPDATE jetons_appareils SET prev=0, prev_jusqua=0, gen=gen+1, maj_le=?, action='revoque' WHERE code=?",
+                 (now_iso(), code))
+    conn.commit()
+    _jetons_etat["dernier_essai"] = 0.0
+    return 200, {"ok": True, "code": code, "gen": r["gen"] + 1}
+
+
+def jetons_corps(conn):
+    """Corps envoye aux serveurs : secret + generations valables (jamais les jetons eux-memes)."""
+    jetons_inscrire(conn)
+    maintenant = time.time()
+    appareils = {}
+    for r in conn.execute("SELECT * FROM jetons_appareils"):
+        a = {"gen": r["gen"]}
+        if r["prev"] and r["prev_jusqua"] > maintenant:
+            a["prev"] = r["prev"]
+            a["prev_jusqua"] = int(r["prev_jusqua"] * 1000)
+        appareils[r["code"]] = a
+    return {"secret": jeton_secret(conn), "appareils": appareils}
+
+
+def appel_gas(url, jeton, action, corps_dict, delai=15):
+    """POST ?action=<action> vers un Apps Script avec le jeton maitre. True si le serveur repond ok:true."""
+    if not url or not jeton:
+        return False
+    cible = "%s?action=%s&token=%s" % (url, action, quote(jeton))
+    requete = urllib.request.Request(cible, data=json.dumps(corps_dict, ensure_ascii=True).encode("utf-8"),
+                                     method="POST", headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(requete, timeout=delai) as rep:
+            return bool(json.loads(rep.read().decode("utf-8")).get("ok"))
+    except Exception as e:
+        print("JETONS: appel '%s' echoue: %s" % (action, e))
+        return False
+
+
+def jetons_diffuser(forcer=False):
+    """Envoie secret + generations a Serveur_OT et Serveur_SG quand elles changent (empreinte), echec retente toutes les 10 min."""
+    conn = get_conn()
+    try:
+        corps = jetons_corps(conn)
+        # l'empreinte ignore l'echeance des tolerances : seul un changement de generation ou de secret renvoie
+        stable = {"secret": corps["secret"], "appareils": {c: {"gen": a["gen"], "prev": a.get("prev", 0)} for c, a in corps["appareils"].items()}}
+        empreinte = _empreinte(json.dumps(stable, sort_keys=True))
+        cibles = (("ot", office_conf(), "JETONS_EMPREINTE_OT"), ("sg", sg_conf()[:2], "JETONS_EMPREINTE_SG"))
+        for nom, (url, jeton), param in cibles:
+            if not url:
+                _jetons_etat[nom] = "serveur non configure"
+                continue
+            if not forcer and param_lire(param, "") == empreinte:
+                continue
+            if not forcer and _jetons_etat[nom] and time.time() - _jetons_etat["dernier_essai"] < CONNEXION_REESSAI_S:
+                continue
+            _jetons_etat["dernier_essai"] = time.time()
+            if appel_gas(url, jeton, "jetons_ecrire", corps):
+                param_ecrire(conn, param, empreinte)
+                _jetons_etat[nom] = ""
+            else:
+                _jetons_etat[nom] = "refuse ou sans reponse (action jetons_ecrire deployee ?)"
+    finally:
+        conn.close()
+
+
+def jetons_actifs():
+    """Les deux serveurs connaissent les jetons actuels : on peut provisionner les tablettes avec LEUR jeton."""
+    return (param_lire("JETONS_EMPREINTE_OT", "") != "" and param_lire("JETONS_EMPREINTE_SG", "") != ""
+            and not _jetons_etat["ot"] and not _jetons_etat["sg"])
+
+
+def jetons_lister(conn):
+    jetons_inscrire(conn)
+    maintenant = time.time()
+    return {"jetons": [{"code": r["code"], "gen": r["gen"], "maj_le": r["maj_le"], "action": r["action"],
+                        "tolerance": bool(r["prev"] and r["prev_jusqua"] > maintenant)}
+                       for r in conn.execute("SELECT * FROM jetons_appareils ORDER BY code")],
+            "actifs": jetons_actifs(), "ot": _jetons_etat["ot"], "sg": _jetons_etat["sg"]}
+
+
 # ---- diffusion de la connexion aux tablettes (via Serveur_OT) ----
 # Les serveurs n°1 (Serveur_OT) et n°2 (Serveur_SG) saisis dans la console sont envoyes a Serveur_OT
 # (action connexion_ecrire) ; les tablettes les relisent dans referentiels et les adoptent apres test.
@@ -6693,17 +6847,15 @@ CONNEXION_REESSAI_S = 600
 def connexion_corps():
     """(corps a envoyer, motifs de refus). Un serveur dont l'adresse ou le jeton est invalide n'est pas envoye."""
     corps, motifs = {}, []
-    url1, jeton1 = office_conf()
-    url2, jeton2, _ = sg_conf()
-    for cle, nom, url, jeton in (("serveur1", "n°1", url1, jeton1), ("serveur2", "n°2", url2, jeton2)):
+    url1, _ = office_conf()
+    url2, _, _ = sg_conf()
+    for cle, nom, url in (("serveur1", "n°1", url1), ("serveur2", "n°2", url2)):
         if not url:
             continue
         if not _RE_EXEC.match(url):
             motifs.append("adresse du serveur %s : une /exec Apps Script est attendue" % nom)
-        elif not _RE_JETON_SRV.match(jeton or ""):
-            motifs.append("jeton du serveur %s invalide (16 a 128 caracteres : lettres, chiffres, - _)" % nom)
         else:
-            corps[cle] = {"url": url, "token": jeton}
+            corps[cle] = {"url": url}      # jamais de jeton ici : chaque tablette recoit le sien
     return corps, motifs
 
 
@@ -6932,7 +7084,7 @@ def gnss_lister(conn):
 # AUTH_ECRITURES=0 coupe le controle (depannage).
 RANG_ROLE = {"geologue": 1, "senor": 2, "admin": 3}
 # Prefixes d'ecritures : le plus restrictif d'abord. Ecriture inconnue = admin (refus par defaut).
-ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
+ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/jetons", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
                    "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
@@ -7101,6 +7253,31 @@ class Handler(BaseHTTPRequestHandler):
                     bool(body.get("autoriser_test")), bool(body.get("reinstaller")))).start()
                 return self._send_json(202, {"job": job})
             return self._send_json(404, {"error": "endpoint inconnu: /api/tablettes/" + sous})
+        finally:
+            conn.close()
+
+    def _route_jetons(self, path, method):
+        sous = path[len("/api/jetons"):].strip("/")
+        conn = get_conn()
+        try:
+            if method == "GET" and sous == "":
+                return self._send_json(200, jetons_lister(conn))
+            if method != "POST":
+                return self._send_json(405, {"error": "methode non supportee"})
+            body = json.loads(self._read_body() or b"{}")
+            code = str(body.get("code") or "").strip()
+            if sous == "renouveler":
+                res = jeton_renouveler(conn, code)
+            elif sous == "revoquer":
+                res = jeton_revoquer(conn, code)
+            else:
+                return self._send_json(404, {"error": "endpoint inconnu: /api/jetons/" + sous})
+            if res[0] == 200:
+                try:
+                    jetons_diffuser(forcer=True)
+                except Exception as e:
+                    print("Jetons : diffusion immediate impossible (%s)" % e)
+            return self._send_json(res[0], res[1])
         finally:
             conn.close()
 
@@ -7367,6 +7544,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._route_tablettes(path, method)
         if path.startswith("/api/gnss"):
             return self._route_gnss(path, method)
+        if path.startswith("/api/jetons"):
+            return self._route_jetons(path, method)
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())

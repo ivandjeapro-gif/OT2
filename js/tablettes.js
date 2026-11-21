@@ -33,6 +33,7 @@
   }
 
   let etat = { tablettes: [], apk: {}, adb: {} };
+  let jetons = { jetons: [], actifs: false };   // jetons par tablette (generation, renouvellement, revocation)
   let flotte = [];                 // [{ code: 'DT-04', famille: '1500' }]
   const PROFILS = [['dt', 'DT'], ['exc', 'Excavatrice'], ['spotter', 'Spotter'], ['link', 'Link']];
   const jobs = {};                 // serie -> { job, etapes, etat, erreur }
@@ -114,15 +115,25 @@
             '<span class="pm-tab-transports">' + transports + (t.ip ? '<span class="pm-tab-ip">' + esc(t.ip) + '</span>' : '') + (etatTxt ? '<span class="pm-tab-alerte">' + etatTxt + '</span>' : '') + '</span></span>' +
           '<span class="pm-tab-app' + (t.app_installee ? ' ok' : '') + '"><select data-tab-profil="' + esc(t.serie) + '"' + dis + '>' + profilOpts + '</select>' +
             '<small>' + appTxt + (t.installee_le ? ' · le ' + esc(t.installee_le.slice(0, 16)) : '') + (autres.length ? ' · aussi : ' + esc(autres.join(', ')) : '') + '</small></span>' +
-          '<span class="pm-tab-dt">' + identite(t, dis) + '</span>' +
+          '<span class="pm-tab-dt">' + identite(t, dis) + jetonTexte(t) + '</span>' +
           '<span class="pm-actions pm-tab-actions">' +
             (t.connectee && t.transports.indexOf('usb') >= 0 && t.transports.indexOf('wifi') < 0 ? '<button type="button" class="pm-lien" data-tab-wifi="' + esc(t.serie) + '" title="Ouvre le port adb Wi-Fi (5555) : la tablette peut ensuite être débranchée">Ouvrir le Wi-Fi</button>' : '') +
             (t.connectee ? '<button type="button" class="pm-btn-sombre pm-tab-installer" data-tab-installer="' + esc(t.serie) + '"' + (manque ? ' disabled title="' + esc(manque) + '"' : '') + (job && job.etat === 'en_cours' ? ' disabled' : '') + '>' + (t.app_installee ? 'Mettre à jour' : 'Installer') + '</button>' : '') +
+            ((t.profil === 'dt' || t.profil === 'exc') && t.ident ? '<button type="button" class="pm-lien" data-tab-jeton="renouveler" data-code="' + esc(t.ident) + '" title="Nouveau jeton : l\'ancien reste valable 7 jours, le temps que la tablette reçoive le nouveau">Renouveler le jeton</button>' +
+              '<button type="button" class="pm-lien danger" data-tab-jeton="revoquer" data-code="' + esc(t.ident) + '" title="Coupe l\'accès de cette tablette immédiatement">Révoquer</button>' : '') +
             (t.connectee && t.app_installee && t.profil === 'dt' && !manque ? '<button type="button" class="pm-lien" data-tab-parametres="' + esc(t.serie) + '" title="Renvoie le DT et la connexion (serveurs, MQTT) à la tablette, sans réinstaller">Envoyer les paramètres</button>' : '') +
             (t.connectee && t.app_installee && t.profil !== 'link' && t.profil !== 'spotter' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
           '</span>' +
         '</div>' + etapes + '</div>';
     }).join('');
+  }
+
+  function jetonTexte(t) {
+    if (!(t.profil === 'dt' || t.profil === 'exc') || !t.ident) return '';
+    const j = (jetons.jetons || []).find((x) => x.code === t.ident);
+    if (!j) return '';
+    const etatJ = j.action === 'revoque' ? 'jeton révoqué : à reprovisionner' : (j.action === 'renouvele' ? 'jeton renouvelé' + (j.tolerance ? ' (ancien valable 7 jours)' : '') : 'jeton n°' + j.gen);
+    return '<small>' + esc(jetons.actifs ? etatJ : 'jeton maître (jetons par tablette en attente des serveurs)') + '</small>';
   }
 
   function incomplete(t) {
@@ -149,6 +160,7 @@
     enCours = true;
     try {
       etat = await appel('/api/tablettes');
+      try { jetons = await appel('/api/jetons'); } catch (e) { jetons = { jetons: [], actifs: false }; }
       if (!silencieux) statut('', true);
     } catch (e) {
       const ancienne = e.status === 404 || /endpoint inconnu/i.test(e.message);
@@ -223,6 +235,22 @@
       if (i) { installer(i.dataset.tabInstaller, false); return; }
       const r = e.target.closest('[data-tab-reinstaller]');
       if (r) { installer(r.dataset.tabReinstaller, true); return; }
+      const jt = e.target.closest('[data-tab-jeton]');
+      if (jt) {
+        const action = jt.dataset.tabJeton;
+        const code = jt.dataset.code;
+        const revoque = action === 'revoquer';
+        if (window.Splash && Splash.confirmer && !await Splash.confirmer((revoque ? 'Révoquer ' : 'Renouveler le jeton de ') + code + ' ?', {
+          titre: revoque ? 'Révocation du jeton' : 'Renouvellement du jeton', danger: revoque, libelleOk: revoque ? 'Révoquer' : 'Renouveler',
+          details: revoque ? 'La tablette perd l\'accès aux serveurs immédiatement. Il faudra la reprovisionner depuis la console (« Envoyer les paramètres »).'
+            : 'Un nouveau jeton est distribué par Serveur_OT ; l\'ancien reste valable 7 jours.' })) return;
+        try {
+          await appel('/api/jetons/' + action, 'POST', { code: code });
+          statut(revoque ? 'Jeton de ' + code + ' révoqué.' : 'Jeton de ' + code + ' renouvelé : distribué à la tablette par Serveur_OT.', true);
+        } catch (err) { statut(err.message, false); }
+        rafraichir(true);
+        return;
+      }
       const pa = e.target.closest('[data-tab-parametres]');
       if (pa) {
         const t = etat.tablettes.find((x) => x.serie === pa.dataset.tabParametres);
