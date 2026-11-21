@@ -3858,3 +3858,10 @@ body {
 #page-digplan .dp-svc-membres { display: flex; flex-wrap: wrap; gap: 6px; }
 #page-digplan .dp-svc-membre { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 3px; background: #ece8dc; font-size: 12.5px; color: var(--r-text); }
 #page-digplan .dp-svc-membre.chef { background: #1d2620; color: #f2b705; }
+/* Progress : bandeau de chiffres cles sur toute la largeur */
+#page-digplan .dp-progress-summary { padding: 14px 16px 16px; width: 100%; box-sizing: border-box; }
+#page-digplan .dp-progress-kpis { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; width: 100%; }
+#page-digplan .dp-kpi { gap: 6px !important; padding: 16px 20px !important; min-width: 0; }
+#page-digplan .dp-kpi b { font-size: 26px !important; line-height: 1.1; letter-spacing: -.5px; }
+#page-digplan .dp-kpi span { font-family: var(--mono); font-size: 10px !important; letter-spacing: .1em; }
+#page-digplan .dp-kpi small { font-size: 12px; color: var(--r-text-2); }

@@ -1393,12 +1393,18 @@
       rendreSvg('dpSvgWrapProgress', [], []);
       return;
     }
-    const totalT = oreblocs.reduce((s, b) => s + (Number(b.tonnes) || 0), 0);
-    const totalV = oreblocs.reduce((s, b) => s + (Number(b.volume) || 0), 0);
+    const somme = (l, k) => l.reduce((s, b) => s + (Number(b[k]) || 0), 0);
+    const fmtN = (v, d) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
+    const ore = oreblocs.filter((b) => !estSterile(b));
+    const ster = oreblocs.filter(estSterile);
+    const carte = (valeur, libelle, detail) =>
+      '<div class="dp-kpi"><b>' + valeur + '</b><span>' + libelle + '</span>' + (detail ? '<small>' + detail + '</small>' : '') + '</div>';
     el.innerHTML = '<div class="dp-progress-kpis">' +
-      '<div class="dp-kpi"><b>' + oreblocs.length + '</b><span>Blocs</span></div>' +
-      '<div class="dp-kpi"><b>' + totalT.toLocaleString('fr-FR') + '</b><span>Tonnes totales</span></div>' +
-      '<div class="dp-kpi"><b>' + totalV.toLocaleString('fr-FR') + '</b><span>Volume total (m3)</span></div>' +
+      carte(oreblocs.length, 'Blocs', ore.length + ' minerai · ' + ster.length + ' stérile' + (ster.length > 1 ? 's' : '')) +
+      carte(fmtN(somme(oreblocs, 'tonnes'), 0) + ' t', 'Tonnes totales', fmtN(somme(ore, 'tonnes'), 0) + ' t minerai · ' + fmtN(somme(ster, 'tonnes'), 0) + ' t stérile') +
+      carte(fmtN(somme(oreblocs, 'volume'), 0) + ' m³', 'Volume total', fmtN(somme(ore, 'volume'), 0) + ' m³ minerai · ' + fmtN(somme(ster, 'volume'), 0) + ' m³ stérile') +
+      carte(somme(ore, 'tonnes') ? fmtN(somme(ore.map((b) => ({ x: (Number(b.tonnes) || 0) * (Number(b.au_teneur) || 0) })), 'x') / somme(ore, 'tonnes'), 2) : '--',
+        'Teneur moyenne', 'Au_ok · minerai') +
       '</div>';
     rafraichirEngins();
   }
