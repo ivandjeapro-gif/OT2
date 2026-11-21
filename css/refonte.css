@@ -3618,3 +3618,4 @@ body {
 #page-senor .sg-secours { margin-top: 16px; }
 #page-senor .sg-secours summary { cursor: pointer; font-size: 12.5px; color: rgba(236,233,223,.7); padding: 6px 0; }
 #page-senor .sg-secours .suivi-minage { margin-top: 10px; }
+#page-senor .sg-minage-waste { font-style: normal; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #cfc9b6; margin-left: 6px; }

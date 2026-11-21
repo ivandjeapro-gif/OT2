@@ -2543,24 +2543,45 @@ MINAGE_DECLARATION_MIN = 30
 ORIGINES_MINAGE = ("dt", "spotter", "bureau")
 
 
-def minages_deduits_dt(conn):
-    """Pelles en minage deduites des positions remontees par les DT : [{exca_code, orebloc_id, bloc}]."""
-    blocs = []
-    for o in conn.execute("SELECT id, nom, sommets FROM oreblocs WHERE actif=1"):
+def polygones_blocs(conn):
+    """Blocs actifs avec leur contour en UTM : [(id, nom, matiere, points)], blocs de MINERAI d'abord, puis les
+    blocs STERILES (waste, oreblocs.minerai = 0). Un contour en degres est PROJETE en UTM (fuseau de
+    Geographic System) avant tout test : comparer des degres a des metres ne trouverait jamais rien."""
+    ore, waste = [], []
+    for o in conn.execute("SELECT id, nom, sommets, minerai FROM oreblocs WHERE actif=1 ORDER BY id"):
         try:
             pts = json.loads(o["sommets"] or "[]")
         except (TypeError, ValueError):
             continue
-        if isinstance(pts, list) and len(pts) >= 3:
-            blocs.append((o["id"], o["nom"], pts))
+        if not isinstance(pts, list) or len(pts) < 3:
+            continue
+        pts, _converti = points_en_utm(conn, pts)
+        est_ore = o["minerai"] is None or bool(o["minerai"])
+        (ore if est_ore else waste).append((o["id"], o["nom"], "ore" if est_ore else "waste", pts))
+    return ore + waste
+
+
+def bloc_au_point(conn, x, y, blocs=None):
+    """Bloc qui CONTIENT le point (x, y en UTM) : {id, nom, matiere} ou None. Deduction en deux temps :
+    d'abord les blocs de minerai ; faute de bloc de minerai, les blocs steriles (waste). Dans les deux cas
+    la reponse est CONFIRMEE par un test de projection exact (point dans le polygone), jamais par proximite."""
+    for oid, nom, matiere, pts in (blocs if blocs is not None else polygones_blocs(conn)):
+        if point_in_polygon(x, y, pts):
+            return {"id": oid, "nom": nom, "matiere": matiere}
+    return None
+
+
+def minages_deduits_dt(conn):
+    """Pelles en minage deduites des positions remontees par les DT :
+    [{exca_code, orebloc_id, bloc, matiere}] ; matiere = 'ore' ou 'waste' (bloc sterile)."""
+    blocs = polygones_blocs(conn)
     res = []
     for e in conn.execute("SELECT code, x, y, derniere_maj FROM engins WHERE type='EXCA' AND actif=1 AND statut='OMEX'"):
         if age_position_s(e["derniere_maj"]) > POSITION_FRAICHE_S:
             continue                     # pelle muette : on ne devine pas
-        for oid, nom, pts in blocs:
-            if point_in_polygon(e["x"], e["y"], pts):
-                res.append({"exca_code": e["code"], "orebloc_id": oid, "bloc": nom})
-                break
+        b = bloc_au_point(conn, e["x"], e["y"], blocs)
+        if b:
+            res.append({"exca_code": e["code"], "orebloc_id": b["id"], "bloc": b["nom"], "matiere": b["matiere"]})
     return res
 
 
@@ -2569,6 +2590,7 @@ def minages_en_cours(conn):
     res = {}
     for r in conn.execute(
             "SELECT m.exca_code, m.orebloc_id, o.nom AS bloc, COALESCE(m.origine, 'bureau') AS origine, "
+            "CASE WHEN o.minerai = 0 THEN 'waste' ELSE 'ore' END AS matiere, "
             "datetime(m.declared_at, 'localtime') AS depuis FROM minage_actuel m "
             "LEFT JOIN oreblocs o ON o.id = m.orebloc_id "
             "WHERE m.declared_at >= datetime('now', ?)", ("-%d minutes" % MINAGE_DECLARATION_MIN,)):
@@ -6515,6 +6537,26 @@ class Handler(BaseHTTPRequestHandler):
         # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;
         # sous le verrou global elles se disputaient la place des positions (donc des alertes).
         # Lecture seule : hors verrou, comme /api/suivi_dt et /api/kpi.
+        # Bloc (minerai, a defaut sterile) qui contient un point : ?x=&y= (UTM) ou ?lat=&lng= (degres, projetes)
+        if path == "/api/bloc_au_point" and method == "GET":
+            qs = self._qs()
+            try:
+                if qs.get("lat") and qs.get("lng"):
+                    conn_lecture = get_conn()
+                    try:
+                        pt, _ = points_en_utm(conn_lecture, [[float(qs["lng"][0]), float(qs["lat"][0])]])
+                    finally:
+                        conn_lecture.close()
+                    x, y = pt[0]
+                else:
+                    x, y = float(qs["x"][0]), float(qs["y"][0])
+            except (KeyError, ValueError, IndexError):
+                return self._send_json(400, {"error": "x et y (UTM) ou lat et lng (degres) attendus"})
+            conn = get_conn()
+            try:
+                return self._send_json(200, {"x": x, "y": y, "bloc": bloc_au_point(conn, x, y)})
+            finally:
+                conn.close()
         if path == "/api/minages" and method == "GET":
             conn = get_conn()
             try:

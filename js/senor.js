@@ -1375,7 +1375,7 @@
       box.innerHTML = liste.length ? liste.map((m) =>
         '<div class="sg-minage">' +
           '<span class="sg-minage-pelle">' + esc(m.exca_code) + '</span>' +
-          '<span class="sg-minage-bloc">' + esc(m.bloc || ('#' + m.orebloc_id)) + '</span>' +
+          '<span class="sg-minage-bloc">' + esc(m.bloc || ('#' + m.orebloc_id)) + (m.matiere === 'waste' ? ' <em class="sg-minage-waste">stérile</em>' : '') + '</span>' +
           '<span class="sg-minage-origine o-' + esc(m.origine) + '">' + esc(ORIGINE_LIBELLE[m.origine] || m.origine) + '</span>' +
           (m.origine === 'dt' ? '' :
             '<button type="button" class="sg-minage-stop" data-minage-stop="' + esc(m.exca_code) + '" title="Arrêter ce minage"><i class="fas fa-stop"></i></button>') +

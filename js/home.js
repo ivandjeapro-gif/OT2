@@ -380,7 +380,7 @@
     const pits = Array.from(new Set(liste.map((m) => pitDeNom(m.bloc)).filter(Boolean)));
     const titre = (pits.length ? pits.join(' / ') + ' · ' : '') + liste.map((m) => m.exca_code).join(', ');
     const detail = liste.map((m) => m.exca_code + ' → ' + (m.bloc || ('#' + m.orebloc_id)) +
-      (m.origine && m.origine !== 'dt' ? ' (' + m.origine + ')' : '')).join(' · ');
+      (m.matiere === 'waste' ? ' · stérile' : '') + (m.origine && m.origine !== 'dt' ? ' (' + m.origine + ')' : '')).join(' · ');
     ecrireItem('terrainMinage', titre, detail);
   }
 
