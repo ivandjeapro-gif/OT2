@@ -671,11 +671,11 @@
                                         <label class="pm-champ"><span class="lbl">Medium Grade</span><input type="text" data-grade="medium" placeholder="MG, MG1" /></label>
                                         <label class="pm-champ"><span class="lbl">Low Grade</span><input type="text" data-grade="low" placeholder="LG, LG1" /></label>
                                         <label class="pm-champ"><span class="lbl">Marginal Ore</span><input type="text" data-grade="marginal" placeholder="MO" /></label>
-                                        <label class="pm-champ"><span class="lbl">Stérile (Waste)</span><input type="text" id="codesSteriles" placeholder="WST" /></label>
+                                        <label class="pm-champ"><span class="lbl">Stérile (Waste)</span><input type="text" id="codesSteriles" placeholder="WST, WASTE, ST, STERILE" /></label>
                                         <button type="submit" class="pm-btn-sombre">Enregistrer sur la passerelle</button>
                                     </form>
                                     <div class="account-status" id="codesTeneurStatus"></div>
-                                    <p class="pm-aide">Le code de teneur est le 4<sup>e</sup> segment du nom du bloc (260_LMP2_113_<b>MG</b>_FR_021_OP). Plusieurs codes : séparés par des virgules. Pris en compte par l'Inbox et les KPI sans redémarrage.</p>
+                                    <p class="pm-aide">Le code de teneur est le 4<sup>e</sup> segment du nom du bloc (260_LMP2_113_<b>MG</b>_FR_021_OP). Plusieurs codes : séparés par des virgules. La liste « Stérile » sert partout : affectation des dumping areas, import Geosum (en plus de la destination W), Inbox et KPI. Prise en compte sans redémarrage ; un nouvel import Geosum est nécessaire pour reclasser les blocs déjà importés.</p>
                                 </details>
                             </section>
                         </div>

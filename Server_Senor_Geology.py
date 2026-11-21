@@ -985,7 +985,9 @@ def geojson_reprojeter(geo, zone, hemisphere="N"):
 # Codes qui designent du STERILE : pas de teneur, donc pas de consigne de
 # dumping area. Le camion ira a la verse la plus proche, ce qui est le
 # comportement voulu pour du sterile.
-CODES_STERILE = ("WST", "WASTE", "ST", "STERILE")
+# 21/11 : liste UNIQUE, reglable dans Settings (param CODES_STERILES) ; ceci n'est que la valeur par defaut.
+# Lue via codes_steriles() par : l'affectation des dumping areas, l'import Geosum et la classification des voyages.
+CODES_STERILES_DEFAUT = ("WST", "WASTE", "ST", "STERILE")
 
 # LG et MG se subdivisent chacun en deux familles, inferieure et superieure
 # (F1/F2 pour LG, F3/F4 pour MG). Le nom d'un bloc ne porte que le code nu,
@@ -1030,7 +1032,7 @@ def teneur_pour_bloc(conn, source_nom, nom_bloc, grade=None):
     code = code_dans_nom_bloc(nom_bloc)
     if not code:
         return None, "aucun code dans le nom"
-    if code in CODES_STERILE:
+    if code in codes_steriles():
         return None, "sterile (%s)" % code
 
     src = (source_nom or "").strip()
@@ -1125,11 +1127,11 @@ GEOSUM_COLONNES = {
 # Le Geosum nomme certaines familles autrement que le referentiel du SaaS.
 GEOSUM_ALIAS_DESTINATION = {"FM": "MO"}
 
-# Valeurs de `Destination` qui designent du STERILE. Le fichier complet
-# (un sommet par ligne) liste le sterile avec son volume et son tonnage,
-# marque `W` ; le fichier de reserve allege, lui, ne liste que le minerai
-# et le sterile s'y reconnait a son absence. Les deux formes sont lues.
-GEOSUM_DESTINATIONS_STERILE = ("W", "WST", "WASTE", "STERILE")
+# `Destination` qui designe du STERILE. Le fichier complet (un sommet par ligne) liste le sterile avec son
+# volume et son tonnage, marque `W` (fixe : c'est la convention du fichier) ; le fichier de reserve allege,
+# lui, ne liste que le minerai et le sterile s'y reconnait a son absence. Les deux formes sont lues.
+# Les autres marqueurs (WST, WASTE...) sont ceux du reglage CODES_STERILES.
+GEOSUM_DESTINATION_STERILE = "W"
 
 
 # Le Geosum existe sous deux formes dans les dossiers du site, cote a cote :
@@ -1287,7 +1289,7 @@ def extraire_geosum(contenu):
         # `_minerai` : le fichier complet le DIT (Destination W = sterile),
         # le fichier allege le laisse deduire de l'absence du bloc.
         dest = str(bloc.get("destination") or "").strip().upper()
-        bloc["_minerai"] = 0 if dest in GEOSUM_DESTINATIONS_STERILE else 1
+        bloc["_minerai"] = 0 if (dest == GEOSUM_DESTINATION_STERILE or dest in codes_steriles()) else 1
         # La destination du sterile (`W`) est CONSERVEE : la table doit dire
         # ce que le fichier dit. Aucun risque de la confondre avec une
         # consigne de dumping area -- une famille inconnue du referentiel
@@ -3107,7 +3109,6 @@ GRAMMES_PAR_ONCE = 31.1035
 KPI_GRADES = {"HG": "high", "SHG": "high", "MG": "medium", "MG1": "medium",
               "MG2": "medium", "LG": "low", "LG1": "low", "LG2": "low", "MO": "marginal"}
 GRADES_VALIDES = ("high", "medium", "low", "marginal")
-CODES_STERILES_DEFAUT = ("WST",)
 _codes_cache = {"brut": None, "table": KPI_GRADES}
 
 
