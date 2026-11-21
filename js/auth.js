@@ -21,6 +21,9 @@ import {
 
 function $(sel) { return document.querySelector(sel); }
 
+// page de connexion dediee (html/connexion.html) : un ecran de login sans application derriere
+const PAGE_CONNEXION = /\/connexion\.html$/i.test(location.pathname);
+
 // -------------------------------------------- ecritures vers la passerelle ---
 // La passerelle (:8101) exige un jeton Firebase pour toute ECRITURE (POST / PUT / DELETE) :
 // elle verifie le profil (admin / senor / geologue) aupres du SaaS. Ce relais ajoute l'en-tete
@@ -594,6 +597,11 @@ function initAuth() {
       const roleCourant = normaliserRole(myProfile ? myProfile.role : '');
       // profil « Senor_Geology » : un seul poste a la fois
       if (!(await prendreSessionUnique(user, roleCourant))) return;
+      if (PAGE_CONNEXION) {                // page de connexion dediee : session ouverte -> Home
+        const acc = (typeof PREFS !== 'undefined' && PREFS.get('homePage')) || 'home';
+        location.replace(/^[a-z_]+$/i.test(acc) ? acc + '.html' : 'home.html');
+        return;
+      }
       const pageAutorisee = applyNavAccess(roleCourant);
       if (pageAutorisee) hideLogin();      // page interdite : renvoi sur Home, rien n'est devoile
       // page d'accueil par defaut (Preferences) — seulement si on n'est pas déjà sur une page de l'app
@@ -632,7 +640,7 @@ function initAuth() {
     }
   });
   // masqué d'emblée : l'overlay n'apparait que si l'utilisateur n'a pas de session valide
-  hideLogin();
+  if (!PAGE_CONNEXION) hideLogin();
 }
 
 if (document.readyState === 'loading') {
