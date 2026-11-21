@@ -472,7 +472,21 @@ CREATE TABLE IF NOT EXISTS engins (
     offroad INTEGER DEFAULT 0,              -- 1 = DT hors piste (confirme)
     offroad_depuis TEXT DEFAULT '',         -- debut de la sortie de route
     offroad_candidat_depuis TEXT DEFAULT '',-- hors piste, pas encore confirme
-    offroad_distance REAL DEFAULT 0         -- distance a la piste la plus proche (m)
+    offroad_distance REAL DEFAULT 0,        -- distance a la piste la plus proche (m)
+    canal TEXT DEFAULT '',                  -- canal de la derniere position retenue (mqtt, http, radio...)
+    auth TEXT DEFAULT ''                    -- authentification de son auteur (broker, jeton, hmac, aucune)
+);
+
+-- 21/11 : CANAUX des positions. Derniere fois ou chaque engin a ete entendu par chaque canal, avec la facon dont l'auteur
+-- a ete authentifie (broker = mot de passe MQTT, jeton = jeton de tablette, hmac = signature radio, aucune = relayee).
+CREATE TABLE IF NOT EXISTS positions_canaux (
+    code TEXT NOT NULL,
+    canal TEXT NOT NULL,
+    auth TEXT DEFAULT '',
+    vu_epoch REAL DEFAULT 0,
+    vu_le TEXT DEFAULT '',
+    nb INTEGER DEFAULT 0,
+    PRIMARY KEY (code, canal)
 );
 
 CREATE TABLE IF NOT EXISTS missions (
@@ -2174,15 +2188,72 @@ def historiser_position_dt(conn, code, typ, x, y, instant, existe):
                      ("-%d days" % POSITIONS_DT_JOURS,))
 
 
-def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=True):
+# ---- canaux et auteurs des positions (21/11) ----
+# Une meme position peut arriver par plusieurs canaux (MQTT en direct, remontees de Serveur_SG ~30 s plus tard, radio de secours).
+# On garde pour chaque position QUI l'a envoyee (auth) et PAR OU elle est arrivee (canal), pour ne traiter qu'une fois
+# la meme observation et pour ne pas laisser un canal moins fiable prendre la place d'un canal authentifie.
+RANG_AUTH = {"console": 4, "hmac": 3, "broker": 3, "jeton": 3, "aucune": 1, "": 0}
+LIBELLE_CANAL = {"mqtt": "MQTT (internet)", "http": "Remontées (Serveur_SG)", "radio": "Radio XBee (secours)", "console": "Console",
+                 "mqtt-relais": "Relayée par un DT (MQTT)", "http-relais": "Relayée par un DT (remontées)"}
+LIBELLE_AUTH = {"console": "console", "hmac": "signature radio", "broker": "compte MQTT", "jeton": "jeton de tablette", "aucune": "non authentifiée"}
+DOUBLON_FENETRE_S = 2.0        # meme observation : a moins de 2 s ...
+DOUBLON_DISTANCE_M = 2.0       # ... et a moins de 2 m, vue par deux canaux differents
+PRIORITE_FENETRE_S = 5.0       # un canal moins fiable ne remplace pas un canal plus fiable dans cette fenetre
+
+
+def _epoch_local(texte):
+    try:
+        return time.mktime(datetime.strptime(str(texte)[:19], "%Y-%m-%d %H:%M:%S").timetuple())
+    except (TypeError, ValueError):
+        return None
+
+
+def noter_canal(conn, code, canal, auth):
+    """Memorise que `code` vient d'etre entendu par `canal` (et comment son auteur a ete authentifie)."""
+    conn.execute(
+        "INSERT INTO positions_canaux (code, canal, auth, vu_epoch, vu_le, nb) VALUES (?, ?, ?, ?, ?, 1) "
+        "ON CONFLICT(code, canal) DO UPDATE SET auth=excluded.auth, vu_epoch=excluded.vu_epoch, vu_le=excluded.vu_le, nb=nb+1",
+        (code, canal, auth, time.time(), now_iso()))
+
+
+def canaux_de(conn, code, fenetre_s=300):
+    """Canaux qui ont entendu `code` dans la derniere fenetre, du plus recent au plus ancien."""
+    maintenant = time.time()
+    return [{"canal": r["canal"], "libelle": LIBELLE_CANAL.get(r["canal"], r["canal"]), "auth": r["auth"],
+             "auth_libelle": LIBELLE_AUTH.get(r["auth"], r["auth"]), "age_s": round(maintenant - r["vu_epoch"])}
+            for r in conn.execute("SELECT * FROM positions_canaux WHERE code=? AND vu_epoch>? ORDER BY vu_epoch DESC",
+                                  (code, maintenant - fenetre_s))]
+
+
+def doublon_de_position(existe, canal, auth, x, y, instant):
+    """True si cette position n'apporte rien : meme observation deja recue par un autre canal, ou canal moins fiable
+    pour une observation quasi simultanee d'un canal plus fiable."""
+    if not canal or existe is None or not existe["canal"] or existe["canal"] == canal:
+        return False
+    t_nouveau, t_ancien = _epoch_local(instant), _epoch_local(existe["derniere_maj"])
+    if t_nouveau is None or t_ancien is None:
+        return False
+    ecart = abs(t_nouveau - t_ancien)
+    if ecart <= DOUBLON_FENETRE_S and distance(x, y, existe["x"], existe["y"]) <= DOUBLON_DISTANCE_M:
+        return True
+    return ecart <= PRIORITE_FENETRE_S and RANG_AUTH.get(auth, 0) < RANG_AUTH.get(existe["auth"], 0)
+
+
+def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=True, canal="", auth=""):
     """Met a jour (ou cree) un engin a la position (x, y) et gere le chrono
     d'immobilisation (seuil SEUIL_IMMOBILISATION_M). Utilise par la route
     HTTP /api/engins, l'ecouteur radio XBee et la lecture des remontees.
 
     `horodatage` : heure de l'observation (remontees) ; par defaut maintenant.
-    `relayer=False` : ne pas renvoyer la position a Serveur_SG (elle en vient)."""
+    `relayer=False` : ne pas renvoyer la position a Serveur_SG (elle en vient).
+    `canal` / `auth` : par ou elle est arrivee et comment son auteur est authentifie (voir RANG_AUTH)."""
     instant = horodatage or now_iso()
     existe = conn.execute("SELECT * FROM engins WHERE code=?", (code,)).fetchone()
+    if canal:
+        noter_canal(conn, code, canal, auth)
+        if doublon_de_position(existe, canal, auth, x, y, instant):
+            conn.commit()
+            return
     # 19/11 : deux sources de positions (MQTT en direct, remontees de SG avec
     # ~30 s de retard). Une position plus ANCIENNE que la derniere connue va
     # seulement dans l'historique : elle ne doit pas ramener le DT en arriere.
@@ -2204,12 +2275,12 @@ def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=Tru
         else:
             immobilise_depuis = ""
         conn.execute(
-            "UPDATE engins SET x=?, y=?, immobilise_depuis=?, derniere_maj=? WHERE code=?",
-            (x, y, immobilise_depuis, instant, code))
+            "UPDATE engins SET x=?, y=?, immobilise_depuis=?, derniere_maj=?, canal=?, auth=? WHERE code=?",
+            (x, y, immobilise_depuis, instant, canal or existe["canal"] or "", auth or existe["auth"] or "", code))
     else:
         conn.execute(
-            "INSERT INTO engins (code, type, x, y, derniere_maj) VALUES (?, ?, ?, ?, ?)",
-            (code, typ, x, y, instant))
+            "INSERT INTO engins (code, type, x, y, derniere_maj, canal, auth) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (code, typ, x, y, instant, canal, auth))
     conn.commit()
     # Relais vers Serveur_SG : point d'entree UNIQUE des positions (HTTP et
     # radio XBee passent tous deux ici), donc rien ne peut etre oublie.
@@ -2316,7 +2387,12 @@ def traiter_trame_xbee(conn, ligne):
             print("XBEE: trame sans position exploitable ignoree:", ligne[:200])
             return None
     typ = trame.get("type", "DT")
-    appliquer_position_engin(conn, code, typ, x, y)
+    # heure de la MESURE (portee par la trame signee) : une trame de secours en retard ne ramene pas le DT en arriere
+    try:
+        instant = datetime.fromtimestamp(float(trame.get("ts"))).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError):
+        instant = None
+    appliquer_position_engin(conn, code, typ, x, y, horodatage=instant, canal="radio", auth="hmac")
     statuts_engins(conn)
     verifier_affectations_auto(conn)
     notifier_office(conn)
@@ -5448,10 +5524,10 @@ def traiter_remontees(conn, lignes):
         if exca and r.get("exca_x") is not None and r.get("exca_y") is not None:
             try:
                 appliquer_position_engin(conn, exca, "EXCA", float(r["exca_x"]), float(r["exca_y"]),
-                                         horodatage=instant, relayer=False)
+                                         horodatage=instant, relayer=False, canal="http-relais", auth="aucune")
             except (TypeError, ValueError):
                 pass
-        appliquer_position_engin(conn, dt, "DT", x, y, horodatage=instant, relayer=False)
+        appliquer_position_engin(conn, dt, "DT", x, y, horodatage=instant, relayer=False, canal="http", auth="jeton")
         n += 1
         _remontees_etat["derniere_position"] = "%s %s" % (dt, instant or "")
     return n
@@ -5688,7 +5764,10 @@ def suivi_engins(conn, depuis=None, jusqua=None):
         fiche = {"code": e["code"], "type": e["type"], "statut": e["statut"],
                  "lat": ll[0], "lng": ll[1], "x": e["x"], "y": e["y"],
                  "derniere_maj": e["derniere_maj"], "age_s": None if age is None else round(age),
-                 "offroad": bool(e["offroad"]), "offroad_distance": round(e["offroad_distance"] or 0)}
+                 "offroad": bool(e["offroad"]), "offroad_distance": round(e["offroad_distance"] or 0),
+                 "canal": e["canal"] or "", "canal_libelle": LIBELLE_CANAL.get(e["canal"] or "", ""),
+                 "auth": e["auth"] or "", "auth_libelle": LIBELLE_AUTH.get(e["auth"] or "", ""),
+                 "canaux": canaux_de(conn, e["code"])}
         if e["type"] == "DT":
             m = missions.get(e["code"])
             fiche["mission"] = None if not m else {
@@ -6203,10 +6282,10 @@ def appliquer_message_mqtt(sujet, charge):
             if exc.get("id") and exc.get("x") is not None and exc.get("y") is not None:
                 try:
                     appliquer_position_engin(conn, str(exc["id"]), "EXCA", float(exc["x"]), float(exc["y"]),
-                                             horodatage=instant, relayer=False)
+                                             horodatage=instant, relayer=False, canal="mqtt-relais", auth="aucune")
                 except (TypeError, ValueError):
                     pass
-            appliquer_position_engin(conn, code, "DT", x, y, horodatage=instant, relayer=False)
+            appliquer_position_engin(conn, code, "DT", x, y, horodatage=instant, relayer=False, canal="mqtt", auth="broker")
     finally:
         conn.close()
 
@@ -8206,7 +8285,7 @@ class Handler(BaseHTTPRequestHandler):
                     y = float(body.get("y", 0))
                     if not code:
                         return self._send_json(400, {"error": "code requis"})
-                    appliquer_position_engin(conn, code, typ, x, y)
+                    appliquer_position_engin(conn, code, typ, x, y, canal="console", auth="console")
                     # recalcul statuts + affectation automatique si DT devient ODT
                     statuts_engins(conn)
                     verifier_affectations_auto(conn)
@@ -9530,6 +9609,9 @@ def main():
     conn.commit()
     # engins : etat de sortie de route (detection offroad)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(engins)")]
+    for nom, decl in (("canal", "TEXT DEFAULT ''"), ("auth", "TEXT DEFAULT ''")):
+        if nom not in cols:
+            conn.execute("ALTER TABLE engins ADD COLUMN %s %s" % (nom, decl))
     for nom, decl in (("offroad", "INTEGER DEFAULT 0"),
                       ("offroad_depuis", "TEXT DEFAULT ''"),
                       ("offroad_candidat_depuis", "TEXT DEFAULT ''"),

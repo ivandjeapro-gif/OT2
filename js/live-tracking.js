@@ -148,6 +148,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ['Vitesse', e.type === 'DT' ? Math.round(e.vitesse_kmh || 0) + ' km/h' : '--'],
             ['Dernière position', e.age_s === null ? '--' : e.age_s < 60 ? 'il y a ' + e.age_s + ' s' : 'il y a ' + Math.round(e.age_s / 60) + ' min'],
         ];
+        if (e.canal) lignes.push(['Reçue par', e.canal_libelle + (e.auth_libelle ? ' · ' + e.auth_libelle : '')]);
+        if ((e.canaux || []).length > 1) lignes.push(['Canaux (5 min)', e.canaux.map((c) => c.libelle.replace(/ \(.*\)/, '') + ' ' + c.age_s + ' s').join(' · ')]);
         if (e.mission) {
             lignes.push(['Mission', (e.mission.orebloc || '?') + ' → ' + (e.mission.dumping_area || '?')]);
             if (e.teneur) lignes.push(['Teneur', CS.TENEURS[e.teneur] || (e.teneur === 'waste' ? 'Waste' : e.teneur)]);

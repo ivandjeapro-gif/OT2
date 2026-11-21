@@ -326,7 +326,7 @@
         if (e.type !== 'DT') return e.code;
         if (e.etat === 'hors_piste') return e.code + ' · ' + e.offroad_distance + ' m hors piste';
         if (e.etat === 'signal_perdu') return e.code + ' · signal perdu';
-        return e.code + (e.vitesse_kmh >= 3 ? ' · ' + Math.round(e.vitesse_kmh) + ' km/h' : '');
+        return e.code + (e.canal === 'radio' ? ' · radio' : '') + (e.vitesse_kmh >= 3 ? ' · ' + Math.round(e.vitesse_kmh) + ' km/h' : '');
     }
 
     /**
