@@ -428,3 +428,6 @@
 .pm-tab-app select, .pm-tab-dt select, .pm-tab-dt input { box-sizing: border-box; width: 100%; max-width: 260px; height: 42px; padding: 0 12px; border: 0; border-radius: 2px; background: #fff; font-size: 14px; color: var(--pm-encre); }
 .pm-tab-actions { align-items: flex-start; align-self: start; }
 .pm-tab-id { min-height: 42px; }
+.pm-tab-actions { align-items: center; min-height: 42px; }
+.pm-tab-actions .pm-lien { display: inline-flex; align-items: center; height: 42px; padding-top: 0; padding-bottom: 0; line-height: 1; }
+.pm-tab-actions .pm-tab-installer { display: inline-flex; align-items: center; justify-content: center; padding-top: 0; padding-bottom: 0; line-height: 1; }
