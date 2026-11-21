@@ -1,0 +1,381 @@
+/* =====================================================================
+ * parametres.css — page Paramètres (Zone 1, 19/11), d'après les maquettes.
+ * Chargée APRÈS style.css et refonte.css. Tout est préfixé .pm- : la
+ * barre latérale et la barre du haut restent celles de refonte.css.
+ * Étape 1 : onglet Flotte (+ état temps réel MQTT des DT).
+ * ===================================================================== */
+
+#page-settings {
+    --pm-fond: #f7f5ef;
+    --pm-beige: #efece4;
+    --pm-beige-2: #e7e3d8;
+    --pm-sombre: #232b2a;
+    --pm-encre: #1e221c;
+    --pm-gris: #6b675d;
+    --pm-gris-2: #9a968a;
+    --pm-bleu: #0E74B2;
+    --pm-orange: #EE7A2A;
+    --pm-jaune: #FCD525;
+    --pm-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+}
+#page-settings .lbl {
+    display: block; font-family: var(--pm-mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--pm-gris);
+}
+
+/* ------------------------------------------------------- onglet Flotte */
+.pm-flotte { padding-top: 6px; }
+.pm-flotte[hidden] { display: none !important; }
+.pm-flotte-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; }
+.pm-col h2 { margin: 0; font-size: 26px; font-weight: 600; color: var(--pm-encre); letter-spacing: -.01em; }
+.pm-sous { margin: 10px 0 0; font-size: 14px; color: var(--pm-gris); }
+
+.pm-ajout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; gap: 24px; align-items: end; margin-top: 30px; }
+.pm-champ { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pm-champ select, .pm-champ input {
+    height: 40px; padding: 0 12px; border: 0; border-radius: 1px; background: var(--pm-beige);
+    font-size: 14px; color: var(--pm-encre); width: 100%;
+}
+.pm-champ input[id$="FamilleAutre"] { margin-top: -4px; }
+.pm-btn-sombre {
+    height: 42px; padding: 0 16px; border: 0; border-radius: 2px; background: var(--pm-sombre); color: #fff;
+    font-size: 14px; font-weight: 500; text-align: left; min-width: 160px; cursor: pointer;
+}
+.pm-btn-sombre:hover { background: #2f3836; }
+.pm-aide { margin: 16px 0 0; font-size: 12.5px; color: var(--pm-gris); }
+
+/* tableau des engins */
+.pm-table { margin-top: 30px; }
+.pm-thead, .pm-ligne { display: grid; align-items: center; gap: 12px; padding: 0 16px; }
+.pm-table-dt .pm-thead, .pm-table-dt .pm-ligne { grid-template-columns: 1.1fr 1fr 1.2fr .6fr; }
+.pm-table-ex .pm-thead, .pm-table-ex .pm-ligne { grid-template-columns: 1.1fr 1.4fr .7fr; }
+.pm-thead {
+    padding-bottom: 12px; font-family: var(--pm-mono); font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--pm-gris);
+}
+.pm-droite { text-align: right; }
+.pm-ligne { min-height: 44px; margin-bottom: 5px; border-radius: 2px; }
+.pm-ligne:nth-child(odd) { background: var(--pm-beige); }
+.pm-ligne.desactive .pm-code, .pm-ligne.desactive .pm-famille { color: var(--pm-gris-2); }
+.pm-code { font-size: 15px; color: var(--pm-encre); }
+.pm-famille { font-size: 14px; color: var(--pm-gris); }
+.pm-famille em { font-style: normal; color: var(--pm-orange); }
+.pm-vide { padding: 14px 16px; color: var(--pm-gris); font-size: 13.5px; background: var(--pm-beige); }
+
+/* temps reel (MQTT) */
+.pm-tr-etat { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--pm-gris); }
+.pm-tr-etat::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--pm-gris-2); flex: none; }
+.pm-tr-etat.ok { color: var(--pm-bleu); }
+.pm-tr-etat.ok::before { background: var(--pm-bleu); box-shadow: 0 0 0 3px rgba(14,116,178,.18); }
+.pm-tr-etat.attente::before { background: var(--pm-jaune); }
+.pm-tr-etat.inactif { color: var(--pm-orange); }
+.pm-tr-etat.inactif::before { background: var(--pm-orange); }
+.pm-tr-etat.absent::before { display: none; }
+
+.pm-mqtt {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 26px; padding: 12px 16px;
+    background: var(--pm-beige); border-radius: 2px; font-size: 13px; color: var(--pm-encre);
+}
+.pm-mqtt[hidden] { display: none; }
+.pm-mqtt-pastille { width: 9px; height: 9px; border-radius: 50%; background: var(--pm-gris-2); flex: none; }
+.pm-mqtt.ok .pm-mqtt-pastille { background: var(--pm-bleu); }
+.pm-mqtt.warn .pm-mqtt-pastille { background: var(--pm-jaune); }
+.pm-mqtt.ko { background: #f8e3dc; }
+.pm-mqtt.ko .pm-mqtt-pastille { background: #E5482F; }
+
+/* actions : « … » ouvre un petit menu */
+.pm-actions { position: relative; display: flex; justify-content: flex-end; }
+.pm-menu-btn {
+    border: 0; background: none; color: var(--pm-bleu); font-size: 18px; line-height: 1; padding: 4px 10px;
+    cursor: pointer; border-radius: 2px;
+}
+.pm-menu-btn:hover { background: rgba(14,116,178,.08); }
+.pm-menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; padding: 6px;
+    display: flex; flex-direction: column; background: #fff; border-radius: 3px;
+    box-shadow: 0 10px 28px rgba(30, 34, 28, .16), 0 0 0 1px rgba(30,34,28,.06);
+}
+.pm-menu[hidden] { display: none; }
+.pm-menu button {
+    border: 0; background: none; text-align: left; padding: 9px 10px; border-radius: 2px;
+    font-size: 13.5px; color: var(--pm-encre); cursor: pointer;
+}
+.pm-menu button:hover { background: var(--pm-beige); }
+.pm-menu button.danger { color: #c23b22; }
+
+.pm-voir-plus {
+    margin-top: 26px; border: 0; background: none; padding: 0; color: var(--pm-gris); font-size: 13px; cursor: pointer;
+}
+.pm-voir-plus:hover { color: var(--pm-encre); }
+.pm-voir-plus[hidden] { display: none; }
+
+.pm-facteurs { margin-top: 34px; padding: 14px 16px; background: var(--pm-beige); border-radius: 2px; }
+.pm-facteurs summary { cursor: pointer; font-size: 14px; font-weight: 500; color: var(--pm-encre); }
+.pm-facteurs[open] summary { margin-bottom: 14px; }
+.pm-facteurs .pm-btn-sombre { margin-top: 12px; }
+.pm-facteurs .truck-factor-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.pm-facteurs .truck-factor-row input { width: 110px; height: 34px; border: 0; padding: 0 10px; background: #fff; }
+.pm-facteurs .truck-factor-fam { width: 120px; font-size: 14px; }
+
+@media (max-width: 1200px) {
+    .pm-flotte-cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ===================================================== onglet Connexion */
+/* Maquette « Paramètres » : menu de sections à gauche, cartes numérotées à droite (défilement vertical). */
+.pm-connexion { padding-top: 6px; }
+.pm-connexion[hidden] { display: none !important; }
+.pm-cx { display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 24px; align-items: start; }
+
+.pm-cx-nav { position: sticky; top: 8px; display: flex; flex-direction: column; }
+.pm-cx-lien {
+    display: flex; align-items: center; gap: 22px; min-height: 46px; padding: 0 18px; border-radius: 2px;
+    color: var(--pm-encre); font-size: 14.5px; text-decoration: none;
+}
+.pm-cx-lien .pm-cx-n { font-family: var(--pm-mono); font-size: 11px; color: var(--pm-gris); }
+.pm-cx-lien:hover { background: var(--pm-beige); }
+.pm-cx-lien.actif { background: var(--pm-beige); font-weight: 600; }
+.pm-cx-note { margin: 22px 0 0; font-size: 12px; color: var(--pm-gris); }
+.pm-cx-note + .pm-cx-note { margin-top: 14px; }
+
+.pm-cx-cartes { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.pm-carte { background: var(--pm-beige); border-radius: 2px; padding: 26px 24px 28px; scroll-margin-top: 12px; }
+.pm-carte > h2 { margin: 0 0 26px; font-size: 25px; font-weight: 500; letter-spacing: -.01em; color: var(--pm-encre); }
+.pm-carte > h2 span { font-weight: 500; }
+
+/* champs : étiquette mono au-dessus, champ blanc */
+.pm-grille3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 24px; }
+.pm-carte .pm-champ select, .pm-carte .pm-champ input { background: #fff; height: 40px; }
+.pm-cases { display: flex; flex-wrap: wrap; gap: 14px 30px; margin-top: 26px; }
+.pm-case { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--pm-gris); cursor: pointer; }
+.pm-case input { width: 15px; height: 15px; accent-color: var(--pm-sombre); margin: 0; }
+
+/* formulaires hérités (Serveur_OT, passerelle, connexion, sécurité) : mêmes champs, mise en grille */
+.pm-carte .settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 24px; padding: 0; }
+.pm-carte .settings-form > * { grid-column: 1 / -1; }
+.pm-carte .settings-form > .form-row { grid-column: auto; }
+.pm-carte .form-row, .pm-carte .form-row-block { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 10px; }
+.pm-carte .form-row > label, .pm-carte .form-row-block > label {
+    font-family: var(--pm-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--pm-gris); flex: none;
+}
+.pm-carte .form-input, .pm-carte .form-select, .pm-carte .form-input-wide, .pm-carte select.form-input {
+    width: 100%; height: 40px; padding: 0 12px; border: 0; border-radius: 1px; background: #fff; box-shadow: none;
+    font-size: 14px; color: var(--pm-encre);
+}
+.pm-carte .form-input:focus, .pm-carte .form-select:focus { outline: 2px solid rgba(14,116,178,.35); outline-offset: 0; box-shadow: none; }
+.pm-carte .field-hint, .pm-carte .relais-aide { font-size: 12.5px; line-height: 1.45; color: var(--pm-gris); margin: 0; }
+.pm-carte .relais-titre {
+    margin: 10px 0 -6px; font-family: var(--pm-mono); font-size: 11px; font-weight: 500; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--pm-encre);
+}
+.pm-carte .relais-empreinte { text-transform: none; letter-spacing: 0; color: var(--pm-gris-2); }
+.pm-carte .ot-actions, .pm-carte .cfg-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.pm-carte .ot-btn, .pm-carte .btn-test-db, .pm-carte .btn-action-label {
+    height: 40px; padding: 0 16px; border: 0; border-radius: 2px; background: #fff; color: var(--pm-encre);
+    font-size: 13.5px; cursor: pointer;
+}
+.pm-carte .ot-btn:hover, .pm-carte .btn-test-db:hover, .pm-carte .btn-action-label:hover { background: var(--pm-beige-2); }
+.pm-carte .ot-btn-primaire { background: var(--pm-sombre); color: #fff; }
+.pm-carte .ot-btn-primaire:hover { background: #2f3836; }
+.pm-carte .btn-save-config { display: none; }          /* remplacé par la barre « Enregistrer » du bas */
+.pm-carte .account-status, .pm-carte .cfg-status { font-size: 13px; min-height: 0; }
+.pm-carte .ot-diag { background: #fff; padding: 12px; font-size: 12px; border-radius: 2px; }
+.pm-carte code { background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 2px; }
+.pm-carte .backend-soon-badge { display: inline-block; padding: 3px 10px; background: var(--pm-jaune); color: var(--pm-encre); font-size: 12px; }
+.pm-carte .relais-env { padding: 10px 14px; background: #fff; font-size: 13px; }
+.pm-carte .relais-resultats { background: #fff; padding: 12px 14px; font-size: 13px; }
+
+/* couches de synchronisation */
+.pm-carte .sync-layers { display: flex; flex-direction: column; gap: 10px; padding: 0; background: none; border: 0; }
+.pm-carte .sync-layers-title { font-family: var(--pm-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--pm-encre); }
+.pm-carte .sync-layer { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; background: #fff; border-radius: 2px; cursor: pointer; }
+.pm-carte .sync-layer input { margin-top: 3px; accent-color: var(--pm-sombre); }
+.pm-carte .sync-layer-box { display: flex; flex-direction: column; gap: 4px; }
+.pm-carte .sync-layer-box b { font-size: 14px; font-weight: 600; color: var(--pm-encre); }
+.pm-carte .sync-layer-box small { font-size: 12.5px; color: var(--pm-gris); line-height: 1.4; }
+
+/* comptes */
+.pm-carte .accounts-list h4 { margin: 0 0 12px; font-family: var(--pm-mono); font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--pm-encre); }
+.pm-carte .account-item { background: #fff; padding: 11px 14px; border-radius: 2px; margin-bottom: 6px; color: var(--pm-encre); font-size: 13.5px; }
+.pm-carte .account-item.muted { color: var(--pm-gris); }
+.pm-carte .account-add-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.pm-carte .form-input-sm, .pm-carte .form-select-sm { height: 38px; padding: 0 10px; border: 0; border-radius: 1px; background: #fff; font-size: 13.5px; min-width: 0; flex: 1 1 140px; }
+.pm-carte .btn-add-account { width: 38px; height: 38px; border: 0; border-radius: 2px; background: var(--pm-sombre); color: #fff; cursor: pointer; }
+
+/* barre d'enregistrement (onglet Connexion) */
+.pm-barre {
+    position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 14px; margin-top: 26px;
+    padding: 12px 16px; background: var(--pm-beige); border-radius: 2px;
+}
+.pm-barre[hidden] { display: none; }
+.pm-barre-texte { flex: 1; font-size: 13.5px; color: var(--pm-gris); }
+.pm-btn-clair { height: 42px; padding: 0 22px; border: 0; border-radius: 2px; background: #fff; color: var(--pm-encre); font-size: 14px; cursor: pointer; }
+.pm-btn-clair:hover { background: var(--pm-beige-2); }
+.pm-barre .pm-btn-sombre { min-width: 190px; }
+
+@media (max-width: 1100px) {
+    .pm-cx { grid-template-columns: minmax(0, 1fr); }
+    .pm-cx-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+    .pm-grille3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------------------------------------------- bandeau de synchro + onglets (maquette) */
+#page-settings #syncBandeau {
+    display: flex; align-items: center; gap: 14px; min-height: 72px; padding: 14px 24px; margin: 22px 0 24px;
+    background: var(--pm-beige); border: 0; border-radius: 2px; box-shadow: none; color: var(--pm-encre);
+}
+#page-settings #syncBandeau .sync-dot { width: 13px; height: 13px; flex: none; background: var(--pm-gris-2); box-shadow: none; }
+#page-settings #syncBandeau .sync-dot.ok { background: var(--pm-sombre); }
+#page-settings #syncBandeau .sync-dot.ko { background: #E5482F; }
+#page-settings .pm-sync-txt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#page-settings #syncTexte { font-size: 17px; font-weight: 500; color: var(--pm-encre); }
+#page-settings #syncDetail { font-size: 13px; color: var(--pm-gris); }
+#page-settings #syncDetail:empty { display: none; }
+#page-settings #btnSyncMaintenant {
+    height: 52px; padding: 0 22px; border: 0; border-radius: 2px; background: var(--pm-sombre); color: #fff;
+    font-size: 14.5px; font-weight: 500; min-width: 280px; text-align: left; cursor: pointer;
+}
+#page-settings #btnSyncMaintenant:hover { background: #2f3836; }
+
+#page-settings #settingsOnglets {
+    display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 28px; padding: 0; background: none; border: 0; box-shadow: none;
+}
+#page-settings #settingsOnglets .onglet {
+    width: 204px; height: 48px; padding: 0 18px; border: 0; border-radius: 2px; background: var(--pm-beige-2);
+    color: var(--pm-encre); font-size: 15px; font-weight: 400; text-align: left; cursor: pointer; box-shadow: none;
+}
+#page-settings #settingsOnglets .onglet:hover { background: var(--pm-beige-2); transform: none; }
+#page-settings #settingsOnglets .onglet.actif { background: var(--pm-sombre); color: #fff; box-shadow: none; }
+#page-settings .pm-carte { background: #ece8dc; }
+.pm-carte [hidden] { display: none !important; }
+.pm-carte .backend-group:not(.sync-layers) { display: flex; flex-direction: column; gap: 22px; padding: 0; border: 0; background: none; }
+.pm-carte .cfg-actions .btn-test-db, .pm-carte .cfg-actions button { width: auto; }
+.pm-carte .accounts-list { border: 0; padding: 0; margin: 0; }
+
+/* ============================================================ onglet Équipes */
+.pm-equipes { padding-top: 6px; }
+.pm-equipes[hidden] { display: none !important; }
+.pm-titre-onglet { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -.01em; color: var(--pm-encre); }
+.pm-eq-creation {
+    display: grid; grid-template-columns: minmax(0, .5fr) minmax(0, 1.5fr) minmax(0, 1fr) auto; gap: 24px; align-items: end;
+    margin-top: 28px; padding: 24px; background: var(--pm-beige); border-radius: 2px;
+}
+.pm-table-eq .pm-thead, .pm-table-eq .pm-ligne-eq { grid-template-columns: .5fr 1.6fr .8fr 1fr 1fr; }
+.pm-table-eq { margin-top: 36px; }
+.pm-table-eq .pm-ligne-eq { min-height: 72px; }
+.pm-eq { margin-bottom: 5px; border-radius: 2px; }
+.pm-eq:nth-child(odd) { background: var(--pm-beige); }
+.pm-eq .pm-ligne { margin-bottom: 0; }
+.pm-eq.desactive .pm-code, .pm-eq.desactive .pm-eq-nom b { color: var(--pm-gris-2); }
+.pm-eq-nom { display: flex; flex-direction: column; gap: 4px; }
+.pm-eq-nom b { font-size: 17px; font-weight: 500; color: var(--pm-encre); }
+.pm-eq-nom small { font-size: 12.5px; color: var(--pm-gris); }
+.pm-eq-couleur i { display: block; width: 22px; height: 22px; border-radius: 2px; }
+.pm-eq-etat { display: flex; align-items: center; gap: 12px; font-size: 13.5px; color: var(--pm-gris); }
+.pm-switch { position: relative; width: 38px; height: 22px; border: 0; border-radius: 11px; background: #c9c5b8; cursor: pointer; padding: 0; flex: none; }
+.pm-switch i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
+.pm-switch.on { background: var(--pm-bleu); }
+.pm-switch.on i { transform: translateX(16px); }
+.pm-lien { border: 0; background: none; padding: 4px 6px; color: var(--pm-bleu); font-size: 13.5px; cursor: pointer; }
+.pm-lien:hover { text-decoration: underline; }
+.pm-lien.danger { color: #c23b22; }
+.pm-actions .pm-lien + .pm-menu-btn { margin-left: 2px; }
+
+/* membres d'une équipe (volet « Modifier ») */
+.pm-eq-membres { padding: 6px 16px 18px; }
+.pm-eq-membres[hidden] { display: none; }
+.pm-membre { display: grid; grid-template-columns: 1.5fr 1fr auto; gap: 12px; align-items: center; min-height: 40px; padding: 0 12px; margin-bottom: 4px; background: #fff; border-radius: 2px; }
+.pm-membre-nom { font-size: 14px; color: var(--pm-encre); }
+.pm-membre-role { font-size: 12.5px; color: var(--pm-gris); }
+.pm-membre-role.chef { color: var(--pm-bleu); font-weight: 600; }
+.pm-membre-ajout { display: grid; grid-template-columns: 1.6fr 1fr auto; gap: 10px; margin-top: 12px; }
+.pm-membre-ajout input, .pm-membre-ajout select { height: 40px; padding: 0 12px; border: 0; border-radius: 1px; background: #fff; font-size: 14px; min-width: 0; }
+.pm-membre-ajout .pm-btn-sombre { min-width: 130px; }
+
+.pm-note { margin-top: 36px; padding: 20px 24px; background: var(--pm-beige); border-radius: 2px; display: flex; flex-direction: column; gap: 8px; }
+.pm-note b { font-size: 17px; font-weight: 500; color: var(--pm-encre); }
+.pm-note span { font-size: 13.5px; color: var(--pm-gris); }
+
+/* ============================================================ onglet Terrain */
+.pm-terrain { padding-top: 6px; }
+.pm-terrain[hidden] { display: none !important; }
+.pm-terrain .pm-col h2 { margin-bottom: 26px; }
+.pm-sous-titre { margin: 38px 0 16px; font-size: 22px; font-weight: 500; letter-spacing: -.01em; color: var(--pm-encre); }
+
+.pm-bloc { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; padding: 24px; background: var(--pm-beige); border-radius: 2px; }
+.pm-bloc-texte { margin: 0; font-size: 13.5px; color: var(--pm-gris); }
+.pm-bloc-action { margin: 0; }
+.pm-btn-bloc { border: 0; background: none; padding: 6px 14px 6px 14px; margin-left: 0; font-size: 14.5px; font-weight: 500; color: var(--pm-encre); cursor: pointer; text-align: left; }
+.pm-btn-bloc:hover { text-decoration: underline; }
+.pm-manuel summary { cursor: pointer; font-size: 13px; color: var(--pm-gris); }
+.pm-manuel[open] summary { margin-bottom: 10px; }
+.pm-ajout-ligne { display: flex; gap: 10px; align-items: center; margin: 0; }
+.pm-ajout-ligne input, .pm-ajout-ligne select { flex: 1 1 auto; height: 40px; padding: 0 12px; border: 0; border-radius: 1px; background: #fff; font-size: 14px; min-width: 0; color: var(--pm-encre); }
+.pm-ajout-ligne .pm-btn-sombre { flex: none; min-width: 0; padding: 0 18px; white-space: nowrap; }
+
+/* elements générés par le JS hérité (bannière tablette, infos appareil, GNSS, catalogue) */
+.pm-bloc .account-item, .pm-catalogue .account-item { display: flex; align-items: center; gap: 10px; background: #fff; padding: 11px 14px; border-radius: 2px; margin: 0 0 6px; color: var(--pm-encre); font-size: 13.5px; }
+.pm-bloc .account-item i, .pm-catalogue .account-item i { color: var(--pm-gris); }
+.pm-bloc .account-nom, .pm-catalogue .account-nom { font-family: var(--pm-mono); font-size: 15px; color: var(--pm-encre); }
+.pm-bloc .account-email, .pm-catalogue .account-email { color: var(--pm-gris); font-size: 13px; }
+.pm-bloc .account-actions, .pm-catalogue .account-actions { margin-left: auto; display: flex; gap: 6px; }
+.pm-bloc .account-btn, .pm-catalogue .account-btn { border: 0; background: none; color: var(--pm-bleu); cursor: pointer; padding: 4px 8px; border-radius: 2px; }
+.pm-bloc .account-btn:hover, .pm-catalogue .account-btn:hover { background: rgba(14,116,178,.08); }
+.pm-bloc .device-info { flex-direction: column; align-items: stretch; gap: 4px; }
+.pm-bloc .device-info-row { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.pm-bloc .empty-state, .pm-catalogue .empty-state { display: flex; gap: 10px; align-items: center; padding: 12px 14px; background: #fff; color: var(--pm-gris); font-size: 13.5px; border-radius: 2px; }
+.pm-bloc .gnss-bind-result:empty { display: none; }
+
+.pm-table-terrain .pm-thead, .pm-table-terrain .pm-ligne-terrain { grid-template-columns: 1.1fr 1fr 1fr 1.3fr; }
+.pm-table-terrain { margin-top: 0; }
+.pm-ligne-terrain { min-height: 52px; }
+.pm-aucun { color: var(--pm-gris-2); }
+.pm-ligne-terrain .pm-actions { gap: 4px; }
+
+.pm-catalogue { margin-top: 22px; }
+.pm-catalogue summary { display: flex; justify-content: space-between; gap: 16px; cursor: pointer; font-size: 13px; color: var(--pm-gris); list-style: none; }
+.pm-catalogue summary::-webkit-details-marker { display: none; }
+.pm-catalogue-ajout { color: var(--pm-bleu); }
+.pm-catalogue[open] summary { margin-bottom: 14px; }
+.pm-catalogue .pm-ajout-ligne { margin-bottom: 10px; }
+#page-settings .pm-bloc { background: #ece8dc; }
+#page-settings .pm-eq:nth-child(odd), #page-settings .pm-eq-creation, #page-settings .pm-note { background: #ece8dc; }
+
+
+/* ============================================================ onglet Tablettes */
+.pm-tablettes { padding-top: 6px; }
+.pm-tablettes[hidden] { display: none !important; }
+.pm-tab-barre { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px; margin-top: 26px; padding: 22px 24px; background: var(--pm-beige); border-radius: 2px; }
+.pm-tab-apk { display: flex; flex-direction: column; gap: 8px; min-width: 280px; flex: 1; }
+.pm-tab-apk .lbl, .pm-tab-ip-form .lbl { font-family: var(--pm-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--pm-gris); }
+.pm-tab-apk-nom { display: flex; flex-direction: column; gap: 3px; }
+.pm-tab-apk-nom b { font-size: 16px; font-weight: 500; color: var(--pm-encre); word-break: break-all; }
+.pm-tab-apk-nom small { font-size: 12.5px; color: var(--pm-gris); }
+.pm-tab-test { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--pm-gris); cursor: pointer; }
+.pm-tab-ip-form { display: flex; flex-direction: column; gap: 8px; }
+.pm-tab-ip-ligne { display: flex; gap: 10px; }
+.pm-tab-ip-ligne input { height: 44px; padding: 0 12px; border: 0; border-radius: 2px; background: #fff; font-size: 14px; min-width: 220px; }
+.pm-tab-detecter { height: 44px; padding: 0 22px; }
+.pm-table-tab { margin-top: 28px; }
+.pm-table-tab .pm-thead, .pm-ligne-tab { grid-template-columns: 1.5fr 1.1fr 1.1fr 1.6fr; }
+.pm-tab { margin-bottom: 5px; border-radius: 2px; }
+.pm-tab:nth-child(odd) { background: var(--pm-beige); }
+.pm-ligne-tab { min-height: 84px; margin: 0; padding-top: 12px; padding-bottom: 12px; background: none !important; }
+.pm-tab-id, .pm-tab-app, .pm-tab-dt { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.pm-tab-id b { font-size: 17px; font-weight: 500; color: var(--pm-encre); }
+.pm-tab-id small, .pm-tab-app small, .pm-tab-dt small { font-size: 12px; color: var(--pm-gris); }
+.pm-tab-transports { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
+.pm-tab-puce { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 2px; background: var(--pm-sombre); color: #fff; font-size: 10.5px; letter-spacing: .05em; }
+.pm-tab-ip { font-family: var(--pm-mono); font-size: 11.5px; color: var(--pm-gris); }
+.pm-tab-alerte { font-size: 12px; color: #c23b22; }
+.pm-tab-app { font-size: 14px; color: var(--pm-gris); }
+.pm-tab-app.ok { color: var(--pm-encre); }
+.pm-tab-dt select { height: 42px; padding: 0 10px; border: 0; border-radius: 2px; background: #fff; font-size: 14px; min-width: 0; }
+.pm-tab-dt select:disabled { opacity: .55; }
+.pm-tab-actions { gap: 8px; align-items: center; flex-wrap: wrap; }
+.pm-tab-installer { height: 42px; min-width: 130px; }
+.pm-tab-installer:disabled { opacity: .45; cursor: default; }
+.pm-tab-etapes { display: flex; flex-direction: column; gap: 4px; padding: 4px 16px 16px; font-size: 13px; color: var(--pm-gris); }
+.pm-tab-etapes .ko { color: #c23b22; }
+.pm-tab-etapes .en-cours { color: var(--pm-bleu); }

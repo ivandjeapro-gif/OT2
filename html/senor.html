@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Senor Geology - OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="expect" href="#sidebar" blocking="render" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="../vendor/fontawesome/webfonts/fa-solid-900.woff2" />
+    <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css" />
 </head>
 <body>
     <!-- LOGIN OVERLAY -->
@@ -32,14 +35,8 @@
     </div>
 
     <div class="app">
-        <header class="menu-bar">
-            <div class="menu-left">
-                <span class="app-name">OreTracking</span>
-            </div>
-            <div class="menu-right">
-                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
-                <span class="app-version">Senor Geology</span>
-            </div>
+                <header class="menu-bar">
+            <!-- topbar generee par js/navbar.js -->
         </header>
 
         <div class="app-body">
@@ -49,265 +46,285 @@
             <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
-                    <div class="nav-top">
-                        <a class="sidebar-link" data-page="home" href="home.html">
-                            <i class="fas fa-home"></i>
-                            <span>Home</span>
-                        </a>
-                        <a class="sidebar-link" data-page="live" href="live.html">
-                            <i class="fas fa-satellite-dish"></i>
-                            <span>Live</span>
-                        </a>
-                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
-                            <i class="fas fa-bell"></i>
-                            <span>Alerts</span>
-                        </a>
-                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
-                            <i class="fas fa-inbox"></i>
-                            <span>Inbox</span>
-                        </a>
-                    </div>
-                    <div class="nav-bottom">
-                        <a class="sidebar-link" data-page="settings" href="settings.html">
-                            <i class="fas fa-cog"></i>
-                            <span data-i18n>Settings</span>
-                        </a>
-                        <a class="sidebar-link" data-page="sync" href="sync.html">
-                            <i class="fas fa-sync-alt"></i>
-                            <span data-i18n>Sync</span>
-                        </a>
-                        <a class="sidebar-link active" data-page="senor" href="senor.html">
-                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
-                            <span data-i18n>Senor</span>
-                        </a>
-                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
-                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
-                            <span data-i18n>Dig Plan</span>
-                        </a>
-                    </div>
-                </nav>
-
-                <div class="sidebar-user">
-                    <div class="user-avatar">
-                        <i class="fas fa-user-circle"></i>
-                    </div>
-                    <div class="user-info">
-                        <span class="user-name">Gaston Albert</span>
-                        <span class="user-email">gaston.albert@oresys.com</span>
-                    </div>
-                    <button class="btn-logout" title="Deconnexion">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </button>
-                </div>
+                <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/navbar.js"></script>
 
             <main class="content">
 <!-- PAGE: SENOR GEOLOGY - plans de minage, mockup a l'identique -->
                 <section class="page active" id="page-senor">
-                    <div class="sg2-grid">
 
-                        <!-- CARTE : DESTINATION -->
-                        <div class="panel sg2-area-dest">
-                            <div class="panel-label">Destination</div>
-                            <div class="panel-content">
-                                <div class="sg2-gray-bar sg2-source-bar">
-                                    <button type="button" class="sg2-source-nav" id="sgSrcPrev" title="Source precedente"><i class="fas fa-chevron-left"></i></button>
-                                    <span class="sg2-source-text"><span>Source :</span> <span id="sgSourceLabel"></span></span>
-                                    <button type="button" class="sg2-source-nav" id="sgSrcNext" title="Source suivante"><i class="fas fa-chevron-right"></i></button>
-                                    <button class="sg2-x" id="sgSrcDel" title="Supprimer la source"><i class="fas fa-trash"></i></button>
-                                </div>
-                                <!-- Codes de source admis dans le nom des blasts
-                                     (garde-fou : 275_OM_LMP2_... -> LMP2 doit
-                                     appartenir a la source Main Pit) -->
-                                <form class="sg2-inline" id="sgSrcCodesForm" style="margin:6px 0 2px">
-                                    <span class="sg2-note" style="white-space:nowrap">Codes admis :</span>
-                                    <input type="text" id="sgSrcCodes" class="sg2-input" placeholder="LMP2, LMP3..."
-                                           title="Codes de source admis dans le 3e segment du nom d'un blast (275_OM_LMP2_... -> LMP2). Separes par des virgules. Vide = verification desactivee." />
-                                    <button type="submit" class="sg2-outline sg2-ok" title="Enregistrer les codes de cette source">Enregistrer</button>
-                                    <span class="sg2-status" id="sgSrcCodesStatus"></span>
-                                </form>
-                                <div class="sg2-row sg2-row-equal" id="sgTeneursRow"></div>
-                                <div class="sg2-band">
-                                    <button class="sg2-gray-bar" id="sgBtnSrcAdd">Ajouter une source</button>
-                                    <form class="sg2-inline" id="sgSrcAddForm" style="display:none">
-                                        <input type="text" id="sgNewSource" class="sg2-input" placeholder="Nom de la source" required />
-                                        <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
-                                        <button type="button" class="sg2-x" id="sgSrcAddCancel" title="Annuler">x</button>
-                                    </form>
-                                    <form class="sg2-inline" id="sgTeneurForm" style="display:none" data-edit="">
-                                        <input type="text" id="sgNewTeneur" class="sg2-input" placeholder="Famille de teneur" required />
-                                        <input type="text" inputmode="decimal" id="sgNewTeneurMin" class="sg2-input sg2-short" placeholder="min %" />
-                                        <input type="text" inputmode="decimal" id="sgNewTeneurMax" class="sg2-input sg2-short" placeholder="max %" />
-                                        <input type="text" id="sgNewTeneurCodes" class="sg2-input" placeholder="Codes du nom de bloc (ex : HG, MO)"
-                                               title="Codes lus dans le nom d'un bloc DXF, par exemple HG dans 230_LWP2_106_HG_FR_008_OP. Separes par des virgules." />
-                                        <button type="submit" class="sg2-outline sg2-ok" id="sgTeneurSubmit">Enregistrer</button>
-                                        <button type="button" class="sg2-x" id="sgTeneurCancel" title="Annuler">x</button>
-                                    </form>
-                                    <div class="sg2-status" id="sgDestStatus"></div>
-                                </div>
-                                <div class="sg2-detail" id="sgDestDetail"></div>
-                            </div>
+                    <!-- EN-TETE (maquette « Senor · Geologie & consignes ») -->
+                    <div class="r-pagehead sg-head">
+                        <div>
+                            <nav class="r-breadcrumb" aria-label="Fil d'ariane">
+                                <span class="r-breadcrumb-cat">01</span>
+                                <span class="r-breadcrumb-sep">/</span>
+                                <span class="r-breadcrumb-current">Senor Geology</span>
+                            </nav>
+                            <h1 class="r-title">Géologie &amp; consignes</h1>
+                            <p class="r-subtitle">Reliez chaque teneur à son aire de déchargement. Gardez le terrain aligné.</p>
                         </div>
+                        <div class="sg-head-actions">
+                            <button type="button" class="sg-geo-pill" id="sgBtnGeoSys" title="Système de coordonnées">
+                                <i class="fas fa-globe"></i> <span id="sgGeoPill">--</span> <i class="fas fa-chevron-down"></i>
+                            </button>
+                            <button type="button" class="r-btn-dark" id="sgBtnNouvelleSource"><i class="fas fa-plus"></i> Nouvelle source</button>
+                        </div>
+                    </div>
 
-                        <!-- CARTE : DUMPING AREA -->
-                        <div class="panel sg2-area-dump">
-                            <div class="panel-label">Dumping Area</div>
-                            <div class="panel-content">
-                                <div class="sg2-cols">
-                                    <div class="sg2-left">
-                                        <div class="sg2-row" id="sgDaRow"></div>
-                                        <div class="sg2-detail" id="sgDaDetail"></div>
-                                    </div>
-                                    <div class="sg2-note">Une Dumping Area est une aire (m2), pas un point : CSV avec
-                                        les sommets du polygone, meme nom repete par sommet (nom, x, y).</div>
+                    <!-- CARTE SOURCE ACTIVE -->
+                    <div class="sg-source-card">
+                        <div class="sg-source-main">
+                            <span class="sg-kicker">Source active <i>/</i> <b id="sgSourceRang">--</b></span>
+                            <div class="sg-source-nom">
+                                <span class="sg-source-titre" id="sgSourceLabel"></span>
+                                <button type="button" class="sg-nav-btn" id="sgSrcPrev" title="Source précédente"><i class="fas fa-chevron-left"></i></button>
+                                <button type="button" class="sg-nav-btn" id="sgSrcNext" title="Source suivante"><i class="fas fa-chevron-right"></i></button>
+                            </div>
+                            <span class="sg-source-sous">Référentiel géologique</span>
+                        </div>
+                        <form class="sg-source-codes" id="sgSrcCodesForm">
+                            <span class="sg-kicker">Codes admis</span>
+                            <div class="sg-codes-row">
+                                <input type="text" id="sgSrcCodes" class="sg2-input" placeholder="LMP2, LMP3..."
+                                       title="Codes de source admis dans le 3e segment du nom d'un blast (275_OM_LMP2_... -> LMP2). Séparés par des virgules. Vide = vérification désactivée." />
+                                <button type="submit" class="sg-save" title="Enregistrer les codes de cette source"><i class="fas fa-check"></i></button>
+                            </div>
+                            <span class="sg-source-sous">Contrôle du nom de bloc actif <span class="sg2-status" id="sgSrcCodesStatus"></span></span>
+                        </form>
+                        <div class="sg-stat"><b id="sgStatFamilles">--</b><span>familles de teneur</span></div>
+                        <div class="sg-stat"><b id="sgStatAires">--</b><span>aires de déchargement</span></div>
+                        <div class="sg-stat"><b id="sgStatPistes">--</b><span>pistes importées</span></div>
+                        <button type="button" class="sg-menu-btn" id="sgSrcDel" title="Supprimer la source"><i class="fas fa-trash"></i></button>
+                    </div>
+
+                    <div class="sg-layout">
+                        <div class="sg-main">
+                            <!-- ONGLETS -->
+                            <div class="sg-tabs" role="tablist">
+                                <button type="button" class="sg-tab is-active" data-sgtab="consignes">Consignes <span class="sg-tab-n" id="sgTabConsignes">--</span></button>
+                                <button type="button" class="sg-tab" data-sgtab="sources">Sources &amp; teneurs <span class="sg-tab-n" id="sgTabSources">--</span></button>
+                                <button type="button" class="sg-tab" data-sgtab="aires">Dumping areas <span class="sg-tab-n" id="sgTabAires">--</span></button>
+                                <button type="button" class="sg-tab" data-sgtab="trails">Trails <span class="sg-tab-n" id="sgTabTrails">--</span></button>
+                                <button type="button" class="sg-tab" data-sgtab="equipes">Équipes <span class="sg-tab-n" id="sgTabEquipes">--</span></button>
+                                <span class="sg-tabs-maj" id="sgMaj"></span>
+                            </div>
+
+                            <!-- ONGLET CONSIGNES : Dumping Instruction -->
+                            <div class="sg-pane is-active" data-sgpane="consignes">
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Consignes de déchargement</h2>
+                                    <button type="button" class="sg-lien" id="sgVoirResume">Voir le résumé <i class="fas fa-arrow-right"></i></button>
                                 </div>
-                                <div class="sg2-status" id="sgDaStatus"></div>
-                                <form class="sg2-inline" id="sgDaForm" style="display:none">
-                                    <input type="text" id="sgDaNom" class="sg2-input" placeholder="Nom" required />
-                                    <input type="text" id="sgDaX" class="sg2-input sg2-short" placeholder="x" />
-                                    <input type="text" id="sgDaY" class="sg2-input sg2-short" placeholder="y" />
-                                    <select id="sgDaColor" class="sg2-input sg2-short">
+                                <div class="sg-progress"><span class="sg-progress-bar"><i id="sgProgressFill"></i></span><span class="sg-progress-txt" id="sgDiProgress">--</span></div>
+                                <div class="sg-cons-head"><span>Famille &amp; code</span><span>Plage d'admission</span><span></span><span>Aire de déchargement</span></div>
+                                <div class="sg-cons-list" id="sgConsignes"><div class="sg2-di-empty">Chargement…</div></div>
+                                <div class="sg2-status" id="sgDiStatus"></div>
+                                <div class="sg-resume" id="sgResume" hidden>
+                                    <div class="sg2-di-summary-head"><span>Résumé des consignes (toutes sources)</span><span id="sgDiSummaryCount" class="sg2-note"></span></div>
+                                    <div class="sg2-di-summary" id="sgDiSummary"></div>
+                                </div>
+                                <div class="sg-info-band">
+                                    <div><i class="fas fa-lock"></i><div><b>Un bloc, une source cohérente.</b><span id="sgInfoCodes">Le code du nom de bloc doit appartenir à la source avant toute affectation.</span></div></div>
+                                    <div><i class="far fa-square"></i><div><b>Une aire est une surface.</b><span>Polygone en m², jamais un point.</span></div></div>
+                                </div>
+                            </div>
+
+                            <!-- ONGLET SOURCES & TENEURS -->
+                            <div class="sg-pane" data-sgpane="sources" hidden>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Sources</h2>
+                                    <button type="button" class="sg-btn" id="sgBtnSrcAdd"><i class="fas fa-plus"></i> Ajouter une source</button>
+                                </div>
+                                <form class="sg-form" id="sgSrcAddForm" style="display:none">
+                                    <input type="text" id="sgNewSource" class="sg-input" placeholder="Nom de la source" required />
+                                    <button type="submit" class="sg-btn sg-btn-ok">Enregistrer</button>
+                                    <button type="button" class="sg-btn" id="sgSrcAddCancel">Annuler</button>
+                                </form>
+                                <div class="sg-liste" id="sgSourcesList"></div>
+                                <div class="sg2-status" id="sgDestStatus"></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Familles de teneur <small id="sgFamillesSource"></small></h2>
+                                    <button type="button" class="sg-btn" id="sgBtnTeneurAdd"><i class="fas fa-plus"></i> Ajouter une famille</button>
+                                </div>
+                                <form class="sg-form" id="sgTeneurForm" style="display:none" data-edit="">
+                                    <input type="text" id="sgNewTeneur" class="sg-input" placeholder="Famille de teneur" required />
+                                    <input type="text" inputmode="decimal" id="sgNewTeneurMin" class="sg-input sg-input-court" placeholder="min %" />
+                                    <input type="text" inputmode="decimal" id="sgNewTeneurMax" class="sg-input sg-input-court" placeholder="max %" />
+                                    <input type="text" id="sgNewTeneurCodes" class="sg-input" placeholder="Codes de bloc (HG, MO)"
+                                           title="Codes lus dans le nom d'un bloc DXF, par exemple HG dans 230_LWP2_106_HG_FR_008_OP. Séparés par des virgules." />
+                                    <label class="sg2-couleur" title="Couleur de la famille dans toutes les pages (Auto = couleur de son grade)">
+                                        <input type="color" id="sgNewTeneurCouleur" value="#8d887a" />
+                                        <span><input type="checkbox" id="sgNewTeneurAuto" checked /> Auto</span>
+                                    </label>
+                                    <button type="submit" class="sg-btn sg-btn-ok" id="sgTeneurSubmit">Enregistrer</button>
+                                    <button type="button" class="sg-btn" id="sgTeneurCancel">Annuler</button>
+                                </form>
+                                <div class="sg-liste" id="sgTeneursRow"></div>
+                                <div id="sgDestDetail" hidden></div>
+                            </div>
+
+                            <!-- ONGLET DUMPING AREAS -->
+                            <div class="sg-pane" data-sgpane="aires" hidden>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Aires de déchargement</h2>
+                                    <div class="sg-actions">
+                                        <button type="button" class="sg-btn" id="btnSgImportZones" title="CSV avec les sommets du polygone : nom, x, y, le même nom répété pour chaque sommet"><i class="fas fa-file-import"></i> Importer CSV</button>
+                                        <button type="button" class="sg-btn" id="sgBtnDaAdd"><i class="fas fa-plus"></i> Ajouter une aire</button>
+                                    </div>
+                                    <input type="file" id="sgZoneFileInput" accept=".csv" style="display:none" />
+                                </div>
+                                <form class="sg-form" id="sgDaForm" style="display:none">
+                                    <input type="text" id="sgDaNom" class="sg-input" placeholder="Nom" required />
+                                    <input type="text" id="sgDaX" class="sg-input sg-input-court" placeholder="x" />
+                                    <input type="text" id="sgDaY" class="sg-input sg-input-court" placeholder="y" />
+                                    <select id="sgDaColor" class="sg-input sg-input-court">
                                         <option value="blue">Bleu</option>
                                         <option value="green">Vert</option>
                                         <option value="yellow">Jaune</option>
                                         <option value="orange">Orange</option>
                                     </select>
-                                    <button type="submit" class="sg2-outline sg2-ok">Enregistrer</button>
-                                    <button type="button" class="sg2-outline" id="btnSgImportZones">Importer CSV</button>
-                                    <input type="file" id="sgZoneFileInput" accept=".csv" style="display:none" />
-                                    <button type="button" class="sg2-x" id="sgDaDelete" title="Supprimer"><i class="fas fa-trash"></i></button>
-                                    <button type="button" class="sg2-x" id="sgDaCancel" title="Fermer">x</button>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Enregistrer</button>
+                                    <button type="button" class="sg-btn sg-btn-danger" id="sgDaDelete" title="Supprimer"><i class="fas fa-trash"></i></button>
+                                    <button type="button" class="sg-btn" id="sgDaCancel">Fermer</button>
                                 </form>
+                                <div class="sg-liste" id="sgDaRow"></div>
+                                <div class="sg2-status" id="sgDaStatus"></div>
+                                <div id="sgDaDetail" hidden></div>
                             </div>
-                        </div>
 
-                        <!-- CARTE (colonne 3) : TRAILS (CHEMIN) -->
-                        <div class="panel sg2-area-trails">
-                            <div class="panel-label">Trails (Chemin)</div>
-                            <div class="panel-content">
-                                <div class="sg2-center">
-                                    <button class="sg2-outline" id="sgBtnRoadUpload">Importer un fichier</button>
+                            <!-- ONGLET TRAILS : pistes, checkpoints, systeme geographique -->
+                            <div class="sg-pane" data-sgpane="trails" hidden>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Pistes</h2>
+                                    <button type="button" class="sg-btn" id="sgBtnRoadUpload" title="Fichier GeoTiff ou GeoJSON des routes"><i class="fas fa-file-import"></i> Importer un fichier</button>
                                     <input type="file" id="sgRoadInput" accept=".tif,.tiff,.json,.geojson" style="display:none" />
                                 </div>
-                                <div class="sg2-cols">
-                                    <div class="sg2-left">
-                                        <div class="sg2-roads" id="sgRoadsList"></div>
-                                        <div class="sg2-status" id="sgRoadStatus"></div>
-                                    </div>
-                                    <div class="sg2-note">Fichier GeoTiff / GeoJSON des routes.</div>
-                                </div>
-                            </div>
-                        </div>
+                                <div class="sg-liste" id="sgRoadsList"></div>
+                                <div class="sg2-status" id="sgRoadStatus"></div>
 
-                        <!-- CARTE (rang 2, colonne 3) : GEOGRAPHIC SYSTEM -->
-                        <div class="panel sg2-area-geo">
-                            <div class="panel-label">Geographic System</div>
-                            <div class="panel-content">
-                                <div class="sg2-center">
-                                    <button class="sg2-outline" id="sgBtnGeoSys">Systeme de coordonnees</button>
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Trajectoires <small id="sgTrajCompte"></small></h2>
+                                    <button type="button" class="sg-btn" id="sgBtnTrajAdd"><i class="fas fa-plus"></i> Ajouter une trajectoire</button>
                                 </div>
-                                <div class="sg2-detail" id="sgGeoDetail"></div>
-                                <div class="sg2-note">Systeme de coordonnees : WGS84 / UTM.</div>
+                                <form class="sg-form" id="sgTrajForm" style="display:none">
+                                    <select id="sgTrajSource" class="sg-input" required></select>
+                                    <i class="fas fa-arrow-right" style="color:var(--r-text-3)"></i>
+                                    <select id="sgTrajDa" class="sg-input" required></select>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Créer</button>
+                                    <button type="button" class="sg-btn" id="sgTrajCancel">Annuler</button>
+                                </form>
+                                <div class="sg-liste" id="sgTrajList"></div>
+                                <div class="sg2-status" id="sgTrajStatus"></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Points de passage <small id="sgChkCompte"></small></h2>
+                                    <div class="sg-actions">
+                                        <button type="button" class="sg-btn" id="btnSgImportChk" title="CSV : colonnes Y, X, id, Nom, avec deux lignes par nom (les deux extrémités). Degrés convertis en UTM ; un nom déjà présent est mis à jour."><i class="fas fa-file-import"></i> Importer CSV</button>
+                                        <button type="button" class="sg-btn sg-btn-danger" id="btnSgChkToutSuppr" title="Supprimer tous les checkpoints"><i class="fas fa-trash"></i></button>
+                                    </div>
+                                    <input type="file" id="sgChkFileInput" accept=".csv,.txt" style="display:none" />
+                                </div>
+                                <div class="sg-liste" id="sgChkList"></div>
+                                <div class="sg2-status" id="sgChkStatus"></div>
+                                <div id="sgChkDetail" hidden></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Système géographique</h2>
+                                </div>
+                                <div class="sg-liste">
+                                    <div class="sg-ligne">
+                                        <i class="fas fa-globe sg-ligne-ico"></i>
+                                        <span class="sg-ligne-nom" id="sgGeoDetail">--</span>
+                                    </div>
+                                </div>
                                 <div class="sg2-status" id="sgGeoStatus"></div>
                             </div>
+
+                            <!-- ONGLET EQUIPES : equipes spotter + equipe de service (deplace depuis Settings) -->
+                            <div class="sg-pane" data-sgpane="equipes" hidden>
+                                <div class="sg-pane-head">
+                                    <h2 class="sg-pane-titre">Équipes spotter <small id="cptEquipes"></small></h2>
+                                </div>
+                                <div class="sg-service" id="serviceBox">
+                                    <label class="sg-champ"><span>Équipe de service · jour (06 h – 18 h)</span>
+                                        <select id="equipeJour" class="sg-input"><option value="">Non définie</option></select></label>
+                                    <label class="sg-champ"><span>Équipe de service · nuit (18 h – 06 h)</span>
+                                        <select id="equipeNuit" class="sg-input"><option value="">Non définie</option></select></label>
+                                    <span class="sg2-status" id="serviceStatus"></span>
+                                </div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Équipes</h2>
+                                    <button type="button" class="sg-btn" id="sgBtnEquipeAdd"><i class="fas fa-plus"></i> Ajouter une équipe</button>
+                                </div>
+                                <form class="sg-form" id="teamAddForm" style="display:none">
+                                    <input type="text" id="newTeamName" class="sg-input" placeholder="Code (SP-002)" required />
+                                    <input type="text" id="newTeamChef" class="sg-input" placeholder="Nom du chef" required />
+                                    <select id="newTeamColor" class="sg-input sg-input-court">
+                                        <option value="#0E74B2">Bleu</option>
+                                        <option value="#EE7A2A">Orange</option>
+                                        <option value="#CFC39A">Sable</option>
+                                        <option value="#3D8A4A">Vert</option>
+                                        <option value="#8A5CC2">Violet</option>
+                                        <option value="#D6607F">Rose</option>
+                                        <option value="#14A3A3">Turquoise</option>
+                                        <option value="#E0B413">Jaune</option>
+                                    </select>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Créer</button>
+                                    <button type="button" class="sg-btn" id="sgEquipeCancel">Fermer</button>
+                                </form>
+                                <div class="sg2-status" id="teamStatus"></div>
+                                <div class="sg-liste sg-equipes" id="teamContainer"><div class="sg-vide">Chargement…</div></div>
+                            </div>
                         </div>
 
+                        <!-- COLONNE DROITE : terrain en direct, equipes, derniere alerte -->
+                        <aside class="sg-side">
+                            <div class="sg-live">
+                                <div class="sg-live-top"><span class="sg-live-kicker"><i class="sg-dot"></i> Terrain en direct</span></div>
+                                <h3 class="sg-live-titre">Minage en cours</h3>
+                                <p class="sg-live-sous" id="sgSuiviFraicheur">Connexion à la passerelle...</p>
+                                <div class="sg-minages" id="sgMinagesListe"><div class="member-empty">Chargement...</div></div>
+                                <details class="sg-secours">
+                                    <summary>Saisie manuelle (secours)</summary>
+                                    <div class="suivi-minage" id="sgSuiviMinage">
+                                        <label><span class="sg-live-lbl">Pelle</span>
+                                            <select class="form-select-sm" id="sgMinageExca"><option value="">Choisir une pelle...</option></select></label>
+                                        <label><span class="sg-live-lbl">Orebloc</span>
+                                            <select class="form-select-sm" id="sgMinageBloc"><option value="">Choisir un bloc...</option></select></label>
+                                        <button type="button" class="sg-live-btn" id="sgMinageValider">Déclarer le minage <i class="fas fa-arrow-right"></i></button>
+                                        <span class="suivi-minage-etat" id="sgMinageEtat"></span>
+                                    </div>
+                                </details>
+                                <div class="sg-live-stats">
+                                    <div><b id="sgStatMissions">--</b><span>missions en cours</span></div>
+                                    <div><b id="sgStatTonnes">--</b><span>tonnes du jour</span></div>
+                                </div>
+                                <div class="suivi-cartes" id="sgSuiviMissions"><div class="member-empty">Chargement...</div></div>
+                                <div id="sgSuiviCumuls" class="suivi-cumuls" hidden></div>
+                            </div>
+
+                            <!-- EQUIPE DE SERVICE : resume du shift en cours (la gestion est dans l'onglet Equipes) -->
+                            <div class="sg-service-card">
+                                <div class="sg-service-head">
+                                    <span class="sg-kicker">Équipe de service</span>
+                                    <button type="button" class="sg-lien" id="sgGererEquipes">Gérer <i class="fas fa-arrow-right"></i></button>
+                                </div>
+                                <h3 class="sg-service-titre" id="sgServiceTitre">--</h3>
+                                <div class="sg-service-membres" id="sgServiceMembres"></div>
+                            </div>
+
+                            <a class="sg-last-alert" href="alerts.html" id="sgDerniereAlerte" hidden>
+                                <i class="fas fa-triangle-exclamation"></i>
+                                <span><b id="sgDerniereAlerteTxt"></b><small>Dernière alerte</small></span>
+                                <i class="fas fa-arrow-right"></i>
+                            </a>
+                            <div id="sgSuiviAlertes" class="suivi-alertes" hidden></div>
+                        </aside>
                     </div>
-
-                    <div class="sg2-grid sg2-grid-second">
-                        <!-- CARTE : DUMPING INSTRUCTION -->
-                        <div class="panel sg2-area-blast">
-                            <div class="panel-label">Dumping Instruction</div>
-                            <div class="panel-content">
-                                <div class="sg2-gray-bar sg2-source-bar">
-                                    <button type="button" class="sg2-source-nav" id="sgDiSrcPrev" title="Source precedente"><i class="fas fa-chevron-left"></i></button>
-                                    <span class="sg2-source-text"><span>Source :</span> <span id="sgDiSourceLabel"></span></span>
-                                    <button type="button" class="sg2-source-nav" id="sgDiSrcNext" title="Source suivante"><i class="fas fa-chevron-right"></i></button>
-                                </div>
-                                <div class="sg2-row sg2-row-equal" id="sgDiTeneursRow"></div>
-                                <div class="sg2-note">En cliquant sur une teneur, affectez-lui (ou modifiez) sa Dumping
-                                    Area. Chaque teneur doit obligatoirement avoir une Dumping Area assignee (en rouge
-                                    sinon).</div>
-                                <div class="sg2-status" id="sgDiStatus"></div>
-                                <div class="sg2-di-summary-head">
-                                    <span>Resume des consignes</span>
-                                    <span id="sgDiSummaryCount" class="sg2-note"></span>
-                                </div>
-                                <div class="sg2-di-summary" id="sgDiSummary"></div>
-                            </div>
-                        </div>
-                        <!-- CARTE : SUIVI DES MISSIONS -->
-                        <div class="panel sg2-area-suivi">
-                            <div class="panel-label">Suivi des missions</div>
-                            <div class="panel-content">
-                                <div class="sg2-note" id="sgSuiviFraicheur">Connexion a la passerelle...</div>
-                                <div class="suivi-cartes" id="sgSuiviMissions">
-                                    <div class="member-empty">Chargement...</div>
-                                </div>
-                                <div class="suivi-soustitre">Minage en cours (declare par le spotter)</div>
-                                <div class="suivi-minage" id="sgSuiviMinage">
-                                    <select class="form-select-sm" id="sgMinageExca">
-                                        <option value="">Choisir une pelle...</option>
-                                    </select>
-                                    <select class="form-select-sm" id="sgMinageBloc">
-                                        <option value="">Choisir un bloc...</option>
-                                    </select>
-                                    <button type="button" class="team-btn" id="sgMinageValider">
-                                        <i class="fas fa-play"></i> Declare
-                                    </button>
-                                    <span class="suivi-minage-etat" id="sgMinageEtat"></span>
-                                </div>
-
-                                <div class="suivi-soustitre">Dernieres alertes</div>
-                                <div id="sgSuiviAlertes" class="suivi-alertes"></div>
-                                <div class="suivi-soustitre">Cumuls du jour</div>
-                                <div id="sgSuiviCumuls" class="suivi-cumuls"></div>
-                            </div>
-                        </div>
-
-                        <!-- SPOTTER : gestion des equipes (pleine largeur) -->
-                        <div class="panel sg2-area-spotter">
-                            <div class="panel-label">
-                                <i class="fas fa-users"></i> Spotter
-                            </div>
-                            <div class="panel-content">
-                                <div class="team-section">
-                                    <div class="team-intro">
-                                        Chaque equipe de spotters travaille independamment sur le terrain :
-                                        son chef est responsable de ses membres. Une equipe <b>inactive</b> reste
-                                        enregistree mais n'apparait plus dans les affectations.
-                                    </div>
-
-                                    <!-- Liste des equipes -->
-                                    <div id="teamContainer">
-                                        <div class="account-item muted">Chargement...</div>
-                                    </div>
-
-                                    <!-- Creation : nouvelle equipe (exige un chef d'equipe) -->
-                                    <div class="team-create">
-                                        <div class="team-create-title">
-                                            <i class="fas fa-plus-circle"></i> Nouvelle equipe
-                                        </div>
-                                        <div class="team-create-note">
-                                            Donnez un code (ex. SP-002) et le nom de son chef : l'equipe nait avec lui.
-                                        </div>
-                                        <form class="team-add-form" id="teamAddForm">
-                                            <div class="team-form-row">
-                                                <input type="text" class="form-input-sm" id="newTeamName" placeholder="Code de l'equipe (ex. SP-002)" required />
-                                                <input type="text" class="form-input-sm" id="newTeamChef" placeholder="Nom du chef d'equipe" required />
-                                                <input type="color" class="form-color-sm" id="newTeamColor" value="#3b82f6" title="Couleur de l'equipe" />
-                                                <button type="submit" class="btn-add-sm">
-                                                    <i class="fas fa-plus"></i> Creer
-                                                </button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                    <div class="account-status" id="teamStatus"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div><!-- /grille blast+suivi -->
 
                     <!-- popup d'affectation d'une Dumping Area a une teneur (Dumping Instruction) -->
                     <div class="sg2-modal-overlay" id="sgAssignOverlay" hidden>
@@ -388,10 +405,13 @@
         </div>
     </div>
 
+
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>
+    <script src="../js/ot-config.js"></script>
     <script src="../js/api.js"></script>
+    <script src="../js/couleurs.js"></script>
     <script type="module" src="../js/auth.js"></script>
     <script src="../js/server-ui.js"></script>
     <script src="../js/missions-ui.js"></script>
@@ -400,3 +420,4 @@
     <script src="../js/app.js"></script>
 </body>
 </html>
+

@@ -96,6 +96,200 @@
   let sourceSelectionnee = null;
   let teneurSelectionnee = null;
 
+  /* ---- Listes des onglets (meme charte que « Consignes ») ---- */
+  let toutesTeneurs = [];            // toutes sources confondues : compteurs par source, familles par aire
+  const COULEUR_DA = { blue: '#1d6fd1', green: '#2f9e44', yellow: '#e0b413', orange: '#e8641c' };
+  const couleurFamille = (t) => (window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a');
+  const pastilleFamille = (t) => '<span class="sg-fam-pastille" style="--fam:' + couleurFamille(t) + '">' + esc(t.nom) + '</span>';
+  const deuxN = (n) => String(n).padStart(2, '0');
+
+  function aireM2(z) {                // surface reelle du polygone (formule du lacet)
+    let pts = [];
+    try { pts = JSON.parse(z.sommets || '[]'); } catch (e) { pts = []; }
+    if (pts.length < 3) return 0;
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i];
+      const [x2, y2] = pts[(i + 1) % pts.length];
+      a += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(a) / 2;
+  }
+
+  function rendreListeSources() {
+    const box = $('#sgSourcesList');
+    if (!box) return;
+    box.innerHTML = sources.length ? sources.map((src) => {
+      const n = toutesTeneurs.filter((t) => t.source_id === src.id).length;
+      const actif = src.id === sourceSelectionnee;
+      return '<div class="sg-ligne' + (actif ? ' actif' : '') + '">' +
+        '<i class="fas fa-layer-group sg-ligne-ico"></i>' +
+        '<span class="sg-ligne-nom"><b>' + esc(src.nom) + '</b><small>' + (src.codes ? 'Codes admis : ' + esc(src.codes) : 'Aucun code admis') + '</small></span>' +
+        '<span class="sg-ligne-meta">' + deuxN(n) + (n > 1 ? ' familles' : ' famille') + '</span>' +
+        (actif ? '<span class="sg-badge">Active</span>'
+          : '<button type="button" class="sg-btn" data-src-select="' + src.id + '">Activer</button>') +
+        '</div>';
+    }).join('') : '<div class="sg-vide">Aucune source.</div>';
+    const nom = $('#sgFamillesSource');
+    const cur = sources.find((x) => x.id === sourceSelectionnee);
+    if (nom) nom.textContent = cur ? '· ' + cur.nom : '';
+  }
+
+  function rendreListeAires() {
+    const box = $('#sgDaRow');
+    if (!box) return;
+    box.innerHTML = dumpingAreas.length ? dumpingAreas.map((z) => {
+      let nbSommets = 0;
+      try { nbSommets = JSON.parse(z.sommets || '[]').length; } catch (e) { /* sommets illisibles */ }
+      const m2 = Math.round(aireM2(z));
+      const fam = toutesTeneurs.filter((t) => t.dumping_area_id === z.id);
+      return '<div class="sg-ligne">' +
+        '<i class="far fa-square-full sg-ligne-ico" style="color:' + (COULEUR_DA[z.couleur] || COULEUR_DA.blue) + '"></i>' +
+        '<span class="sg-ligne-nom"><b>' + esc(z.nom) + '</b><small>' + nbSommets + ' sommets · centre ' + esc(coord(z.x)) + ' / ' + esc(coord(z.y)) + '</small></span>' +
+        '<span class="sg-ligne-meta">' + m2.toLocaleString('fr-FR') + ' m²</span>' +
+        '<span class="sg-ligne-fams">' + (fam.length ? fam.map(pastilleFamille).join('') : '<em>Aucune famille</em>') + '</span>' +
+        '<button type="button" class="sg-ico-btn" data-da-edit="' + z.id + '" title="Modifier"><i class="fas fa-pen"></i></button>' +
+        '</div>';
+    }).join('') : '<div class="sg-vide">Aucune aire de déchargement.</div>';
+  }
+
+  /* ---- Trajectoires : source -> dumping area, avec la liste ORDONNEE des checkpoints ----
+   * Ce qui est defini ici fait foi : la passerelle l'applique aux missions et le pousse vers
+   * Serveur_OT puis Serveur_SG (synchroniserSG), qui se mettent a jour d'apres cette liste. */
+  let trajectoires = [];
+  let tousCheckpoints = [];
+  let trajEdition = null;            // { id, ids: [checkpoint ids dans l'ordre] }
+
+  async function synchroniserSG() {
+    if (!window.OTCFG) return;
+    setStatus('#sgTrajStatus', 'Synchronisation avec Serveur_SG…', true);
+    try {
+      await OTCFG.pousserReferentiel();
+      const r = await fetch(base().replace(/\/$/, '') + '/api/sg/sync_ref', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) throw new Error(d.error || ('HTTP ' + r.status));
+      setStatus('#sgTrajStatus', 'Serveur_SG mis à jour avec ces trajectoires', true);
+    } catch (e) {
+      setStatus('#sgTrajStatus', 'Enregistré ici, mais Serveur_SG non synchronisé : ' + e.message, false);
+    }
+  }
+
+  function rendreTrajectoires() {
+    const box = $('#sgTrajList');
+    if (!box) return;
+    const cpt = $('#sgTrajCompte');
+    if (cpt) cpt.textContent = trajectoires.length ? '· ' + deuxN(trajectoires.length) : '';
+    if (!trajectoires.length) {
+      box.innerHTML = '<div class="sg-vide">Aucune trajectoire. Sans trajectoire, les checkpoints viennent de Serveur_SG.</div>';
+      return;
+    }
+    box.innerHTML = trajectoires.map((t) => {
+      const ouvert = trajEdition && trajEdition.id === t.id;
+      const liste = ouvert ? trajEdition.ids.map((id) => tousCheckpoints.find((c) => c.id === id)).filter(Boolean) : t.checkpoints;
+      const puces = liste.length
+        ? liste.map((c, i) => '<span class="sg-cp-puce"><b>' + (i + 1) + '</b>' + esc(c.nom) + '</span>').join('<i class="fas fa-chevron-right sg-cp-sep"></i>')
+        : '<em>Aucun checkpoint</em>';
+      let editeur = '';
+      if (ouvert) {
+        const libres = tousCheckpoints.filter((c) => trajEdition.ids.indexOf(c.id) < 0);
+        editeur = '<div class="sg-traj-edit">' +
+          (liste.length ? liste.map((c, i) =>
+            '<div class="sg-traj-cp"><span class="sg-traj-rang">' + (i + 1) + '</span><b>' + esc(c.nom) + '</b>' +
+            '<button type="button" class="sg-ico-btn" data-traj-haut="' + i + '" title="Monter"' + (i === 0 ? ' disabled' : '') + '><i class="fas fa-arrow-up"></i></button>' +
+            '<button type="button" class="sg-ico-btn" data-traj-bas="' + i + '" title="Descendre"' + (i === liste.length - 1 ? ' disabled' : '') + '><i class="fas fa-arrow-down"></i></button>' +
+            '<button type="button" class="sg-ico-btn danger" data-traj-retirer="' + i + '" title="Retirer"><i class="fas fa-xmark"></i></button></div>').join('')
+            : '<div class="sg-vide">Ajoutez les checkpoints dans l\'ordre de passage.</div>') +
+          '<div class="sg-traj-ajout">' +
+            '<select id="sgTrajAjoutSel" class="sg-input"><option value="">Ajouter un checkpoint…</option>' +
+              libres.map((c) => '<option value="' + c.id + '">' + esc(c.nom) + '</option>').join('') + '</select>' +
+            '<button type="button" class="sg-btn" data-traj-ajouter="1">Ajouter</button>' +
+            '<button type="button" class="sg-btn sg-btn-ok" data-traj-enregistrer="' + t.id + '">Enregistrer</button>' +
+            '<button type="button" class="sg-btn" data-traj-annuler="1">Annuler</button>' +
+          '</div></div>';
+      }
+      return '<div class="sg-traj' + (ouvert ? ' ouvert' : '') + '">' +
+        '<div class="sg-ligne">' +
+          '<i class="fas fa-route sg-ligne-ico"></i>' +
+          '<span class="sg-ligne-nom"><b>' + esc(t.source) + ' <i class="fas fa-arrow-right sg-traj-fleche"></i> ' + esc(t.dumping_area) + '</b>' +
+            '<span class="sg-cp-suite">' + puces + '</span></span>' +
+          '<button type="button" class="sg-ico-btn" data-traj-edit="' + t.id + '" title="Modifier l\'ordre des checkpoints"><i class="fas fa-pen"></i></button>' +
+          '<button type="button" class="sg-ico-btn danger" data-traj-del="' + t.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+        '</div>' + editeur + '</div>';
+    }).join('');
+  }
+
+  async function chargerTrajectoires() {
+    if (!$('#sgTrajList')) return;
+    try {
+      trajectoires = (await jsend('/api/trajectoires', 'GET')).trajectoires || [];
+      tousCheckpoints = (await jsend('/api/checkpoints', 'GET')).checkpoints || [];
+      rendreTrajectoires();
+    } catch (e) {
+      setStatus('#sgTrajStatus', 'Trajectoires injoignables (' + e.message + ')', false);
+    }
+  }
+
+  function remplirFormTrajectoire() {
+    const ss = $('#sgTrajSource'), sd = $('#sgTrajDa');
+    if (ss) ss.innerHTML = sources.map((x) => '<option value="' + x.id + '">' + esc(x.nom) + '</option>').join('');
+    if (sd) sd.innerHTML = dumpingAreas.map((z) => '<option value="' + z.id + '">' + esc(z.nom) + '</option>').join('');
+  }
+
+  async function creerTrajectoire(e) {
+    e.preventDefault();
+    try {
+      const d = await jsend('/api/trajectoires', 'POST', {
+        source_id: Number($('#sgTrajSource').value), dumping_area_id: Number($('#sgTrajDa').value) });
+      $('#sgTrajForm').style.display = 'none';
+      await chargerTrajectoires();
+      trajEdition = { id: d.id, ids: [] };      // ouvre l'editeur : on ajoute aussitot les checkpoints
+      rendreTrajectoires();
+    } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
+  }
+
+  async function enregistrerTrajectoire(id) {
+    try {
+      await jsend('/api/trajectoire_checkpoints', 'POST', { id: id, checkpoints: trajEdition.ids });
+      trajEdition = null;
+      await chargerTrajectoires();
+      await synchroniserSG();
+    } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
+  }
+
+  /* ---- Carte « Equipe de service » : l'equipe du shift en cours et ses membres ----
+   * Choix fait dans l'onglet Equipes (params equipe_jour / equipe_nuit) ; meme regle que Home. */
+  async function rendreResumeService() {
+    const titre = $('#sgServiceTitre'), box = $('#sgServiceMembres');
+    if (!titre || typeof API === 'undefined') return;
+    try {
+      const [cfg, ident] = await Promise.all([API.getConfig(), API.getRows('sync_identifiants')]);
+      const p = (cfg && (cfg.params || cfg)) || {};
+      const rows = ((ident && ident.rows) || []).filter((r) => r.profil === 'SPOT');
+      const nbEquipes = new Set(rows.filter((r) => r.actif === 1).map((r) => r.equipe).filter(Boolean)).size;
+      const tab = $('#sgTabEquipes');
+      if (tab) tab.textContent = deuxN(nbEquipes);
+      const h = new Date().getHours();
+      const jour = h >= 6 && h < 18;
+      const code = jour ? (p.equipe_jour || '') : (p.equipe_nuit || '');
+      const shift = jour ? 'jour' : 'nuit';
+      if (!code) {
+        titre.textContent = 'Non définie';
+        box.innerHTML = '<span class="sg-service-vide">Shift de ' + shift + '</span>';
+        return;
+      }
+      const membres = rows.filter((r) => r.equipe === code && r.actif === 1)
+        .sort((a, b) => (String(b.role).toUpperCase() === 'CHEF_EQUIPE') - (String(a.role).toUpperCase() === 'CHEF_EQUIPE'));
+      titre.textContent = 'Équipe ' + code + ' · ' + shift;
+      box.innerHTML = membres.length ? membres.map((m) =>
+        '<span class="sg-service-membre' + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' chef' : '') + '">' +
+        esc(m.nom || m.identifiant) + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' · chef' : '') + '</span>').join('')
+        : '<span class="sg-service-vide">Aucun membre actif</span>';
+    } catch (e) {
+      titre.textContent = '--';
+      box.innerHTML = '<span class="sg-service-vide">Connexion requise</span>';
+    }
+  }
+
   async function chargerSources() {
     try {
       const d = await jsend('/api/sources', 'GET');
@@ -124,6 +318,8 @@
       if (prev) prev.disabled = !plusieurs;
       if (next) next.disabled = !plusieurs;
     });
+    rendreEntete();
+    rendreListeSources();
     // codes de source admis (garde-fou blasts) : pre-remplir le champ
     const codesEl = $('#sgSrcCodes');
     if (codesEl) codesEl.value = s ? (s.codes || '') : '';
@@ -148,28 +344,71 @@
    * Appelee aussi depuis chargerZones() : au demarrage les teneurs peuvent
    * arriver avant la liste des Dumping Areas, et le nom manquerait.
    */
+  // Couleur d'une famille : js/couleurs.js (grade du 1er code de bloc, ou couleur propre de la famille).
+  window.addEventListener('couleurs:pret', () => { rendreChipsInstruction(); rendreListeAires(); rendreListeSources(); chargerTeneurs(); });
+  const premierCode = (t) => String(t.codes || '').split(/[,\s;]+/).filter(Boolean)[0] || '';
+
+  /**
+   * Liste « Consignes de déchargement » (onglet Consignes) : une ligne par famille de teneur
+   * (code du nom de bloc, plage d'admission, aire de déchargement). Un clic ouvre la popup
+   * d'affectation. Appelée aussi depuis chargerZones() : au démarrage les teneurs peuvent
+   * arriver avant la liste des dumping areas.
+   */
   function rendreChipsInstruction() {
-    const rowDi = $('#sgDiTeneursRow');
-    if (!rowDi) return;
-    rowDi.innerHTML = teneurs.map((t) => {
+    const box = $('#sgConsignes');
+    if (!box) return;
+    const fmt = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+    box.innerHTML = teneurs.length ? teneurs.map((t) => {
       const da = dumpingAreas.find((z) => z.id === t.dumping_area_id);
-      const libelle = da ? esc(t.nom) + ' → ' + esc(da.nom) : esc(t.nom);
-      const infobulle = t.dumping_area_id
-        ? (da ? 'Consigne : ' + da.nom + ' - cliquer pour modifier'
-              : 'Dumping Area affectee - cliquer pour modifier')
-        : 'Aucune Dumping Area - cliquer pour affecter';
-      return '<button type="button" class="sg2-outline sg2-chip' +
-        (t.dumping_area_id ? '' : ' sg2-warn') +
-        '" data-teneur-assign="' + t.id + '" title="' + esc(infobulle) + '">' +
-        libelle + '</button>';
-    }).join('');
+      const code = premierCode(t);
+      const bloc = '<div class="sg-cons-fam"><span class="sg-cons-code">' + esc(code || '?') + '</span>' +
+        '<div><b>' + esc(t.nom) + '</b><small>' + (t.codes ? 'Code de bloc : ' + esc(String(t.codes).trim()) : 'Aucun code de bloc') + '</small></div></div>';
+      const plage = '<span class="sg-cons-plage">' + fmt(t.valeur_min) + ' – ' + fmt(t.valeur_max) + ' %</span>';
+      const aire = da
+        ? '<button type="button" class="sg-cons-aire" data-teneur-assign="' + t.id + '" title="Cliquer pour modifier">' +
+          '<i class="far fa-square-full"></i><span><b>' + esc(da.nom) + '</b><small>Aire polygonale affectée</small></span><i class="fas fa-chevron-down"></i></button>'
+        : '<button type="button" class="sg-cons-aire manquante" data-teneur-assign="' + t.id + '" title="Cliquer pour affecter">' +
+          '<i class="fas fa-triangle-exclamation"></i><span><b>Affecter une aire</b><small>Obligatoire pour cette famille</small></span><i class="fas fa-arrow-right"></i></button>';
+      return '<div class="sg-cons-row' + (da ? '' : ' manquante') + '" style="--fam:' + (window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a') + '">' + bloc + plage + '<i class="fas fa-arrow-right sg-cons-fleche"></i>' + aire + '</div>';
+    }).join('') : '<div class="sg2-di-empty">Aucune famille de teneur pour cette source.</div>';
+
+    const manquantes = teneurs.filter((t) => !t.dumping_area_id).length;
+    const prog = $('#sgDiProgress');
+    if (prog) prog.textContent = teneurs.length
+      ? (teneurs.length - manquantes) + ' famille' + (teneurs.length - manquantes > 1 ? 's' : '') + ' affectée' + (teneurs.length - manquantes > 1 ? 's' : '') + ' sur ' + teneurs.length
+      : '';
+    const fill = $('#sgProgressFill');
+    if (fill) fill.style.width = teneurs.length ? Math.round((teneurs.length - manquantes) / teneurs.length * 100) + '%' : '0';
     const statusDi = $('#sgDiStatus');
     if (statusDi) {
-      const manquantes = teneurs.filter((t) => !t.dumping_area_id).length;
       statusDi.textContent = manquantes
         ? manquantes + ' teneur' + (manquantes > 1 ? 's' : '') + ' sans Dumping Area' : '';
       statusDi.className = 'sg2-status account-status' + (manquantes ? ' err' : '');
     }
+    rendreEntete();
+  }
+
+  // En-tete : rang de la source, compteurs, pastille du systeme geographique, onglets (tout calcule)
+  let nbPistes = null;
+  function rendreEntete() {
+    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    const deux = (n) => String(n).padStart(2, '0');
+    const idx = sources.findIndex((x) => x.id === sourceSelectionnee);
+    set('#sgSourceRang', idx >= 0 ? deux(idx + 1) : '--');
+    set('#sgStatFamilles', deux(teneurs.length));
+    set('#sgStatAires', deux(dumpingAreas.length));
+    set('#sgStatPistes', nbPistes === null ? '--' : deux(nbPistes));
+    set('#sgTabConsignes', deux(teneurs.length));
+    set('#sgTabSources', deux(sources.length));
+    set('#sgTabAires', deux(dumpingAreas.length));
+    set('#sgTabTrails', nbPistes === null ? '--' : deux(nbPistes));
+    const s = sources.find((x) => x.id === sourceSelectionnee);
+    const codes = s && s.codes ? String(s.codes).trim() : '';
+    set('#sgInfoCodes', codes
+      ? 'Le code ' + codes + ' doit appartenir à ' + s.nom + ' avant toute affectation.'
+      : 'Aucun code admis pour cette source : le contrôle du nom de bloc est désactivé.');
+    const n = new Date();
+    set('#sgMaj', 'Données lues à ' + deux(n.getHours()) + ':' + deux(n.getMinutes()));
   }
 
   async function chargerTeneurs() {
@@ -187,10 +426,15 @@
       teneurs = d.teneurs || [];
       if (teneurSelectionnee && !teneurs.some((t) => t.id === teneurSelectionnee)) teneurSelectionnee = null;
       if (row) {
-        row.innerHTML = teneurs.map((t) =>
-          '<button type="button" class="sg2-outline sg2-chip' + (t.id === teneurSelectionnee ? ' sel' : '') +
-          '" data-teneur="' + t.id + '">' + esc(t.nom) + '</button>').join('') +
-          '<button type="button" class="sg2-outline" id="sgBtnTeneurAdd" title="Ajouter une teneur">+</button>';
+        const fmt = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+        row.innerHTML = teneurs.length ? teneurs.map((t) =>
+          '<div class="sg-ligne">' +
+            '<span class="sg-fam-puce" style="--fam:' + couleurFamille(t) + '"></span>' +
+            '<span class="sg-ligne-nom"><b>' + esc(t.nom) + '</b><small>' + (t.codes ? 'Codes de bloc : ' + esc(String(t.codes).trim()) : 'Aucun code de bloc') + '</small></span>' +
+            '<span class="sg-ligne-meta">' + fmt(t.valeur_min) + ' – ' + fmt(t.valeur_max) + ' %</span>' +
+            '<button type="button" class="sg-ico-btn" data-teneur-edit="' + t.id + '" title="Modifier"><i class="fas fa-pen"></i></button>' +
+            '<button type="button" class="sg-ico-btn danger" data-teneur-del="' + t.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+          '</div>').join('') : '<div class="sg-vide">Aucune famille de teneur pour cette source.</div>';
       }
       rendreChipsInstruction();
       rendreDetailTeneur();
@@ -266,6 +510,9 @@
     $('#sgNewTeneurMin').value = t ? t.valeur_min : '';
     $('#sgNewTeneurMax').value = t ? t.valeur_max : '';
     $('#sgNewTeneurCodes').value = t ? (t.codes || '') : '';
+    const propre = t && /^#[0-9a-f]{6}$/i.test(t.couleur || '');
+    $('#sgNewTeneurAuto').checked = !propre;
+    $('#sgNewTeneurCouleur').value = propre ? t.couleur : (t && window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a');
     const bouton = $('#sgTeneurSubmit');
     if (bouton) bouton.textContent = t ? 'Modifier' : 'Enregistrer';
     form.style.display = '';
@@ -281,6 +528,7 @@
     $('#sgNewTeneurMin').value = '';
     $('#sgNewTeneurMax').value = '';
     $('#sgNewTeneurCodes').value = '';
+    $('#sgNewTeneurAuto').checked = true;
     const bouton = $('#sgTeneurSubmit');
     if (bouton) bouton.textContent = 'Enregistrer';
   }
@@ -294,20 +542,23 @@
     let valeurMin = parseFloat(String($('#sgNewTeneurMin').value || '').replace(',', '.')) || 0;
     let valeurMax = parseFloat(String($('#sgNewTeneurMax').value || '').replace(',', '.')) || 0;
     const codes = ($('#sgNewTeneurCodes').value || '').trim();
+    // couleur propre a la famille ; vide = couleur de son grade (voir js/couleurs.js)
+    const couleur = $('#sgNewTeneurAuto').checked ? '' : ($('#sgNewTeneurCouleur').value || '');
     if (!nom) return;
     if (valeurMin > valeurMax) { const t = valeurMin; valeurMin = valeurMax; valeurMax = t; }
     try {
       if (idEdit) {
         await jsend('/api/teneur_maj', 'POST', {
           id: Number(idEdit), nom: nom, valeur_min: valeurMin,
-          valeur_max: valeurMax, codes: codes,
+          valeur_max: valeurMax, codes: codes, couleur: couleur,
         });
       } else {
         await jsend('/api/teneurs', 'POST', {
           source_id: sourceSelectionnee, nom: nom, valeur_min: valeurMin,
-          valeur_max: valeurMax, codes: codes,
+          valeur_max: valeurMax, codes: codes, couleur: couleur,
         });
       }
+      if (window.OTCouleurs) await OTCouleurs.recharger();
       fermerFormTeneur();
       await chargerTeneurs();
       setStatus('#sgDestStatus', idEdit ? 'Teneur modifiee' : 'Teneur ajoutee', true);
@@ -421,6 +672,9 @@
     try {
       const d = await jsend('/api/teneurs', 'GET');
       const tous = d.teneurs || [];
+      toutesTeneurs = tous;
+      rendreListeSources();
+      rendreListeAires();
       if (!tous.length) {
         box.innerHTML = '<div class="sg2-di-empty">Aucune teneur enregistree</div>';
         if (compteur) compteur.textContent = '';
@@ -463,15 +717,13 @@
       const d = await jsend('/api/dumping_areas', 'GET');
       dumpingAreas = d.dumping_areas || [];
       if (daSelectionnee && !dumpingAreas.some((z) => z.id === daSelectionnee)) daSelectionnee = null;
-      row.innerHTML = dumpingAreas.map((z) =>
-        '<button type="button" class="sg2-outline sg2-chip' + (z.id === daSelectionnee ? ' sel' : '') +
-        '" data-da="' + z.id + '">' + esc(z.nom) + '</button>').join('') +
-        '<button type="button" class="btn-add-account" id="sgBtnDaAdd" title="Ajouter une dumping area">+</button>';
+      rendreListeAires();
       rendreDetailDA();
       // Les pastilles de Dumping Instruction affichent le nom de la DA ; elles
       // ont pu etre dessinees avant que cette liste arrive (chargements
       // paralleles au demarrage). On les redessine une fois les noms connus.
       if (teneurs.length) rendreChipsInstruction();
+      rendreEntete();
       await chargerResumeDI();
     } catch (e) {
       setStatus('#sgDaStatus', 'Serveur SG injoignable (' + e.message + ')', false);
@@ -598,18 +850,18 @@
   /* ======================= CARTE 3 : TRAILS (GeoTiff) ==================== */
 
   function renderRoads(rows) {
+    nbPistes = (rows || []).length;
+    rendreEntete();
     const b = $('#sgRoadsList');
     if (!b) return;
-    if (!rows || !rows.length) { b.innerHTML = ''; return; }
+    if (!rows || !rows.length) { b.innerHTML = '<div class="sg-vide">Aucune piste importée.</div>'; return; }
     b.innerHTML = rows.map((r) => {
-      const meta = r.type === 'geotiff'
-        ? 'GeoTiff - le ' + esc((r.created_at || '').slice(0, 16))
-        : 'GeoJSON - le ' + esc((r.created_at || '').slice(0, 16));
-      return '<div class="sg2-road-item">' +
-        '<i class="fas fa-route"></i>' +
-        '<span class="sg2-road-nom">' + esc(r.nom) + '</span>' +
-        '<span class="sg2-road-meta">' + meta + '</span>' +
-        '<button type="button" class="sg2-x" data-road-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+      const meta = (r.type === 'geotiff' ? 'GeoTiff' : 'GeoJSON') + ' · ' + esc((r.created_at || '').slice(0, 16));
+      return '<div class="sg-ligne">' +
+        '<i class="fas fa-route sg-ligne-ico"></i>' +
+        '<span class="sg-ligne-nom"><b>' + esc(r.nom) + '</b></span>' +
+        '<span class="sg-ligne-meta">' + meta + '</span>' +
+        '<button type="button" class="sg-ico-btn danger" data-road-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
       '</div>';
     }).join('');
   }
@@ -666,6 +918,101 @@
     }
   }
 
+  /* ======================= CARTE : CHECKPOINTS ========================== */
+  // Une ligne de passage = deux extremites. Le CSV (Y, X, id, Nom ; deux
+  // lignes par Nom) est lu et converti en UTM par la passerelle
+  // (/api/checkpoints_import), meme regle que les dumping areas.
+
+  function renderCheckpoints(rows) {
+    const b = $('#sgChkList');
+    if (!b) return;
+    const cpt = $('#sgChkCompte');
+    if (cpt) cpt.textContent = rows && rows.length ? '· ' + deuxN(rows.length) : '';
+    if (!rows || !rows.length) {
+      b.innerHTML = '<div class="sg-vide">Aucun checkpoint.</div>';
+      return;
+    }
+    b.innerHTML = rows.map((r) =>
+      '<div class="sg-ligne">' +
+        '<i class="fas fa-flag-checkered sg-ligne-ico"></i>' +
+        '<span class="sg-ligne-nom"><b title="' + esc(r.nom) + '">' + esc(r.nom) + '</b></span>' +
+        '<span class="sg-ligne-meta" title="(' + coord(r.x1) + ', ' + coord(r.y1) + ') - (' +
+          coord(r.x2) + ', ' + coord(r.y2) + ')">' + esc(String(r.longueur_m)) + ' m</span>' +
+        '<button type="button" class="sg-ico-btn danger" data-chk-del="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+      '</div>').join('');
+  }
+
+  async function chargerCheckpoints() {
+    try {
+      const d = await jsend('/api/checkpoints', 'GET');
+      renderCheckpoints(d.checkpoints || []);
+      chargerTrajectoires();
+    } catch (e) {
+      const b = $('#sgChkList');
+      if (b) b.innerHTML = '<div class="sg-vide">Passerelle injoignable.</div>';
+    }
+  }
+
+  // Le detail (rejets) reste affiche : setStatus s'efface en 4 s, trop court
+  // pour lire la liste des checkpoints refuses.
+  function detailCheckpoints(texte, ok) {
+    const el = $('#sgChkDetail');
+    if (!el) return;
+    el.textContent = texte || '';
+    el.className = 'sg2-detail' + (texte ? (ok ? ' ok' : ' err') : '');
+  }
+
+  function importCheckpointsCSV(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      detailCheckpoints('', true);
+      try {
+        const r = await fetch(base() + '/api/checkpoints_import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contenu: String(e.target.result) }),
+        });
+        const d = await r.json().catch(() => ({}));
+        const rejets = (d.rejets || []).map((x) => x.nom + ' (' + x.motif + ')');
+        if (!r.ok) {
+          setStatus('#sgChkStatus', 'Import refuse : ' + (d.error || ('HTTP ' + r.status)), false);
+          if (rejets.length) detailCheckpoints('Refuses : ' + rejets.join(', '), false);
+          return;
+        }
+        const n = (d.crees || []).length, m = (d.mis_a_jour || []).length;
+        setStatus('#sgChkStatus', n + ' checkpoint(s) ajoute(s), ' + m + ' mis a jour' +
+          (d.convertis_utm ? ' (degres convertis en UTM)' : ''), true);
+        detailCheckpoints(rejets.length ? 'Refuses : ' + rejets.join(', ') : '', !rejets.length);
+        await chargerCheckpoints();
+      } catch (err) {
+        setStatus('#sgChkStatus', 'Erreur CSV : ' + err.message, false);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function supprimerCheckpoint(id) {
+    if (!await confirmerPopup('Supprimer ce checkpoint ?')) return;
+    try {
+      await jsend('/api/checkpoints?id=' + encodeURIComponent(id), 'DELETE');
+      setStatus('#sgChkStatus', 'Checkpoint supprime', true);
+      await chargerCheckpoints();
+    } catch (e) {
+      setStatus('#sgChkStatus', 'Suppression impossible : ' + (e.message || 'erreur'), false);
+    }
+  }
+
+  async function supprimerTousCheckpoints() {
+    if (!await confirmerPopup('Supprimer TOUS les checkpoints ?')) return;
+    try {
+      const d = await jsend('/api/checkpoints?tous=1', 'DELETE');
+      setStatus('#sgChkStatus', d.supprimes + ' checkpoint(s) supprime(s)', true);
+      detailCheckpoints('', true);
+      await chargerCheckpoints();
+    } catch (e) {
+      setStatus('#sgChkStatus', 'Suppression impossible : ' + (e.message || 'erreur'), false);
+    }
+  }
+
   /* =================== CARTE 4 : GEOGRAPHIC SYSTEM ==================== */
 
   let geoActuel = null; // { systeme, zone, hemisphere, datum }
@@ -683,6 +1030,9 @@
     }
     det.classList.add('show');
     det.innerHTML = '<span><b>' + libelle + '</b></span>';
+    const pill = $('#sgGeoPill');
+    if (pill) pill.textContent = geoActuel.systeme === 'UTM'
+      ? 'WGS84 · UTM ' + geoActuel.zone + (geoActuel.hemisphere || 'N') : 'WGS84';
   }
 
   async function chargerGeo() {
@@ -749,7 +1099,66 @@
   function init() {
     if (!$('#sgSourceLabel')) return; // pas sur cette page
 
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
+      // trajectoires : edition de l'ordre des checkpoints
+      const tEd = e.target.closest('[data-traj-edit]');
+      if (tEd) {
+        const t = trajectoires.find((x) => x.id === Number(tEd.dataset.trajEdit));
+        trajEdition = t ? { id: t.id, ids: t.checkpoints.map((c) => c.id) } : null;
+        rendreTrajectoires();
+        return;
+      }
+      if (trajEdition) {
+        const haut = e.target.closest('[data-traj-haut]');
+        const bas = e.target.closest('[data-traj-bas]');
+        const ret = e.target.closest('[data-traj-retirer]');
+        const ids = trajEdition.ids;
+        if (haut) { const i = Number(haut.dataset.trajHaut); [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; rendreTrajectoires(); return; }
+        if (bas) { const i = Number(bas.dataset.trajBas); [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]]; rendreTrajectoires(); return; }
+        if (ret) { ids.splice(Number(ret.dataset.trajRetirer), 1); rendreTrajectoires(); return; }
+        if (e.target.closest('[data-traj-ajouter]')) {
+          const v = Number(($('#sgTrajAjoutSel') || {}).value);
+          if (v) { ids.push(v); rendreTrajectoires(); }
+          return;
+        }
+        const enr = e.target.closest('[data-traj-enregistrer]');
+        if (enr) { enregistrerTrajectoire(Number(enr.dataset.trajEnregistrer)); return; }
+        if (e.target.closest('[data-traj-annuler]')) { trajEdition = null; rendreTrajectoires(); return; }
+      }
+      const tSup = e.target.closest('[data-traj-del]');
+      if (tSup) {
+        const t = trajectoires.find((x) => x.id === Number(tSup.dataset.trajDel));
+        if (t && await confirmerPopup('Supprimer la trajectoire ' + t.source + ' → ' + t.dumping_area + ' ?')) {
+          try {
+            await jsend('/api/trajectoires?id=' + t.id, 'DELETE');
+            if (trajEdition && trajEdition.id === t.id) trajEdition = null;
+            await chargerTrajectoires();
+            await synchroniserSG();
+          } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
+        }
+        return;
+      }
+      // source : activer
+      const srcSel = e.target.closest('[data-src-select]');
+      if (srcSel) {
+        sourceSelectionnee = Number(srcSel.dataset.srcSelect);
+        teneurSelectionnee = null;
+        rendreSourceLabel();
+        chargerTeneurs();
+        return;
+      }
+      // famille : modifier / supprimer depuis la ligne
+      const tEdit = e.target.closest('[data-teneur-edit]');
+      if (tEdit) { ouvrirFormTeneur(teneurs.find((x) => x.id === Number(tEdit.dataset.teneurEdit)) || null); return; }
+      const tDel = e.target.closest('[data-teneur-del]');
+      if (tDel) { teneurSelectionnee = Number(tDel.dataset.teneurDel); supprimerTeneur(); return; }
+      // aire : modifier depuis la ligne
+      const daEdit = e.target.closest('[data-da-edit]');
+      if (daEdit) {
+        const z = dumpingAreas.find((x) => x.id === Number(daEdit.dataset.daEdit));
+        if (z) { daSelectionnee = z.id; ouvrirFormDA(z); }
+        return;
+      }
       // teneur : selection
       const chipT = e.target.closest('[data-teneur]');
       if (chipT) {
@@ -855,6 +1264,24 @@
       });
     }
 
+    // checkpoints
+    const btnChk = $('#btnSgImportChk');
+    const chkInput = $('#sgChkFileInput');
+    if (btnChk && chkInput) {
+      btnChk.addEventListener('click', () => chkInput.click());
+      chkInput.addEventListener('change', () => {
+        if (chkInput.files[0]) importCheckpointsCSV(chkInput.files[0]);
+        chkInput.value = '';
+      });
+    }
+    const chkTout = $('#btnSgChkToutSuppr');
+    if (chkTout) chkTout.addEventListener('click', supprimerTousCheckpoints);
+    const chkList = $('#sgChkList');
+    if (chkList) chkList.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-chk-del]');
+      if (b) supprimerCheckpoint(b.getAttribute('data-chk-del'));
+    });
+
     // trails / geotiff
     const btnRoad = $('#sgBtnRoadUpload');
     const roadInput = $('#sgRoadInput');
@@ -881,8 +1308,69 @@
       r.addEventListener('change', majVisibiliteUtm);
     });
 
+    // choisir une couleur = ne plus etre en « Auto » (sinon la couleur etait ignoree a l'enregistrement)
+    const selCouleur = $('#sgNewTeneurCouleur');
+    if (selCouleur) selCouleur.addEventListener('input', () => { $('#sgNewTeneurAuto').checked = false; });
+
+    // trajectoires : formulaire d'ajout
+    const btnTraj = $('#sgBtnTrajAdd');
+    if (btnTraj) btnTraj.addEventListener('click', () => {
+      remplirFormTrajectoire();
+      const f = $('#sgTrajForm');
+      f.style.display = f.style.display === 'none' ? '' : 'none';
+    });
+    const formTraj = $('#sgTrajForm');
+    if (formTraj) formTraj.addEventListener('submit', creerTrajectoire);
+    const annulTraj = $('#sgTrajCancel');
+    if (annulTraj) annulTraj.addEventListener('click', () => { $('#sgTrajForm').style.display = 'none'; });
+
+    // equipes : formulaire d'ajout + bouton « Gerer » de la carte de service
+    const btnEq = $('#sgBtnEquipeAdd');
+    if (btnEq) btnEq.addEventListener('click', () => {
+      const f = $('#teamAddForm');
+      f.style.display = f.style.display === 'none' ? '' : 'none';
+    });
+    const annulEq = $('#sgEquipeCancel');
+    if (annulEq) annulEq.addEventListener('click', () => { $('#teamAddForm').style.display = 'none'; });
+    ['#equipeJour', '#equipeNuit'].forEach((sel) => {
+      const el = $(sel);
+      if (el) el.addEventListener('change', () => setTimeout(rendreResumeService, 800));
+    });
+    rendreResumeService();
+    setInterval(() => { if (!document.hidden) rendreResumeService(); }, 60000);
+
+    // onglets
+    const tabs = document.querySelectorAll('.sg-tab');
+    const ouvrirOnglet = (nom) => {
+      tabs.forEach((t) => t.classList.toggle('is-active', t.dataset.sgtab === nom));
+      document.querySelectorAll('.sg-pane').forEach((p) => {
+        const actif = p.dataset.sgpane === nom;
+        p.hidden = !actif;
+        p.classList.toggle('is-active', actif);
+      });
+    };
+    tabs.forEach((t) => t.addEventListener('click', () => ouvrirOnglet(t.dataset.sgtab)));
+    const btnGerer = $('#sgGererEquipes');
+    if (btnGerer) btnGerer.addEventListener('click', () => ouvrirOnglet('equipes'));
+    // « Nouvelle source » : onglet Sources & teneurs + ouverture du formulaire d'ajout
+    const btnNouvelle = $('#sgBtnNouvelleSource');
+    if (btnNouvelle) btnNouvelle.addEventListener('click', () => {
+      ouvrirOnglet('sources');
+      const form = $('#sgSrcAddForm');
+      if (form && form.style.display === 'none') $('#sgBtnSrcAdd').click();
+      else if ($('#sgNewSource')) $('#sgNewSource').focus();
+    });
+    // « Voir le resume » : resume des consignes de toutes les sources
+    const btnResume = $('#sgVoirResume');
+    if (btnResume) btnResume.addEventListener('click', () => {
+      const r = $('#sgResume');
+      if (r) r.hidden = !r.hidden;
+    });
+
     chargerSources();
     chargerZones();
+    chargerCheckpoints();
+    chargerTrajectoires();
     chargerRoads();
     chargerGeo();
     demarrerSuivi();
@@ -923,7 +1411,51 @@
   /* ---- Canal A : declaration du minage par le spotter ----
    * Le spotter sait quelles pelles chargent : deux listes (pelle / bloc)
    * et un bouton. La declaration est fraiche 30 min (timeout serveur). */
+  /* ---- Minages en cours : TOUS, une ligne par pelle, avec la source de l'information ----
+   * DT (automatique, la plus fiable) > spotter (secours, quand son app est dans le reseau) > bureau
+   * (formulaire de secours). Seuls les minages declares a la main peuvent etre arretes ici. */
+  const ORIGINE_LIBELLE = { dt: 'DT · auto', spotter: 'Spotter', bureau: 'Bureau' };
+
+  async function chargerMinages() {
+    const box = $('#sgMinagesListe');
+    if (!box) return;
+    try {
+      const r = await fetch(base().replace(/\/$/, '') + '/api/minages', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const liste = (await r.json()).minages || [];
+      box.innerHTML = liste.length ? liste.map((m) =>
+        '<div class="sg-minage">' +
+          '<span class="sg-minage-pelle">' + esc(m.exca_code) + '</span>' +
+          '<span class="sg-minage-bloc">' + esc(m.bloc || ('#' + m.orebloc_id)) + (m.matiere === 'waste' ? ' <em class="sg-minage-waste">stérile</em>' : '') + '</span>' +
+          '<span class="sg-minage-origine o-' + esc(m.origine) + '">' + esc(ORIGINE_LIBELLE[m.origine] || m.origine) + '</span>' +
+          (m.origine === 'dt' ? '' :
+            '<button type="button" class="sg-minage-stop" data-minage-stop="' + esc(m.exca_code) + '" title="Arrêter ce minage"><i class="fas fa-stop"></i></button>') +
+        '</div>').join('') : '<div class="member-empty">Aucun minage en cours.</div>';
+    } catch (e) {
+      box.innerHTML = '<div class="member-empty">Minages indisponibles (' + esc(e.message) + ')</div>';
+    }
+  }
+
+  async function arreterMinage(exca) {
+    try {
+      const r = await fetch(base().replace(/\/$/, '') + '/api/minage_declare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exca_code: exca, stop: true }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      Splash.succes('Minage arrêté', exca);
+    } catch (e) { Splash.erreur('Arrêt impossible', e.message); }
+    chargerMinages();
+  }
+
   async function initMinageUI() {
+    chargerMinages();
+    setInterval(() => { if (!document.hidden) chargerMinages(); }, 5000);
+    const listeMin = $('#sgMinagesListe');
+    if (listeMin) listeMin.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-minage-stop]');
+      if (b) arreterMinage(b.dataset.minageStop);
+    });
     const selExca = $('#sgMinageExca');
     const selBloc = $('#sgMinageBloc');
     if (!selExca || !selBloc) return;
@@ -959,11 +1491,12 @@
         const r = await fetch(base().replace(/\/$/, '') + '/api/minage_declare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ exca_code: exca, orebloc_id: Number(bloc) }),
+          body: JSON.stringify({ exca_code: exca, orebloc_id: Number(bloc), origine: 'bureau' }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
         Splash.succes('Minage declare', exca + ' sur bloc #' + bloc);
+        chargerMinages();
         if (etat) { etat.textContent = 'Minage declare : ' + exca + ' sur bloc #' + bloc; etat.className = 'suivi-minage-etat ok'; }
       } catch (err) {
         Splash.erreur('Declaration refusee', err.message);
@@ -1003,6 +1536,22 @@
           '</div>';
         }).join('');
       }
+    }
+
+    const enCoursN = etat.missions.filter((m) => m.statut === 'en_cours').length;
+    const sm = $('#sgStatMissions');
+    if (sm) sm.textContent = String(enCoursN).padStart(2, '0');
+    const aujourdhuiT = new Date().toISOString().slice(0, 10);
+    const tonnesJour = etat.voyages
+      .filter((v) => String(v.created_at || '').slice(0, 10) === aujourdhuiT)
+      .reduce((t, v) => t + (v.volume_t || 0), 0);
+    const st = $('#sgStatTonnes');
+    if (st) st.textContent = Math.round(tonnesJour).toLocaleString('fr-FR');
+    const derniere = etat.alertes.find((a) => !MSUI.estInfo(a)) || etat.alertes[0];
+    const boxD = $('#sgDerniereAlerte');
+    if (boxD) {
+      boxD.hidden = !derniere;
+      if (derniere) $('#sgDerniereAlerteTxt').textContent = MSUI.heure(derniere.created_at) + ' · ' + String(derniere.message || '');
     }
 
     const boxA = $('#sgSuiviAlertes');

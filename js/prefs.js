@@ -20,7 +20,6 @@
     reducedMotion: false,
     theme: 'dark',
     animations: true,
-    modeSim: true,
     refresh: 5
   };
 

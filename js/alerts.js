@@ -16,6 +16,8 @@
     retour_piste: 'Retour sur piste',
     non_conforme: 'Dumping non conforme',
     fin_mission: 'Fin de mission',
+    blast_rejete: 'Blast refuse',
+    checkpoint: 'Checkpoint saute',
     arrivee: 'Arrivee DA',
     mission: 'Nouvelle mission',
   };
@@ -26,6 +28,8 @@
   let filtreDt = '';
   let filtreType = '';
   let seulementNonVues = true;
+  let filtrePeriode = '';
+  let filtreDate = '';
 
   function passerelle() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
@@ -40,6 +44,69 @@
     }).catch(() => { });
   }
 
+  const deux = (n) => String(n).padStart(2, '0');
+  const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août',
+    'septembre', 'octobre', 'novembre', 'décembre'];
+  const ms = (a) => new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
+
+  // Journee d'exploitation : 06 h - 06 h (comme le tonnage de Home)
+  function debutJourMs() {
+    const d = new Date();
+    if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+    d.setHours(6, 0, 0, 0);
+    return d.getTime();
+  }
+
+  // Compteurs de la rangee, pied de tableau et date : calcules sur les vraies alertes
+  function rendreCompteurs(etat, affichees) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const seuilMs = (etat.seuilRougeMin || 10) * 60000;
+    const debut = debutJourMs();
+    const jour = (etat.alertes || []).filter((a) => ms(a) >= debut);
+    const nonVues = jour.filter((a) => !a.acquittee && !TYPES_INFO[a.type]);
+    const enRetard = nonVues.filter((a) => Date.now() - ms(a) > seuilMs);
+    set('rCountTotal', deux(jour.length));
+    set('rCountUnseen', deux(nonVues.length));
+    set('rCountLate', deux(enRetard.length));
+    set('rCountLateLabel', 'au-delà de ' + (etat.seuilRougeMin || 10) + ' min');
+    const n = new Date();
+    set('rCounterDate', n.getDate() + ' ' + MOIS[n.getMonth()] + ' ' + n.getFullYear() + ' · ' + deux(n.getHours()) + ':' + deux(n.getMinutes()));
+    const aVoir = affichees.filter((a) => !a.acquittee && !TYPES_INFO[a.type]).length;
+    set('alertsFootLeft', affichees.length + (affichees.length > 1 ? ' événements · ' : ' événement · ') +
+      aVoir + ' non vus · ' + (affichees.length - aVoir) + ' vus ou informatifs');
+    set('alertsFootSeuil', 'Seuil d’alerte rouge : ' + (etat.seuilRougeMin || 10) + ' minutes · configurable dans Settings');
+  }
+
+  // Fenetre [debut, fin[ en ms selon la periode choisie (journee d'exploitation 06 h - 06 h)
+  function fenetre() {
+    const j = 86400000;
+    const d0 = debutJourMs();
+    if (filtrePeriode === 'jour') return [d0, d0 + j];
+    if (filtrePeriode === 'hier') return [d0 - j, d0];
+    if (filtrePeriode === '7j') return [d0 - 6 * j, d0 + j];
+    if (filtrePeriode === 'date' && filtreDate) {
+      const p = filtreDate.split('-').map(Number);
+      const d = new Date(p[0], p[1] - 1, p[2], 6, 0, 0, 0).getTime();
+      return [d, d + j];
+    }
+    return null;
+  }
+
+  // Cycle de vie (offroad / deviation) : ouverte -> le DT est revenu (retour_le) -> cloturee quand l'Office l'a aussi vue
+  const AVEC_CYCLE = { offroad: 1, deviation: 1, checkpoint: 1 };
+  function dureeCourte(s) {
+    s = Math.max(0, Math.round(Number(s) || 0));
+    return s >= 60 ? Math.floor(s / 60) + ' min ' + deux(s % 60) + ' s' : s + ' s';
+  }
+  function etatCycle(a) {
+    if (!AVEC_CYCLE[a.type]) return '';
+    if (a.retour_le && a.retour_cause === 'arrivee_da') return 'Mission terminée en dumping area à ' + MSUI.heure(a.retour_le);
+    if (a.type === 'checkpoint') return '';
+    return a.retour_le
+      ? 'DT revenu à ' + MSUI.heure(a.retour_le) + ' (après ' + dureeCourte(a.retour_duree_s) + ')'
+      : 'DT toujours hors trajet';
+  }
+
   function render(etat) {
     const tbody = document.getElementById('alertsBody');
     if (!tbody) return;
@@ -49,14 +116,18 @@
       const f = filtreDt.toUpperCase();
       alertes = alertes.filter((a) => String(a.dt_code || '').toUpperCase().indexOf(f) >= 0);
     }
+    const fen = fenetre();
+    if (fen) alertes = alertes.filter((a) => ms(a) >= fen[0] && ms(a) < fen[1]);
     if (filtreType) alertes = alertes.filter((a) => a.type === filtreType);
-    if (seulementNonVues) alertes = alertes.filter((a) => !a.acquittee);
+    if (seulementNonVues) alertes = alertes.filter((a) => !a.acquittee && !TYPES_INFO[a.type]);
 
     const compteur = document.getElementById('alertsCompteur');
     if (compteur) {
       const nonVues = (etat.alertes || []).filter((a) => !a.acquittee && !TYPES_INFO[a.type]).length;
       compteur.textContent = nonVues ? nonVues + ' a traiter' : '';
     }
+
+    rendreCompteurs(etat, alertes);
 
     if (!alertes.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="muted">' +
@@ -76,13 +147,14 @@
         '<td>' + MSUI.heure(a.created_at) + '</td>' +
         '<td>' + MSUI.esc(a.dt_code) + '</td>' +
         '<td>' + MSUI.esc(TYPE_LIBELLE[a.type] || a.type) + '</td>' +
-        '<td>' + MSUI.esc(a.message) + '</td>' +
+        '<td>' + MSUI.esc(a.message) +
+          (etatCycle(a) ? '<br><small class="' + (a.retour_le ? 'muted' : 'sev-high') + '">' + MSUI.esc(etatCycle(a)) + '</small>' : '') + '</td>' +
         '<td>' + (a.acquittee
           ? '<span class="status-done">Vue</span>'
-          : (aTraiter ? '<span class="' + cls + '">A traiter</span>'
+          : (aTraiter ? '<span class="' + cls + '">Non vue</span>'
                       : '<span class="status-done">Info</span>')) + '</td>' +
         '<td>' + (aTraiter ?
-          '<button class="team-btn" data-acquit="' + a.id + '"><i class="fas fa-check"></i> Vu</button>' : '') +
+          '<button class="team-btn" data-acquit="' + a.id + '">Marquer vu</button>' : (a.acquittee ? '<span class="muted">' + (AVEC_CYCLE[a.type] ? (a.retour_le ? 'Clôturée' : 'Vue · DT hors trajet') : 'Acquittée') + '</span>' : '')) +
         '</td>' +
         '</tr>';
     }).join('');
@@ -96,6 +168,15 @@
     if (dt) dt.addEventListener('input', () => { filtreDt = dt.value.trim(); render(MSUI.etat); });
     const ty = document.getElementById('fltType');
     if (ty) ty.addEventListener('change', () => { filtreType = ty.value; render(MSUI.etat); });
+    const per = document.getElementById('fltPeriode');
+    const dateBox = document.getElementById('fltDateBox');
+    const dat = document.getElementById('fltDate');
+    if (per) per.addEventListener('change', () => {
+      filtrePeriode = per.value;
+      if (dateBox) dateBox.hidden = per.value !== 'date';
+      render(MSUI.etat);
+    });
+    if (dat) dat.addEventListener('change', () => { filtreDate = dat.value; render(MSUI.etat); });
     const nv = document.getElementById('fltNonVues');
     if (nv) nv.addEventListener('change', () => { seulementNonVues = nv.checked; render(MSUI.etat); });
 

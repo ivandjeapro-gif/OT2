@@ -137,6 +137,38 @@
         return { nom: z.nom, x: z.x, y: z.y, sommets: sommets };
       });
 
+      // Checkpoints (17/11) : lignes de passage, deux extremites en UTM.
+      let checkpoints = [];
+      try {
+        const rc = await fetch(base + '/api/checkpoints');
+        const dc = await rc.json();
+        checkpoints = (dc.checkpoints || []).map(function (c) {
+          return { nom: c.nom, points: [[c.x1, c.y1], [c.x2, c.y2]] };
+        });
+      } catch (e) { checkpoints = null; }   // passerelle ancienne : onglet garde
+
+      // Itineraires (21/11) : une trajectoire de Senor (source -> dumping area, checkpoints ORDONNES) devient des
+      // lignes { itineraire, depart, arrivee, ordre, checkpoint } : le format que Serveur_OT range dans
+      // dig_itineraires et que Serveur_SG tire par sync_ref (ref_itineraires) pour tracer le chemin de la mission.
+      let itineraires;
+      try {
+        const rt2 = await fetch(base + '/api/trajectoires');
+        if (rt2.ok) {
+          const dtj = await rt2.json();
+          itineraires = [];
+          (dtj.trajectoires || []).forEach(function (t) {
+            t.checkpoints.forEach(function (c, i) {
+              itineraires.push({
+                itineraire: t.source + ' > ' + t.dumping_area, depart: t.source, arrivee: t.dumping_area,
+                ordre: i + 1, checkpoint: c.nom,
+              });
+            });
+          });
+        }
+      } catch (e) { itineraires = undefined; }   // passerelle ancienne : itineraires de OT conserves
+      // Aucune trajectoire definie dans Senor : on n'envoie rien, pour ne pas effacer des itineraires saisis a la main chez OT.
+      if (itineraires && !itineraires.length) itineraires = undefined;
+
       const sources = brutes.map(function (s) { return { nom: s.nom }; });
       const teneurs = [];
       for (const s of brutes) {
@@ -165,7 +197,7 @@
 
       return OTCFG.appelOt('POST', 'dig_referentiel', null, {
         sources: sources, teneurs: teneurs, dumping_areas: dumpingAreas,
-        geo: geo,
+        geo: geo, checkpoints: checkpoints || undefined, itineraires: itineraires,
       });
     },
 

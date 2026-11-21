@@ -990,9 +990,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (btnUnlock) btnUnlock.addEventListener('click', () => setMapConfigLocked(false));
-    if (btnConfirm) btnConfirm.addEventListener('click', () => setMapConfigLocked(true));
-    if (btnCancel) btnCancel.addEventListener('click', () => setMapConfigLocked(true));
+    // « Annuler » restaure l'etat d'avant « Modifier » (champs, zones, trails manuels)
+    let instantane = null;
+    function prendreInstantane() {
+        const champs = [...mapConfig.querySelectorAll('input, select')]
+            .filter(el => !el.closest('#zoneList') && !el.closest('#trailList') && el.type !== 'file')
+            .map(el => ({ el, value: el.value, checked: el.checked }));
+        const zones = [...zoneList.querySelectorAll('.zone-item')].map(i => ({
+            name: i.querySelector('.zone-name').value, lat: i.querySelector('.zone-lat').value,
+            lng: i.querySelector('.zone-lng').value, color: i.querySelector('.zone-color').value }));
+        const trails = [...trailList.querySelectorAll('.trail-item')].map(i => ({
+            from: i.querySelector('.trail-from').value, to: i.querySelector('.trail-to').value,
+            color: i.querySelector('.trail-color').value }));
+        return { champs, zones, trails };
+    }
+    function restaurerInstantane(st) {
+        st.champs.forEach(c => { c.el.value = c.value; c.el.checked = c.checked; });
+        zoneList.innerHTML = ''; trailList.innerHTML = '';
+        st.zones.forEach(z => addZone(z.name, z.lat, z.lng, z.color));
+        st.trails.forEach(t => addTrail(t.from, t.to, t.color));
+    }
+    if (btnUnlock) btnUnlock.addEventListener('click', () => { instantane = prendreInstantane(); setMapConfigLocked(false); });
+    if (btnConfirm) btnConfirm.addEventListener('click', () => {
+        setMapConfigLocked(true);
+        if (window.LiveCarte) window.LiveCarte.signaler();
+    });
+    if (btnCancel) btnCancel.addEventListener('click', () => {
+        if (instantane) { restaurerInstantane(instantane); instantane = null; }
+        setMapConfigLocked(true);
+    });
     setMapConfigLocked(true);
 
     // Restaurer les couches sauvegardees
@@ -1145,7 +1171,17 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const saved = JSON.parse(localStorage.getItem('oreTrackingTrails'));
             if (saved && saved.length) {
-                importedTrails = saved.filter(t => t && t.waypoints && t.waypoints.length >= 2);
+                // dedoublonnage : avant le 19/11, chaque ouverture de Live
+                // rajoutait les pistes par defaut (meme nom, memes points)
+                const vues = new Set();
+                importedTrails = saved.filter(t => {
+                    if (!t || !t.waypoints || t.waypoints.length < 2) return false;
+                    const cle = t.name + '|' + t.waypoints.length + '|' + t.waypoints[0] + '|' + t.waypoints[t.waypoints.length - 1];
+                    if (vues.has(cle)) return false;
+                    vues.add(cle);
+                    return true;
+                });
+                if (importedTrails.length !== saved.length) saveImportedTrails();
             }
         } catch(e) {}
         updateImportedTrailList();
@@ -1553,15 +1589,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         addZone(name, rawX, rawY, color);
                     }
-                    showToast('Zones chargees depuis Mining Areas.csv');
+                    console.info('[app] zones chargees depuis Mining Areas.csv');   // plus de bulle : elle revenait a chaque page
                 }
             }
         } catch(e) {
             console.warn('Auto-load zones failed:', e);
         }
 
-        // 2. Charger les trails depuis Trails.geojson.geojson
-        try {
+        // 2. Charger les trails depuis Trails.geojson.geojson — seulement si
+        // aucune n'est deja enregistree : avant le 19/11, chaque ouverture de
+        // Live les ajoutait une fois de plus (pistes doublees a chaque visite).
+        if (!importedTrails.length) try {
             const resp = await fetch('../data/Trails.geojson.geojson');
             if (resp.ok) {
                 const geo = await resp.json();
@@ -1602,14 +1640,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     saveImportedTrails();
                     updateImportedTrailList();
-                    if (count) showToast(count + ' trail' + (count > 1 ? 's' : '') + ' charge' + (count > 1 ? 's' : '') + ' depuis Trails.geojson');
+                    if (count) console.info('[app] ' + count + ' trail(s) charge(s) depuis Trails.geojson');
                 }
             }
         } catch(e) {
             console.warn('Auto-load trails failed:', e);
         }
     }
-    autoLoadDefaultData();
+    autoLoadDefaultData().then(() => { if (window.LiveCarte) window.LiveCarte.signaler(); });
 
     // ===== AFFICHAGE DES KPI SUR LE DASHBOARD =====
     // Chaque interrupteur [data-kpi] de la page Live montre / masque le KPI
@@ -1803,7 +1841,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== PRESENT BUTTON =====
     const btnPresent = document.getElementById('btnPresent') || stubElement();
-    if (btnPresent) btnPresent.addEventListener('click', () => {
+
+    // Config de la carte (fond, couches, centre, zones, pistes, affichage) telle
+    // que saisie sur Live. Utilisee par PRESENTER et par la carte de suivi de
+    // Live (js/live-tracking.js, 19/11) via window.LiveCarte.
+    function construireConfigCarte() {
         const centerCRS = convertCRS(
             toFloat(document.getElementById('cfgCenterLat').value),
             toFloat(document.getElementById('cfgCenterLng').value)
@@ -1812,8 +1854,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const basemapVal = document.getElementById('cfgBasemap').value;
 
         const trailsForPresent = getTrails();
-        // Trails dans une cle dediee (petite) pour ne pas dependre du gros blob config
-        try { localStorage.setItem('oreTrackingTrails', JSON.stringify(trailsForPresent)); } catch(e) {}
 
         const config = {
             center: { lat: centerCRS.lat, lng: centerCRS.lng },
@@ -1845,6 +1885,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 }))
         };
 
+        return config;
+    }
+    window.LiveCarte = {
+        config: construireConfigCarte,
+        // previent la carte de suivi que la configuration a change
+        signaler: () => document.dispatchEvent(new CustomEvent('live:config')),
+    };
+
+    if (btnPresent) btnPresent.addEventListener('click', () => {
+        const config = construireConfigCarte();
         // Sauvegarder et ouvrir
         try {
             localStorage.setItem('oreTrackingConfig', JSON.stringify(config));
@@ -1852,8 +1902,9 @@ document.addEventListener('DOMContentLoaded', () => {
             config.layers.forEach(l => { if (l.type === 'georef') delete l.dataUrl; });
             try { localStorage.setItem('oreTrackingConfig', JSON.stringify(config)); } catch(e2) {}
         }
-
-        window.open('dashboard.html', '_blank', 'width=1920,height=1080');
+        // Mode et ecran cible (« Diffusion ») : js/live-tracking.js
+        if (window.LiveDiffusion) window.LiveDiffusion.ouvrir('dashboard.html');
+        else window.open('dashboard.html', '_blank', 'width=1920,height=1080');
     });
 
     // ===== SYNC BUTTON =====

@@ -128,6 +128,28 @@
   // alertes d'information : rien a traiter (fin, arrivee, retours a la normale)
   const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1 };
 
+  // Rejet d'import Dig Plan : erreur de donnees, pas une urgence terrain.
+  const TYPES_HORS_FILE = { blast_rejete: 1 };
+
+  // Debut du shift en cours (jour 06 h-18 h, nuit 18 h-06 h), heure locale, en ms.
+  function debutShiftMs() {
+    const d = new Date();
+    const h = d.getHours();
+    d.setMinutes(0, 0, 0);
+    if (h >= 6 && h < 18) d.setHours(6);
+    else if (h >= 18) d.setHours(18);
+    else { d.setDate(d.getDate() - 1); d.setHours(18); }
+    return d.getTime();
+  }
+
+  // Alerte a traiter MAINTENANT : non acquittee, ni info, ni rejet de blast, et du shift en cours
+  // (les anciennes restent consultables dans Alerts).
+  function aTraiter(a) {
+    if (!a || a.acquittee || TYPES_INFO[a.type] || TYPES_HORS_FILE[a.type]) return false;
+    const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
+    return !(t < debutShiftMs());
+  }
+
   function voyant() {
     if (ETAT.passerelleDown) {
       return { niveau: 'rouge', raison: 'Passerelle injoignable' };
@@ -137,7 +159,7 @@
 
     // alertes hautes non acquittees trop vieilles
     for (const a of ETAT.alertes) {
-      if (a.acquittee || TYPES_INFO[a.type]) continue;
+      if (!aTraiter(a)) continue;
       const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
       if (maintenant - t > seuilMs) {
         return { niveau: 'rouge', raison: a.type + ' non vue (' + a.dt_code + ')' };
@@ -152,11 +174,11 @@
       }
     }
     // orange : alerte active (non acquittee) ou mission deviee
-    if (ETAT.alertes.some((a) => !a.acquittee && !TYPES_INFO[a.type])) {
+    if (ETAT.alertes.some(aTraiter)) {
       return { niveau: 'orange', raison: 'Alerte a traiter' };
     }
     // devie = DT ecarte du trajet, mission toujours en cours (devoie = legacy)
-    if (ETAT.missions.some((m) => Number(m.devie) === 1 || m.statut === 'devoie')) {
+    if (ETAT.missions.some((m) => m.statut === 'en_cours' && Number(m.devie) === 1)) {
       return { niveau: 'orange', raison: 'DT devie' };
     }
     return { niveau: 'vert', raison: 'Tout va bien' };
@@ -167,6 +189,8 @@
     en_cours: { lbl: 'En cours', cls: 'status-progress' },
     termine: { lbl: 'Termine', cls: 'status-done' },
     devoie: { lbl: 'Devie', cls: 'sev-high' },
+    // abandonnee : le DT a recommence un cycle (Serveur_SG) ou la mission n'a jamais abouti
+    abandonnee: { lbl: 'Abandonnee', cls: 'status-pending' },
   };
   const CONFORMITE = {
     conforme: { lbl: 'Conforme', cls: 'status-done' },
@@ -179,6 +203,7 @@
     heure, ilYA, duree,
     STATUT_MISSION, CONFORMITE,
     // alerte d'information (fin, arrivee, retour a la normale) : rien a traiter
+    aTraiter,
     estInfo: (a) => !!(a && TYPES_INFO[a.type]),
     esc: (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),

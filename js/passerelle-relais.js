@@ -44,6 +44,19 @@
     return d;
   }
 
+  // Un seul des deux serveurs doit creer les missions : deux missions
+  // concurrentes pour le meme camion sinon.
+  function aideMissions(sgActif) {
+    const local = $('#relaisMissionsSource').value === 'local';
+    $('#relaisMissionsAide').textContent = local
+      ? 'Mode local : la passerelle cree les missions. ' + (sgActif === false
+          ? "Serveur_SG n'est pas configure : pas de doublon."
+          : "ATTENTION : Serveur_SG est configure et cree aussi ses missions (la tablette lit les siennes). " +
+            "Videz l'URL de Serveur_SG ou repassez en « Serveur_SG decide ».")
+      : "Serveur_SG cree les missions ; la passerelle les recopie et n'en cree pas.";
+  }
+  document.addEventListener('change', (e) => { if (e.target && e.target.id === 'relaisMissionsSource') aideMissions(!!$('#relaisSgUrl').value.trim()); });
+
   async function charger() {
     try {
       const d = await appel('GET', '/api/relais');
@@ -51,6 +64,28 @@
       $('#relaisSgUrl').value = d.sg_url || '';
       $('#relaisSgIntervalle').value = d.sg_intervalle_s || 60;
       $('#relaisAlerteRouge').value = d.alerte_rouge_min || 10;
+      $('#relaisMissionsSource').value = d.missions_source || 'cloud';
+      aideMissions(d.sg_actif);
+      $('#relaisRemonteesIntervalle').value = d.remontees_intervalle_s || 10;
+      const r = d.remontees || {};
+      $('#relaisRemonteesEtat').textContent = !r.actif
+        ? 'Lecture des remontees : arretee (passerelle a redemarrer).'
+        : 'Lecture des remontees : ' + (r.derniere_erreur ? 'ERREUR — ' + r.derniere_erreur
+          : 'OK') + (r.derniere_lecture ? ' — derniere lecture ' + r.derniere_lecture : '') +
+          ' — ' + (r.lignes_traitees || 0) + ' position(s) traitee(s) depuis le demarrage' +
+          (r.derniere_position ? ' — derniere : ' + r.derniere_position : '') +
+          (r.derniere_ligne ? ' — ligne Remontees ' + r.derniere_ligne : '') +
+          (r.derniere_ligne_trajet ? ' / trajet ' + r.derniere_ligne_trajet : '');
+      $('#relaisChargementsIntervalle').value = d.chargements_intervalle_s || 5;
+      const c = d.chargements || {};
+      const libC = { ok: 'OK', lent: 'en retard', ko: 'EN ECHEC', attente: 'en attente de la 1re lecture',
+                     non_configure: 'Serveur_SG non configure' };
+      $('#relaisChargementsEtat').textContent = !d.chargements
+        ? 'Lecture de la production : absente (passerelle a mettre a jour puis redemarrer).'
+        : 'Lecture de la production : ' + (libC[c.statut] || '?') +
+        (c.lu_le ? ' — derniere lecture reussie ' + c.lu_le : '') +
+        (c.duree_ms ? ' (' + c.duree_ms + ' ms)' : '') +
+        (c.erreur ? ' — ' + c.erreur : '');
       $('#relaisOfficeToken').value = '';
       $('#relaisSgToken').value = '';
       empreinte($('#relaisOfficeEmpreinte'), d.office_token_empreinte);
@@ -75,6 +110,9 @@
       sg_url: $('#relaisSgUrl').value.trim(),
       sg_intervalle_s: $('#relaisSgIntervalle').value.trim(),
       alerte_rouge_min: $('#relaisAlerteRouge').value.trim(),
+      missions_source: $('#relaisMissionsSource').value,
+      remontees_intervalle_s: $('#relaisRemonteesIntervalle').value.trim(),
+      chargements_intervalle_s: $('#relaisChargementsIntervalle').value.trim(),
     };
     // URL : uniquement l'adresse /exec, jamais un jeton colle par erreur
     for (const [champ, v] of [['office_url', corps.office_url], ['sg_url', corps.sg_url]]) {
@@ -136,6 +174,44 @@
     el.disabled = true; el.textContent = texte;
     try { await fn(); } finally { el.disabled = false; el.textContent = avant; }
   }
+
+  // ---- Secours direct du dashboard : localStorage de CE navigateur ----
+  // Lu par dashboard.js quand la passerelle ne repond plus. Le jeton n'est
+  // jamais reaffiche ; un champ vide le conserve.
+  const LS_SECOURS = 'oreTrackingSgDirect';
+  function secoursLire() {
+    try { return JSON.parse(localStorage.getItem(LS_SECOURS)) || {}; } catch (e) { return {}; }
+  }
+  function secoursAfficher() {
+    const s = secoursLire();
+    $('#secoursSgUrl').value = s.url || '';
+    $('#secoursSgToken').value = '';
+    $('#secoursSgEtat').textContent = s.token ? '(jeton enregistre sur ce poste)' : '(aucun jeton sur ce poste)';
+    $('#secoursSgEtat').classList.toggle('vide', !s.token);
+  }
+  function secoursStatut(txt, ok) {
+    const el = $('#secoursStatus');
+    el.textContent = txt; el.className = 'account-status ' + (ok ? 'ok' : 'err');
+  }
+  $('#btnSecoursSave').addEventListener('click', () => {
+    const url = $('#secoursSgUrl').value.trim().replace(/\/+$/, '');
+    const jeton = $('#secoursSgToken').value.trim();
+    const avant = secoursLire();
+    if (!/^https:\/\/script\.google(usercontent)?\.com\/\S+$/.test(url)) {
+      secoursStatut('URL invalide : adresse /exec de Serveur_SG attendue (https://script.google.com/...)', false);
+      return;
+    }
+    if (!jeton && !avant.token) { secoursStatut('Jeton requis', false); return; }
+    localStorage.setItem(LS_SECOURS, JSON.stringify({ url, token: jeton || avant.token }));
+    secoursAfficher();
+    secoursStatut('Secours direct actif sur ce poste.', true);
+  });
+  $('#btnSecoursOff').addEventListener('click', () => {
+    localStorage.removeItem(LS_SECOURS);
+    secoursAfficher();
+    secoursStatut('Secours direct desactive sur ce poste (URL et jeton effaces).', true);
+  });
+  secoursAfficher();
 
   $('#btnRelaisSave').addEventListener('click', () => action('#btnRelaisSave', 'Enregistrement...', enregistrer));
   $('#btnRelaisTest').addEventListener('click', () => action('#btnRelaisTest', 'Test...', tester));

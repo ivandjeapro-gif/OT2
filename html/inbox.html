@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="expect" href="#sidebar" blocking="render" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="../vendor/fontawesome/webfonts/fa-solid-900.woff2" />
+    <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css" />
 </head>
 <body>
     <!-- LOGIN OVERLAY -->
@@ -33,14 +36,8 @@
 
     <div class="app">
         <!-- TOP MENU BAR -->
-        <header class="menu-bar">
-            <div class="menu-left">
-                <span class="app-name">OreTracking</span>
-            </div>
-            <div class="menu-right">
-                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
-                <span class="app-version">OreTracking V2</span>
-            </div>
+                <header class="menu-bar">
+            <!-- topbar generee par js/navbar.js -->
         </header>
 
         <div class="app-body">
@@ -52,98 +49,81 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
-                    <div class="nav-top">
-                        <a class="sidebar-link" data-page="home" href="home.html">
-                            <i class="fas fa-home"></i>
-                            <span>Home</span>
-                        </a>
-                        <a class="sidebar-link" data-page="live" href="live.html">
-                            <i class="fas fa-satellite-dish"></i>
-                            <span>Live</span>
-                        </a>
-                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
-                            <i class="fas fa-bell"></i>
-                            <span>Alerts</span>
-                        </a>
-                        <a class="sidebar-link active" data-page="inbox" href="inbox.html">
-                            <i class="fas fa-inbox"></i>
-                            <span>Inbox</span>
-                        </a>
-                    </div>
-                    <div class="nav-bottom">
-                        <a class="sidebar-link" data-page="settings" href="settings.html">
-                            <i class="fas fa-cog"></i>
-                            <span data-i18n>Settings</span>
-                        </a>
-                        <a class="sidebar-link" data-page="sync" href="sync.html">
-                            <i class="fas fa-sync-alt"></i>
-                            <span data-i18n>Sync</span>
-                        </a>
-                        <a class="sidebar-link" data-page="senor" href="senor.html">
-                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
-                            <span data-i18n>Senor</span>
-                        </a>
-                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
-                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
-                            <span data-i18n>Dig Plan</span>
-                        </a>
-                    </div>
-                </nav>
-
-                <div class="sidebar-user">
-                    <div class="user-avatar">
-                        <i class="fas fa-user-circle"></i>
-                    </div>
-                    <div class="user-info">
-                        <span class="user-name">Gaston Albert</span>
-                        <span class="user-email">gaston.albert@oresys.com</span>
-                    </div>
-                    <button class="btn-logout" title="Deconnexion">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </button>
-                </div>
+                <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/navbar.js"></script>
 
             <!-- MAIN CONTENT AREA -->
             <main class="content">
 
 <!-- PAGE: INBOX -->
                 <section class="page active" id="page-inbox">
-                    <div class="panel panel-full">
-                        <div class="panel-label">Inbox</div>
-                        <div class="panel-content">
-                            <div class="inbox-description">
-                                <p>Ici on affiche la liste de tous les voyages des DT. Le dumping est classifie par <strong class="highlight-green">Rompad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
+                    <div class="r-pagehead">
+                        <nav class="r-breadcrumb" aria-label="Fil d'ariane">
+                            <a href="home.html">Opérations</a>
+                            <span class="r-breadcrumb-sep">/</span>
+                            <span class="r-breadcrumb-current">Inbox</span>
+                        </nav>
+                        <h1 class="r-title">Journal des voyages</h1>
+                        <p class="r-subtitle">Tous les voyages des DT, classifiés par ROM Pad.</p>
+                    </div>
+
+                    <!-- CARTE DE FILTRES (maquette : MATÉRIAU + puces + date/shift) -->
+                    <div class="r-filtercard">
+                        <div class="r-filtercard-main">
+                            <div class="r-filter-label">Matériau</div>
+                            <div class="r-chips" role="group" aria-label="Filtre matériau">
+                                <button type="button" class="r-chip is-active" data-chip="">Tous <span class="r-chip-count" id="chipTous">--</span></button>
+                                <button type="button" class="r-chip" data-chip="ore">Ore · Minerai <span class="r-chip-count" id="chipOre">--</span></button>
+                                <button type="button" class="r-chip" data-chip="waste">Waste · Stérile <span class="r-chip-count" id="chipWaste">--</span></button>
                             </div>
-                            <div class="alerts-filtres">
-                                <label>Materiel
-                                    <select id="inboxFiltreMateriel" class="form-select-sm">
-                                        <option value="">Tous</option>
-                                        <option value="ore">Ore (minerai)</option>
-                                        <option value="waste">Waste (sterile)</option>
-                                    </select></label>
-                                <span class="alerts-compteur" id="inboxCompteur"></span>
-                            </div>
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Engin</th>
-                                        <th>Heure</th>
-                                        <th>Orebloc</th>
-                                        <th>Rompad</th>
-                                        <th>Tonnage</th>
-                                        <th>Grade</th>
-                                        <th>Conformite</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="inboxVoyages">
-                                    <tr><td colspan="8" class="muted">Chargement...</td></tr>
-                                </tbody>
-                            </table>
-                            <div class="inbox-recap" id="inboxRecap"></div>
                         </div>
+                        <div class="r-filtercard-period">
+                            <label class="r-filter-label" for="inboxPeriode">Période</label>
+                            <div class="r-period-row">
+                                <select id="inboxPeriode" class="r-input" title="Journée d'exploitation : 06 h à 06 h">
+                                    <option value="">Toutes les dates</option>
+                                    <option value="jour">Journée en cours</option>
+                                    <option value="hier">Hier</option>
+                                    <option value="7j">7 derniers jours</option>
+                                    <option value="date">Une date précise…</option>
+                                </select>
+                                <input type="date" id="inboxDateSel" class="r-input" hidden />
+                            </div>
+                        </div>
+                        <div class="r-filtercard-aside">
+                            <span class="r-filtercard-date" id="inboxDate">--</span>
+                            <span class="r-filtercard-shift" id="inboxShift">--</span>
+                        </div>
+                    </div>
+
+                    <!-- EN-TÊTE DE LISTE : grand compteur + légende -->
+                    <div class="r-listhead">
+                        <h2 class="r-bigcount"><span class="r-bigcount-num" id="inboxCompteur">00</span> <span id="inboxVoyagesMot">voyages</span></h2>
+                        <p class="r-listhead-note">Un journal complet, distinct de la liste des alertes.</p>
+                        <span class="r-listhead-legend">Classification du déchargement par ROM Pad</span>
+                    </div>
+
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Engin</th>
+                                    <th>Heure</th>
+                                    <th>Orebloc</th>
+                                    <th>Rompad</th>
+                                    <th>Tonnage</th>
+                                    <th>Grade</th>
+                                    <th>Conformité</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inboxVoyages">
+                                <tr><td colspan="8" class="muted">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="r-tablefoot" id="inboxPied">--</p>
+                        <div class="r-recapband" id="inboxRecap"></div>
                     </div>
                 </section>
 
@@ -158,8 +138,8 @@
                 <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
             </div>
             <div class="status-right">
-                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
-                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+                <span class="status-item" id="statusDate">--</span>
+                <span class="status-item" id="statusTime">--</span>
             </div>
         </footer>
     </div>
@@ -180,13 +160,14 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="../vendor/leaflet/leaflet.js"></script>
+    <script src="../vendor/geotiff/geotiff.js"></script>
+    <script src="../vendor/proj4/proj4.js"></script>
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>
     <script src="../js/api.js"></script>
+    <script src="../js/couleurs.js"></script>
     <script type="module" src="../js/auth.js"></script>
     <script src="../js/server-ui.js"></script>
     <script src="../js/missions-ui.js"></script>
@@ -195,3 +176,4 @@
     <script src="../js/app.js"></script>
 </body>
 </html>
+

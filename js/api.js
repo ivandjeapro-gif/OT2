@@ -161,6 +161,7 @@
 
     // ---- raccourcis metier
     getEngins:  () => API.getRows('engins'),
+    getTablettes: () => request('GET', '/api/tablettes'),
     getZones:   () => API.getRows('zones'),
     getTrails:  () => API.getRows('trails'),
     getVoyages: () => API.getRows('voyages'),

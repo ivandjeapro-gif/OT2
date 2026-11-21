@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OreTracking V2 - Connexion</title>
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css" />
+</head>
+<body>
+    <div class="login-overlay" id="loginOverlay" style="display:flex">
+        <div class="login-box">
+            <div class="login-logo">
+                <i class="fas fa-hard-hat"></i>
+            </div>
+            <h1>OreTracking V2</h1>
+            <p class="login-sub">Connexion a votre compte</p>
+            <form id="loginForm" autocomplete="off">
+                <div class="login-field">
+                    <label for="loginIdentifiant">Email ou nom</label>
+                    <input type="text" id="loginIdentifiant" class="form-input" placeholder="gaston.albert@oresys.com" required />
+                </div>
+                <div class="login-field">
+                    <label for="loginPassword">Mot de passe</label>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required />
+                </div>
+                <div class="login-status" id="loginStatus"></div>
+                <button type="submit" class="btn-login" id="btnLogin">Se connecter</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="../js/prefs.js"></script>
+    <script src="../js/splash.js"></script>
+    <script src="../js/api.js"></script>
+    <script type="module" src="../js/auth.js"></script>
+</body>
+</html>
