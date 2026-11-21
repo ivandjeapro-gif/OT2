@@ -466,6 +466,7 @@ CREATE TABLE IF NOT EXISTS minage_actuel (
     exca_code TEXT NOT NULL,
     orebloc_id INTEGER NOT NULL,
     declared_at TEXT DEFAULT (datetime('now')),
+    origine TEXT DEFAULT 'bureau',   -- 21/11 : 'spotter' (son app, reseau OK) ou 'bureau' (formulaire de secours)
     UNIQUE (exca_code)
 );
 
@@ -2531,6 +2532,56 @@ def mission_a_surveiller(conn, dt_code):
         "ORDER BY id DESC LIMIT 1", (dt_code,)).fetchone()
 
 
+# ---------------------------------------------------------------- minages en cours (21/11) ---
+# Qui mine quel bloc, par ORDRE DE FIABILITE :
+#   1. le DT (automatique) : une pelle OMEX (en minage, position fraiche venue du DT qui la charge) dont la
+#      position est DANS un orebloc ;
+#   2. le spotter (secours) : il declare depuis son app, seulement quand il est dans le reseau ;
+#   3. le bureau (formulaire de Senor) : dernier recours.
+# Une ligne par pelle : la source la plus fiable l'emporte. Declarations manuelles valables 30 min.
+MINAGE_DECLARATION_MIN = 30
+ORIGINES_MINAGE = ("dt", "spotter", "bureau")
+
+
+def minages_deduits_dt(conn):
+    """Pelles en minage deduites des positions remontees par les DT : [{exca_code, orebloc_id, bloc}]."""
+    blocs = []
+    for o in conn.execute("SELECT id, nom, sommets FROM oreblocs WHERE actif=1"):
+        try:
+            pts = json.loads(o["sommets"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(pts, list) and len(pts) >= 3:
+            blocs.append((o["id"], o["nom"], pts))
+    res = []
+    for e in conn.execute("SELECT code, x, y, derniere_maj FROM engins WHERE type='EXCA' AND actif=1 AND statut='OMEX'"):
+        if age_position_s(e["derniere_maj"]) > POSITION_FRAICHE_S:
+            continue                     # pelle muette : on ne devine pas
+        for oid, nom, pts in blocs:
+            if point_in_polygon(e["x"], e["y"], pts):
+                res.append({"exca_code": e["code"], "orebloc_id": oid, "bloc": nom})
+                break
+    return res
+
+
+def minages_en_cours(conn):
+    """Tous les minages en cours, une ligne par pelle : [{exca_code, orebloc_id, bloc, origine, depuis}]."""
+    res = {}
+    for r in conn.execute(
+            "SELECT m.exca_code, m.orebloc_id, o.nom AS bloc, COALESCE(m.origine, 'bureau') AS origine, "
+            "datetime(m.declared_at, 'localtime') AS depuis FROM minage_actuel m "
+            "LEFT JOIN oreblocs o ON o.id = m.orebloc_id "
+            "WHERE m.declared_at >= datetime('now', ?)", ("-%d minutes" % MINAGE_DECLARATION_MIN,)):
+        d = dict(r)
+        d["origine"] = d["origine"] if d["origine"] in ORIGINES_MINAGE else "bureau"
+        res[d["exca_code"].upper()] = d
+    maintenant = now_iso()
+    for d in minages_deduits_dt(conn):          # le DT prime sur toute declaration manuelle
+        d.update(origine="dt", depuis=maintenant)
+        res[d["exca_code"].upper()] = d
+    return sorted(res.values(), key=lambda d: d["exca_code"])
+
+
 def verifier_arrivee_da(conn, dt_code):
     """Geofencing dumping area : des que le DT entre dans le polygone de la
     dumping area de sa mission en cours, la mission est marquee "arrivee"
@@ -3469,15 +3520,10 @@ def ingerer_missions_sg(conn, missions):
     return enregistrees
 
 
-POSITION_FRAICHE_S = 120     # derniere position du DT jugee exploitable pour un verdict de conformite
-
-
 def position_dt_exploitable(conn, dt_code, age_max_s=POSITION_FRAICHE_S):
-    """(x, y) du DT si sa derniere position est RECENTE et non nulle, sinon None."""
-    r = conn.execute(
-        "SELECT x, y, CAST((julianday('now') - julianday(derniere_maj)) * 86400 AS INTEGER) AS age "
-        "FROM engins WHERE code=?", (dt_code,)).fetchone()
-    if not r or not (r["x"] or r["y"]) or r["age"] is None or r["age"] > age_max_s:
+    """(x, y) du DT si sa derniere position est RECENTE (heure locale, comme `derniere_maj`) et non nulle."""
+    r = conn.execute("SELECT x, y, derniere_maj FROM engins WHERE code=?", (dt_code,)).fetchone()
+    if not r or not (r["x"] or r["y"]) or age_position_s(r["derniere_maj"]) > age_max_s:
         return None
     return (r["x"], r["y"])
 
@@ -6201,8 +6247,9 @@ ECRITURES_ADMIN = ("/api/relais", "/api/offroad", "/api/mqtt/", "/api/sg/", "/ap
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
 ECRITURES_SENOR = ("/api/oreblocs", "/api/dumping_area", "/api/teneur", "/api/sources", "/api/checkpoints", "/api/trajectoire",
-                   "/api/travels_roads", "/api/geographic_system", "/api/minage_declare")
-ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts", "/api/enregistrements")
+                   "/api/travels_roads", "/api/geographic_system")
+# 21/11 : /api/minage_declare = le SPOTTER declare depuis son app (tout profil connecte) ; le formulaire du bureau l'utilise aussi
+ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts", "/api/enregistrements", "/api/minage_declare")
 _roles_cache = {}                       # jeton -> (role | None, expire)
 
 
@@ -6468,6 +6515,12 @@ class Handler(BaseHTTPRequestHandler):
         # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;
         # sous le verrou global elles se disputaient la place des positions (donc des alertes).
         # Lecture seule : hors verrou, comme /api/suivi_dt et /api/kpi.
+        if path == "/api/minages" and method == "GET":
+            conn = get_conn()
+            try:
+                return self._send_json(200, {"minages": minages_en_cours(conn), "maintenant": now_iso()})
+            finally:
+                conn.close()
         if path == "/api/couleurs" and method == "GET":
             conn = get_conn()
             try:
@@ -8024,6 +8077,12 @@ class Handler(BaseHTTPRequestHandler):
                         "FROM voyages v LEFT JOIN oreblocs o ON o.id = v.orebloc_id "
                         "WHERE v.orebloc_id IS NOT NULL "
                         "GROUP BY v.orebloc_id")]
+                    # le minage deduit du DT alimente aussi le clignotement du Progress (Dig Plan)
+                    deja = {d["exca_code"].upper() for d in decl}
+                    for d in minages_deduits_dt(conn):
+                        if d["exca_code"].upper() not in deja:
+                            decl.append({"exca_code": d["exca_code"], "orebloc_id": d["orebloc_id"],
+                                         "bloc": d["bloc"], "declared_at": now_iso()})
                     return self._send_json(200, {
                         "declarations": decl,
                         "activite": activite,
@@ -8035,9 +8094,15 @@ class Handler(BaseHTTPRequestHandler):
                     body = json.loads(self._read_body() or b"{}")
                     exca = str(body.get("exca_code", "")).strip()
                     bloc_id = body.get("orebloc_id")
+                    exca = exca.upper()
+                    if body.get("stop") and exca:          # arret : la pelle seule suffit
+                        conn.execute("DELETE FROM minage_actuel WHERE UPPER(exca_code)=?", (exca,))
+                        conn.commit()
+                        return self._send_json(200, {"stopped": exca})
                     if not exca or not bloc_id:
                         return self._send_json(400, {"error": "exca_code et orebloc_id requis"})
-                    exca = exca.upper()
+                    origine = str(body.get("origine") or "bureau").strip().lower()
+                    origine = origine if origine in ("spotter", "bureau") else "bureau"
                     existe = conn.execute("SELECT id FROM oreblocs WHERE id=?", (bloc_id,)).fetchone()
                     if not existe:
                         return self._send_json(404, {"error": "bloc inconnu"})
@@ -8046,8 +8111,8 @@ class Handler(BaseHTTPRequestHandler):
                     if body.get("stop"):
                         conn.commit()
                         return self._send_json(200, {"stopped": exca})
-                    conn.execute("INSERT INTO minage_actuel (exca_code, orebloc_id) VALUES (?, ?)",
-                                 (exca, bloc_id))
+                    conn.execute("INSERT INTO minage_actuel (exca_code, orebloc_id, origine) VALUES (?, ?, ?)",
+                                 (exca, bloc_id, origine))
                     conn.commit()
                     enregistrer_pour_office(conn, {"minage": exca, "orebloc_id": bloc_id,
                                                    "action": "declaration_minage"})
@@ -8316,6 +8381,11 @@ def main():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(oreblocs)")]
     if "minerai" not in cols:
         conn.execute("ALTER TABLE oreblocs ADD COLUMN minerai INTEGER DEFAULT 1")
+        conn.commit()
+
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(minage_actuel)")]
+    if cols and "origine" not in cols:
+        conn.execute("ALTER TABLE minage_actuel ADD COLUMN origine TEXT DEFAULT 'bureau'")
         conn.commit()
 
     cols = [r[1] for r in conn.execute("PRAGMA table_info(teneurs)")]

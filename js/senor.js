@@ -1360,7 +1360,51 @@
   /* ---- Canal A : declaration du minage par le spotter ----
    * Le spotter sait quelles pelles chargent : deux listes (pelle / bloc)
    * et un bouton. La declaration est fraiche 30 min (timeout serveur). */
+  /* ---- Minages en cours : TOUS, une ligne par pelle, avec la source de l'information ----
+   * DT (automatique, la plus fiable) > spotter (secours, quand son app est dans le reseau) > bureau
+   * (formulaire de secours). Seuls les minages declares a la main peuvent etre arretes ici. */
+  const ORIGINE_LIBELLE = { dt: 'DT · auto', spotter: 'Spotter', bureau: 'Bureau' };
+
+  async function chargerMinages() {
+    const box = $('#sgMinagesListe');
+    if (!box) return;
+    try {
+      const r = await fetch(base().replace(/\/$/, '') + '/api/minages', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const liste = (await r.json()).minages || [];
+      box.innerHTML = liste.length ? liste.map((m) =>
+        '<div class="sg-minage">' +
+          '<span class="sg-minage-pelle">' + esc(m.exca_code) + '</span>' +
+          '<span class="sg-minage-bloc">' + esc(m.bloc || ('#' + m.orebloc_id)) + '</span>' +
+          '<span class="sg-minage-origine o-' + esc(m.origine) + '">' + esc(ORIGINE_LIBELLE[m.origine] || m.origine) + '</span>' +
+          (m.origine === 'dt' ? '' :
+            '<button type="button" class="sg-minage-stop" data-minage-stop="' + esc(m.exca_code) + '" title="Arrêter ce minage"><i class="fas fa-stop"></i></button>') +
+        '</div>').join('') : '<div class="member-empty">Aucun minage en cours.</div>';
+    } catch (e) {
+      box.innerHTML = '<div class="member-empty">Minages indisponibles (' + esc(e.message) + ')</div>';
+    }
+  }
+
+  async function arreterMinage(exca) {
+    try {
+      const r = await fetch(base().replace(/\/$/, '') + '/api/minage_declare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exca_code: exca, stop: true }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      Splash.succes('Minage arrêté', exca);
+    } catch (e) { Splash.erreur('Arrêt impossible', e.message); }
+    chargerMinages();
+  }
+
   async function initMinageUI() {
+    chargerMinages();
+    setInterval(() => { if (!document.hidden) chargerMinages(); }, 5000);
+    const listeMin = $('#sgMinagesListe');
+    if (listeMin) listeMin.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-minage-stop]');
+      if (b) arreterMinage(b.dataset.minageStop);
+    });
     const selExca = $('#sgMinageExca');
     const selBloc = $('#sgMinageBloc');
     if (!selExca || !selBloc) return;
@@ -1396,11 +1440,12 @@
         const r = await fetch(base().replace(/\/$/, '') + '/api/minage_declare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ exca_code: exca, orebloc_id: Number(bloc) }),
+          body: JSON.stringify({ exca_code: exca, orebloc_id: Number(bloc), origine: 'bureau' }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
         Splash.succes('Minage declare', exca + ' sur bloc #' + bloc);
+        chargerMinages();
         if (etat) { etat.textContent = 'Minage declare : ' + exca + ' sur bloc #' + bloc; etat.className = 'suivi-minage-etat ok'; }
       } catch (err) {
         Splash.erreur('Declaration refusee', err.message);

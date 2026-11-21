@@ -249,14 +249,18 @@
                                 <div class="sg-live-top"><span class="sg-live-kicker"><i class="sg-dot"></i> Terrain en direct</span></div>
                                 <h3 class="sg-live-titre">Minage en cours</h3>
                                 <p class="sg-live-sous" id="sgSuiviFraicheur">Connexion à la passerelle...</p>
-                                <div class="suivi-minage" id="sgSuiviMinage">
-                                    <label><span class="sg-live-lbl">Pelle</span>
-                                        <select class="form-select-sm" id="sgMinageExca"><option value="">Choisir une pelle...</option></select></label>
-                                    <label><span class="sg-live-lbl">Orebloc</span>
-                                        <select class="form-select-sm" id="sgMinageBloc"><option value="">Choisir un bloc...</option></select></label>
-                                    <button type="button" class="sg-live-btn" id="sgMinageValider">Déclarer le minage <i class="fas fa-arrow-right"></i></button>
-                                    <span class="suivi-minage-etat" id="sgMinageEtat"></span>
-                                </div>
+                                <div class="sg-minages" id="sgMinagesListe"><div class="member-empty">Chargement...</div></div>
+                                <details class="sg-secours">
+                                    <summary>Saisie manuelle (secours)</summary>
+                                    <div class="suivi-minage" id="sgSuiviMinage">
+                                        <label><span class="sg-live-lbl">Pelle</span>
+                                            <select class="form-select-sm" id="sgMinageExca"><option value="">Choisir une pelle...</option></select></label>
+                                        <label><span class="sg-live-lbl">Orebloc</span>
+                                            <select class="form-select-sm" id="sgMinageBloc"><option value="">Choisir un bloc...</option></select></label>
+                                        <button type="button" class="sg-live-btn" id="sgMinageValider">Déclarer le minage <i class="fas fa-arrow-right"></i></button>
+                                        <span class="suivi-minage-etat" id="sgMinageEtat"></span>
+                                    </div>
+                                </details>
                                 <div class="sg-live-stats">
                                     <div><b id="sgStatMissions">--</b><span>missions en cours</span></div>
                                     <div><b id="sgStatTonnes">--</b><span>tonnes du jour</span></div>

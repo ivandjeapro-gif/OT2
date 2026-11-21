@@ -359,9 +359,6 @@
   // Excavatrices en minage (statut OMEX : dans un orebloc ET position fraiche) : code, pit, blast.
   // Minage : d'abord ce que le SPOTTER a declare (pelle + bloc, valable 30 min, /api/minage_actuel), sinon
   // les pelles dont le statut est OMEX (en minage) localisees dans un bloc.
-  const MINAGE_FRAICHEUR_MIN = 30;
-  const heureLocale = (t) => new Date(String(t || '').replace(' ', 'T')).getTime();
-
   // Pit d'un bloc : la source (Senor) dont les codes admis figurent dans le nom du bloc
   // (275_OM_LMP2_014 -> LMP2 -> « Main Pit »). Rien n'est ecrit en dur.
   function pitDeNom(nom) {
@@ -371,43 +368,20 @@
     return src ? src.nom : '';
   }
 
+  // Minages en cours : TOUS (/api/minages), une ligne par pelle. Sources : le DT (auto), le spotter
+  // (secours), le bureau (formulaire de secours) - la plus fiable l'emporte cote passerelle.
   function rendreMinage() {
-    const m = TERRAIN.minage;
-    if (m) {
-      const maintenant = m.maintenant ? heureLocale(m.maintenant) : Date.now();
-      const actives = (m.declarations || []).filter((d) =>
-        (maintenant - heureLocale(d.declared_at)) / 60000 <= MINAGE_FRAICHEUR_MIN);
-      if (actives.length) {
-        const pit = pitDeNom(actives[0].bloc);
-        const codes = actives.map((d) => d.exca_code).join(', ');
-        const blocs = Array.from(new Set(actives.map((d) => d.bloc || ('#' + d.orebloc_id))));
-        ecrireItem('terrainMinage', (pit ? pit + ' · ' : '') + codes,
-          'Minage déclaré · ' + blocs.join(', '));
-        return;
-      }
-    }
-    const etat = TERRAIN.etat;
-    if (!etat) return;
-    const exca = (etat.engins || []).filter((e) => e.type === 'EXCA' && e.statut === 'OMEX' && e.actif !== 0);
-    if (!exca.length) {
-      ecrireItem('terrainMinage', 'Aucune excavatrice en minage', 'Le spotter déclare le minage (pelle + bloc) depuis Senor.');
+    const liste = (TERRAIN.minage && TERRAIN.minage.minages) || [];
+    if (!liste.length) {
+      ecrireItem('terrainMinage', 'Aucune excavatrice en minage',
+        'Détecté automatiquement par les DT (ou déclaré par le spotter).');
       return;
     }
-    const blastDe = (e) => {
-      for (const b of TERRAIN.blasts) {
-        for (const o of (b.oreblocs || [])) {
-          let pts = o.sommets;
-          if (typeof pts === 'string') { try { pts = JSON.parse(pts); } catch (x) { pts = null; } }
-          if (Array.isArray(pts) && pts.length >= 3 && dansPolygone(e.x, e.y, pts)) return b;
-        }
-      }
-      return null;
-    };
-    const b = blastDe(exca[0]);
-    const pit = pitDeNom(b && (b.numero || b.nom));
-    const codes = exca.map((e) => e.code).join(', ');
-    ecrireItem('terrainMinage', (pit ? pit + ' · ' : '') + codes,
-      'Minage en cours' + (b ? ' · ' + (b.numero || b.nom) : '') + (exca.length > 1 ? ' · ' + exca.length + ' excavatrices' : ''));
+    const pits = Array.from(new Set(liste.map((m) => pitDeNom(m.bloc)).filter(Boolean)));
+    const titre = (pits.length ? pits.join(' / ') + ' · ' : '') + liste.map((m) => m.exca_code).join(', ');
+    const detail = liste.map((m) => m.exca_code + ' → ' + (m.bloc || ('#' + m.orebloc_id)) +
+      (m.origine && m.origine !== 'dt' ? ' (' + m.origine + ')' : '')).join(' · ');
+    ecrireItem('terrainMinage', titre, detail);
   }
 
   // Equipe de service du shift en cours : choisie par l'admin (Settings > Equipes, params equipe_jour / equipe_nuit),
@@ -448,12 +422,16 @@
 
   function rendreTerrain() { rendreMinage(); rendreEquipes(); rendreLiaisons(); }
 
+  function lireMinages() {
+    fetch(basePasserelleHome() + '/api/minages', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.minage = d && d.minages ? d : null; rendreMinage(); }).catch(() => {});
+  }
+
   function lireTerrain() {
     const base = basePasserelleHome();
     fetch(base + '/api/blasts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d && d.blasts) TERRAIN.blasts = d.blasts; rendreTerrain(); }).catch(() => {});
-    fetch(base + '/api/minage_actuel', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { TERRAIN.minage = d && d.declarations ? d : null; rendreMinage(); }).catch(() => {});
+    lireMinages();
     fetch(base + '/api/sources', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { TERRAIN.sources = (d && d.sources) || []; rendreMinage(); }).catch(() => {});
     fetch(base + '/api/relais', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
@@ -479,6 +457,7 @@
     MSUI.onTick((etat) => { TERRAIN.etat = etat; rendreVoyant(etat); rendreStats(etat); rendreFile(etat); rendreMinage(); rendreLiaisons(); });
     lireTerrain();
     setInterval(lireTerrain, 60000);
+    setInterval(lireMinages, 10000);
     lireCompteurs();
     setInterval(lireCompteurs, 10000);
     MSUI.demarrer(5000);

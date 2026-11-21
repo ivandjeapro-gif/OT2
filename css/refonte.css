@@ -3607,3 +3607,14 @@ body {
 #page-senor .sg-traj-rang { width: 22px; height: 22px; border-radius: 50%; background: #1d2620; color: #f2b705; display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; }
 #page-senor .sg-traj-cp .sg-ico-btn:disabled { opacity: .25; cursor: default; }
 #page-senor .sg-traj-ajout { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+#page-senor .sg-minages { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+#page-senor .sg-minage { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: rgba(255,255,255,.06); border-radius: 4px; }
+#page-senor .sg-minage-pelle { font-family: var(--mono); font-size: 14px; color: #fff; min-width: 64px; }
+#page-senor .sg-minage-bloc { flex: 1; min-width: 0; font-size: 12.5px; color: rgba(236,233,223,.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#page-senor .sg-minage-origine { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; padding: 4px 8px; border-radius: 3px; background: rgba(255,255,255,.1); color: rgba(236,233,223,.85); white-space: nowrap; }
+#page-senor .sg-minage-origine.o-dt { background: #fbd51a; color: #1d2620; }
+#page-senor .sg-minage-stop { width: 28px; height: 28px; border: 0; border-radius: 4px; background: rgba(255,255,255,.1); color: #f4b4aa; cursor: pointer; font-size: 11px; }
+#page-senor .sg-minage-stop:hover { background: #b3382a; color: #fff; }
+#page-senor .sg-secours { margin-top: 16px; }
+#page-senor .sg-secours summary { cursor: pointer; font-size: 12.5px; color: rgba(236,233,223,.7); padding: 6px 0; }
+#page-senor .sg-secours .suivi-minage { margin-top: 10px; }
