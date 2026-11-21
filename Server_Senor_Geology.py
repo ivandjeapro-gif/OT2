@@ -3369,7 +3369,20 @@ def ingerer_missions_sg(conn, missions):
     return enregistrees
 
 
-def verifier_conformite_dumping(conn, mission, position=None, strict=False):
+POSITION_FRAICHE_S = 120     # derniere position du DT jugee exploitable pour un verdict de conformite
+
+
+def position_dt_exploitable(conn, dt_code, age_max_s=POSITION_FRAICHE_S):
+    """(x, y) du DT si sa derniere position est RECENTE et non nulle, sinon None."""
+    r = conn.execute(
+        "SELECT x, y, CAST((julianday('now') - julianday(derniere_maj)) * 86400 AS INTEGER) AS age "
+        "FROM engins WHERE code=?", (dt_code,)).fetchone()
+    if not r or not (r["x"] or r["y"]) or r["age"] is None or r["age"] > age_max_s:
+        return None
+    return (r["x"], r["y"])
+
+
+def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_controler=False):
     """Dumping Instruction : la teneur du bloc impose une dumping area.
     Retourne "conforme", "non_conforme" ou "" (pas de verdict) et cree
     l'alerte `non_conforme` quand il y a ecart.
@@ -3382,7 +3395,10 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False):
     `position` absente : on compare l'attendu a la zone affectee (ancien
     comportement de /api/mission_fin, sans verdict si aucune regle teneurs).
     `strict` : sans position dans une dumping area, pas de verdict (cloture
-    vue chez SG : le DT a pu abandonner sa mission en route)."""
+    vue chez SG : le DT a pu abandonner sa mission en route).
+    `a_controler` (21/11, enregistrement du voyage) : on ne se fie JAMAIS a la zone affectee pour dire
+    « conforme ». Sans position exploitable, ou si le DT n'est dans aucune dumping area, le verdict est
+    "compromis" (« A controler ») des qu'une zone est attendue ; il n'y a pas d'alerte dans ce cas."""
     attendue, teneur = 0, None
     if mission["orebloc_id"]:
         ob = conn.execute("SELECT * FROM oreblocs WHERE id=?", (mission["orebloc_id"],)).fetchone()
@@ -3396,9 +3412,11 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False):
     regle = "teneur %.1f" % teneur if attendue else "consigne de Serveur_SG"
     if not attendue:
         if position is None:
-            return ""
+            return "compromis" if (a_controler and mission["dumping_area_id"]) else ""
         attendue = mission["dumping_area_id"]
     reelle = mission["dumping_area_id"]
+    if a_controler and position is None:
+        return "compromis" if attendue else ""      # on ne sait pas ou le DT a decharge
     if position is not None:
         trouvee = 0
         for da in conn.execute("SELECT id, sommets FROM dumping_areas WHERE actif=1"):
@@ -3410,6 +3428,8 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False):
                 continue
         if trouvee:
             reelle = trouvee
+        elif a_controler:
+            return "compromis" if attendue else ""   # hors de toute dumping area : a verifier, pas « conforme »
         elif strict:
             return ""
     if not attendue or not reelle:
@@ -3486,7 +3506,12 @@ def reconcilier_missions(conn, missions_sg):
             mission = conn.execute("SELECT * FROM missions WHERE id=?", (l["id"],)).fetchone()
             dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (l["dt_code"],)).fetchone()
             try:
-                verifier_conformite_dumping(conn, mission, (dt["x"], dt["y"]) if dt else None, strict=True)
+                verdict = verifier_conformite_dumping(conn, mission, (dt["x"], dt["y"]) if dt else None, strict=True)
+                if verdict:
+                    # le voyage deja enregistre recoit aussi ce verdict (position reelle) s'il n'en a pas de ferme
+                    conn.execute("UPDATE voyages SET conformite=? WHERE mission_id=? AND conformite IN ('', 'compromis')",
+                                 (verdict, l["id"]))
+                    conn.commit()
             except Exception as e:
                 print("MISSIONS: controle de conformite impossible (%s)" % e)
             conn.execute("UPDATE missions SET statut='termine', fin=? WHERE id=?", (maintenant, l["id"]))
@@ -7695,7 +7720,10 @@ class Handler(BaseHTTPRequestHandler):
                     volume_t = chargement_moyen_t(conn) * truck_factor
 
                     # --- Conformite dumping (Dumping Instruction) -----------
-                    conformite = verifier_conformite_dumping(conn, mission)
+                    # 21/11 : verdict d'apres la position REELLE du DT (derniere position fraiche), plus
+                    # d'apres la zone affectee ; sans position exploitable -> « A controler »
+                    conformite = verifier_conformite_dumping(
+                        conn, mission, position_dt_exploitable(conn, mission["dt_code"]), a_controler=True)
 
                     conn.execute(
                         "UPDATE missions SET statut='termine', fin=? WHERE id=?",
