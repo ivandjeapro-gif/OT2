@@ -1560,15 +1560,40 @@
       const p = (cfg && (cfg.params || cfg)) || {};
       const codes = Array.from(new Set(((ident && ident.rows) || [])
         .filter((r) => r.profil === 'SPOT' && r.actif === 1).map((r) => r.equipe).filter(Boolean))).sort();
+      servicePersonnel = ((ident && ident.rows) || []).filter((r) => r.profil === 'SPOT' && r.actif === 1);
       [[sj, p.equipe_jour || ''], [sn, p.equipe_nuit || '']].forEach(([sel, val]) => {
         const liste = val && codes.indexOf(val) < 0 ? codes.concat(val) : codes;
         sel.innerHTML = '<option value="">Non définie</option>' +
           liste.map((c) => '<option value="' + esc(c) + '"' + (c === val ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
       });
       if (st) st.textContent = '';
+      rendreService();
     } catch (e) {
       if (st) st.textContent = 'Connexion requise';
     }
+  }
+
+  // Carte « Equipe de service » : le shift en cours est mis en avant, avec les membres de son equipe.
+  let servicePersonnel = [];
+  function rendreService() {
+    const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
+    if (!sj || !sn) return;
+    const h = new Date().getHours();
+    const jour = h >= 6 && h < 18;
+    const rj = $('#dpSvcJour'), rn = $('#dpSvcNuit');
+    if (rj) rj.classList.toggle('actif', jour);
+    if (rn) rn.classList.toggle('actif', !jour);
+    const code = (jour ? sj : sn).value;
+    const shift = $('#dpServiceShift');
+    if (shift) shift.textContent = (jour ? 'Shift de jour' : 'Shift de nuit') + ' · ' + (code || 'non définie');
+    const box = $('#dpServiceMembres');
+    if (!box) return;
+    const membres = servicePersonnel.filter((r) => r.equipe === code)
+      .sort((a, b) => (String(b.role).toUpperCase() === 'CHEF_EQUIPE') - (String(a.role).toUpperCase() === 'CHEF_EQUIPE'));
+    box.innerHTML = code && membres.length
+      ? membres.map((m) => '<span class="dp-svc-membre' + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' chef' : '') + '">' +
+          esc(m.nom || m.identifiant) + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' · chef' : '') + '</span>').join('')
+      : '';
   }
 
   async function enregistrerService(cle, valeur) {
@@ -1586,8 +1611,8 @@
     brancherEvenements();
     chargerService();
     const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
-    if (sj) sj.addEventListener('change', () => enregistrerService('equipe_jour', sj.value));
-    if (sn) sn.addEventListener('change', () => enregistrerService('equipe_nuit', sn.value));
+    if (sj) sj.addEventListener('change', () => { rendreService(); enregistrerService('equipe_jour', sj.value); });
+    if (sn) sn.addEventListener('change', () => { rendreService(); enregistrerService('equipe_nuit', sn.value); });
     // sequentiel : chargerBlasts filtre sur la source courante, qui doit
     // donc etre connue avant (en parallele la liste partait non filtree).
     await chargerSources();

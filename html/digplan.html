@@ -210,11 +210,23 @@
                             </div>
 
                             <div class="dp-service-card" id="dpServiceCard">
-                                <span class="dp-kicker">Équipe de service</span>
-                                <label class="dp-service-champ"><span>Jour · 06 h – 18 h</span>
-                                    <select id="dpEquipeJour"><option value="">Non définie</option></select></label>
-                                <label class="dp-service-champ"><span>Nuit · 18 h – 06 h</span>
-                                    <select id="dpEquipeNuit"><option value="">Non définie</option></select></label>
+                                <div class="dp-service-top">
+                                    <span class="dp-kicker">Équipe de service</span>
+                                    <span class="dp-service-shift" id="dpServiceShift">--</span>
+                                </div>
+                                <div class="dp-svc-rows">
+                                    <label class="dp-svc-row" id="dpSvcJour">
+                                        <i class="fas fa-sun"></i>
+                                        <span class="dp-svc-nom">Jour<small>06 h – 18 h</small></span>
+                                        <select id="dpEquipeJour" aria-label="Équipe de jour"><option value="">Non définie</option></select>
+                                    </label>
+                                    <label class="dp-svc-row" id="dpSvcNuit">
+                                        <i class="fas fa-moon"></i>
+                                        <span class="dp-svc-nom">Nuit<small>18 h – 06 h</small></span>
+                                        <select id="dpEquipeNuit" aria-label="Équipe de nuit"><option value="">Non définie</option></select>
+                                    </label>
+                                </div>
+                                <div class="dp-svc-membres" id="dpServiceMembres"></div>
                                 <span class="sg2-status" id="dpServiceStatus"></span>
                             </div>
                         </div>

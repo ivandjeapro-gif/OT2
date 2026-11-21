@@ -3841,3 +3841,20 @@ body {
 #page-digplan .dp-crop-barre { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 8px; }
 #page-digplan .dp-crop-barre[hidden] { display: none; }
 #page-digplan .dp-crop-barre .dp-crop-toggle { position: static; }
+
+/* Dig Plan : carte « Equipe de service » repensee (shift en cours mis en avant + membres) */
+#page-digplan .dp-service-card { gap: 14px; padding: 20px 22px; }
+#page-digplan .dp-service-top { display: flex; justify-content: space-between; align-items: baseline; }
+#page-digplan .dp-service-shift { font-size: 12.5px; color: var(--r-text-2); }
+#page-digplan .dp-svc-rows { display: flex; flex-direction: column; gap: 8px; }
+#page-digplan .dp-svc-row { display: grid; grid-template-columns: 22px 1fr minmax(120px, 1.1fr); align-items: center; gap: 12px; padding: 10px 12px; border-radius: 6px; background: #f4f1e8; cursor: pointer; border: 1px solid transparent; }
+#page-digplan .dp-svc-row.actif { background: #fff; border-color: var(--r-accent); box-shadow: 0 0 0 3px rgba(232,100,28,.08); }
+#page-digplan .dp-svc-row > i { color: var(--r-text-3); text-align: center; font-size: 14px; }
+#page-digplan .dp-svc-row.actif > i { color: var(--r-accent); }
+#page-digplan .dp-svc-nom { display: flex; flex-direction: column; font-size: 14px; font-weight: 500; color: var(--r-text); }
+#page-digplan .dp-svc-nom small { font-size: 11px; font-weight: 400; color: var(--r-text-3); font-family: var(--mono); }
+#page-digplan .dp-svc-row select { height: 34px; padding: 0 28px 0 10px; border: 0; border-radius: 4px; background-color: #ece8dc; color: var(--r-text); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; text-overflow: ellipsis; }
+#page-digplan .dp-svc-row.actif select { background-color: #1d2620; color: #fff; }
+#page-digplan .dp-svc-membres { display: flex; flex-wrap: wrap; gap: 6px; }
+#page-digplan .dp-svc-membre { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 3px; background: #ece8dc; font-size: 12.5px; color: var(--r-text); }
+#page-digplan .dp-svc-membre.chef { background: #1d2620; color: #f2b705; }
