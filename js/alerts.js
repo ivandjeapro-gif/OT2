@@ -91,6 +91,19 @@
     return null;
   }
 
+  // Cycle de vie (offroad / deviation) : ouverte -> le DT est revenu (retour_le) -> cloturee quand l'Office l'a aussi vue
+  const AVEC_CYCLE = { offroad: 1, deviation: 1 };
+  function dureeCourte(s) {
+    s = Math.max(0, Math.round(Number(s) || 0));
+    return s >= 60 ? Math.floor(s / 60) + ' min ' + deux(s % 60) + ' s' : s + ' s';
+  }
+  function etatCycle(a) {
+    if (!AVEC_CYCLE[a.type]) return '';
+    return a.retour_le
+      ? 'DT revenu à ' + MSUI.heure(a.retour_le) + ' (après ' + dureeCourte(a.retour_duree_s) + ')'
+      : 'DT toujours hors trajet';
+  }
+
   function render(etat) {
     const tbody = document.getElementById('alertsBody');
     if (!tbody) return;
@@ -131,13 +144,14 @@
         '<td>' + MSUI.heure(a.created_at) + '</td>' +
         '<td>' + MSUI.esc(a.dt_code) + '</td>' +
         '<td>' + MSUI.esc(TYPE_LIBELLE[a.type] || a.type) + '</td>' +
-        '<td>' + MSUI.esc(a.message) + '</td>' +
+        '<td>' + MSUI.esc(a.message) +
+          (etatCycle(a) ? '<br><small class="' + (a.retour_le ? 'muted' : 'sev-high') + '">' + MSUI.esc(etatCycle(a)) + '</small>' : '') + '</td>' +
         '<td>' + (a.acquittee
           ? '<span class="status-done">Vue</span>'
           : (aTraiter ? '<span class="' + cls + '">Non vue</span>'
                       : '<span class="status-done">Info</span>')) + '</td>' +
         '<td>' + (aTraiter ?
-          '<button class="team-btn" data-acquit="' + a.id + '">Marquer vu</button>' : (a.acquittee ? '<span class="muted">Acquittée</span>' : '')) +
+          '<button class="team-btn" data-acquit="' + a.id + '">Marquer vu</button>' : (a.acquittee ? '<span class="muted">' + (AVEC_CYCLE[a.type] ? (a.retour_le ? 'Clôturée' : 'Vue · DT hors trajet') : 'Acquittée') + '</span>' : '')) +
         '</td>' +
         '</tr>';
     }).join('');

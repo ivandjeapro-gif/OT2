@@ -2559,6 +2559,7 @@ DEVIATION_DEFAUTS = {
     "DEVIATION_SEUIL_M": "30",
     "DEVIATION_RETOUR_M": "20",
     "DEVIATION_DUREE_S": "15",
+    "DEVIATION_RETOUR_DUREE_S": "10",   # 21/11 : retour sur le trajet confirme apres N s d'affilee (anti-clignotement)
 }
 
 
@@ -2575,7 +2576,24 @@ def deviation_reglages():
         "seuil_m": seuil,
         "retour_m": min(num("DEVIATION_RETOUR_M"), seuil),
         "duree_s": max(0.0, num("DEVIATION_DUREE_S")),
+        "retour_duree_s": max(0.0, num("DEVIATION_RETOUR_DUREE_S")),
     }
+
+
+# 21/11 - Cycle de vie d'une alerte : l'alerte « offroad » / « deviation » est OUVERTE a sa creation et
+# se CLOT cote DT au retour (colonnes retour_le + retour_duree_s) ; elle n'est « cloturee » que lorsque
+# l'Office l'a aussi marquee vue (acquittee). L'acquittement ne coupe PAS la voix du DT.
+_retour_candidat = {}      # code DT -> instant du premier releve revenu sur le trajet (confirmation)
+
+
+def clore_alertes_ouvertes(conn, dt_code, type_alerte, instant=None):
+    """Note le retour sur les alertes `type_alerte` encore ouvertes du DT : heure et duree.
+    Meme convention d'heure que created_at (UTC, SQLite)."""
+    conn.execute(
+        "UPDATE alertes SET retour_le=datetime('now'), "
+        "retour_duree_s=MAX(0, CAST((julianday('now') - julianday(created_at)) * 86400 AS INTEGER)) "
+        "WHERE dt_code=? AND type=? AND retour_le=''", (dt_code, type_alerte))
+    conn.commit()
 
 
 def distance_au_chemin(chemin, x, y):
@@ -2622,12 +2640,21 @@ def verifier_deviation(conn, dt_code, instant=None):
     evenement = None
 
     if mission["devie"]:
-        if zone or ecart <= reglages["retour_m"]:
+        revenu = bool(zone) or ecart <= reglages["retour_m"]
+        if revenu and not zone:
+            # confirmation : revenu sur le trajet pendant retour_duree_s secondes d'affilee
+            debut_retour = _retour_candidat.setdefault(dt_code, maintenant)
+            revenu = _secondes_depuis(debut_retour, maintenant) >= reglages["retour_duree_s"]
+        elif not revenu:
+            _retour_candidat.pop(dt_code, None)
+        if revenu:
+            _retour_candidat.pop(dt_code, None)
             message = "%s de retour sur le trajet de sa mission." % dt_code
             conn.execute(
                 "UPDATE missions SET devie=0, devie_depuis='', devie_candidat_depuis='', "
                 "ecart_m=? WHERE id=?", (round(ecart, 1), mission["id"]))
             conn.commit()
+            clore_alertes_ouvertes(conn, dt_code, "deviation", maintenant)
             creer_alerte(conn, "retour_trajet", dt_code, message)
             evenement = {"type": "retour_trajet", "dt_code": dt_code, "x": x, "y": y,
                          "mission_id": mission["id"], "distance": ecart, "message": message}
@@ -2981,6 +3008,7 @@ def verifier_offroad(conn, dt_code, instant=None):
                 "offroad_candidat_depuis='', offroad_distance=? WHERE code=?",
                 (round(dist, 1), dt_code))
             conn.commit()
+            clore_alertes_ouvertes(conn, dt_code, "offroad", maintenant)
             creer_alerte(conn, "retour_piste", dt_code, message)
             evenement = {"type": "retour_piste", "dt_code": dt_code, "x": x, "y": y,
                          "distance": dist, "duree_s": duree, "message": message}
@@ -7902,9 +7930,21 @@ def main():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(alertes)")]
     for nom, decl in (("acquittee", "INTEGER DEFAULT 0"),
                       ("acquittee_par", "TEXT DEFAULT ''"),
-                      ("acquittee_le", "TEXT DEFAULT ''")):
+                      ("acquittee_le", "TEXT DEFAULT ''"),
+                      ("retour_le", "TEXT DEFAULT ''"),          # 21/11 : retour du DT (cloture cote DT)
+                      ("retour_duree_s", "INTEGER DEFAULT 0")):
         if nom not in cols:
             conn.execute("ALTER TABLE alertes ADD COLUMN %s %s" % (nom, decl))
+    # 21/11 : alertes anterieures au cycle de vie -> retour deduit de l'evenement « retour » suivant du meme DT
+    for typ, retour in (("offroad", "retour_piste"), ("deviation", "retour_trajet")):
+        conn.execute(
+            "UPDATE alertes SET "
+            " retour_le = (SELECT r.created_at FROM alertes r WHERE r.dt_code = alertes.dt_code AND r.type = ? "
+            "              AND r.id > alertes.id ORDER BY r.id LIMIT 1), "
+            " retour_duree_s = MAX(0, CAST((julianday((SELECT r.created_at FROM alertes r WHERE r.dt_code = alertes.dt_code "
+            "              AND r.type = ? AND r.id > alertes.id ORDER BY r.id LIMIT 1)) - julianday(created_at)) * 86400 AS INTEGER)) "
+            "WHERE type = ? AND retour_le = '' AND EXISTS (SELECT 1 FROM alertes r WHERE r.dt_code = alertes.dt_code "
+            "              AND r.type = ? AND r.id > alertes.id)", (retour, retour, typ, retour))
     conn.commit()
     # voyages : conformite dumping (conforme / compromis / non_conforme)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(voyages)")]
