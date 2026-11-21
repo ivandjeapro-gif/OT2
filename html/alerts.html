@@ -84,6 +84,7 @@
                                 <option value="retour_piste">Retour sur piste</option>
                                 <option value="non_conforme">Dumping non conforme</option>
                                 <option value="fin_mission">Fin de mission</option>
+                                <option value="blast_rejete">Blast refusé</option>
                             </select>
                         </div>
                         <label class="r-filter-check"><input type="checkbox" id="fltNonVues" checked /> Non vues seulement</label>
@@ -95,8 +96,8 @@
                     <div class="r-counterrow">
                         <div class="r-counter"><span class="r-counter-num" id="rCountTotal">00</span><span class="r-counter-label">alertes du jour</span></div>
                         <div class="r-counter r-counter-orange"><span class="r-counter-num" id="rCountUnseen">00</span><span class="r-counter-label">non vues</span></div>
-                        <div class="r-counter r-counter-red"><span class="r-counter-num" id="rCountLate">00</span><span class="r-counter-label">au-delà de 10 min</span></div>
-                        <span class="r-counter-date" id="rCounterDate">17 novembre 2026 · 10:23</span>
+                        <div class="r-counter r-counter-red"><span class="r-counter-num" id="rCountLate">00</span><span class="r-counter-label" id="rCountLateLabel">au-delà de 10 min</span></div>
+                        <span class="r-counter-date" id="rCounterDate">--</span>
                     </div>
 
                     <!-- BANDEAU INFO -->
@@ -124,8 +125,8 @@
                             </tbody>
                         </table>
                         <div class="r-tablefoot">
-                            <span id="alertsFootLeft">8 événements · 5 non vus · 3 vus</span>
-                            <span class="r-tablefoot-right">Seuil d'alerte rouge : 10 minutes · configurable dans Settings</span>
+                            <span id="alertsFootLeft">--</span>
+                            <span class="r-tablefoot-right" id="alertsFootSeuil">Seuil d'alerte rouge : 10 minutes · configurable dans Settings</span>
                         </div>
                     </div>
                 </section>
@@ -141,8 +142,8 @@
                 <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
             </div>
             <div class="status-right">
-                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
-                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+                <span class="status-item" id="statusDate">--</span>
+                <span class="status-item" id="statusTime">--</span>
             </div>
         </footer>
     </div>
@@ -176,27 +177,6 @@
     <script src="../js/alerts.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
-    <!-- REFONTE UI : compteurs/pied purement decoratifs (aucune logique metier modifiee) -->
-    <script>
-    (function(){
-        var body = document.getElementById('alertsBody');
-        if(!body) return;
-        function pad(n){ return String(n).padStart(2,'0'); }
-        function refresh(){
-            var rows = Array.prototype.filter.call(body.querySelectorAll('tr'), function(tr){ return tr.children.length > 1; });
-            var total = rows.length;
-            var unseen = rows.filter(function(tr){ return /non\s*vu/i.test(tr.textContent); }).length;
-            var late = rows.filter(function(tr){ return /hors\s*piste|10\s*min/i.test(tr.textContent); }).length;
-            var t = document.getElementById('rCountTotal'), u = document.getElementById('rCountUnseen'), l = document.getElementById('rCountLate'), f = document.getElementById('alertsFootLeft');
-            if(t) t.textContent = pad(total);
-            if(u) u.textContent = pad(unseen);
-            if(l) l.textContent = pad(late);
-            if(f) f.textContent = total + ' événements · ' + unseen + ' non vus · ' + (total - unseen) + ' vus';
-        }
-        new MutationObserver(refresh).observe(body, { childList: true, subtree: true });
-        refresh();
-    })();
-    </script>
 </body>
 </html>
 

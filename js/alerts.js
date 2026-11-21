@@ -16,6 +16,7 @@
     retour_piste: 'Retour sur piste',
     non_conforme: 'Dumping non conforme',
     fin_mission: 'Fin de mission',
+    blast_rejete: 'Blast refuse',
     arrivee: 'Arrivee DA',
     mission: 'Nouvelle mission',
   };
@@ -40,6 +41,39 @@
     }).catch(() => { });
   }
 
+  const deux = (n) => String(n).padStart(2, '0');
+  const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août',
+    'septembre', 'octobre', 'novembre', 'décembre'];
+  const ms = (a) => new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
+
+  // Journee d'exploitation : 06 h - 06 h (comme le tonnage de Home)
+  function debutJourMs() {
+    const d = new Date();
+    if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+    d.setHours(6, 0, 0, 0);
+    return d.getTime();
+  }
+
+  // Compteurs de la rangee, pied de tableau et date : calcules sur les vraies alertes
+  function rendreCompteurs(etat, affichees) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const seuilMs = (etat.seuilRougeMin || 10) * 60000;
+    const debut = debutJourMs();
+    const jour = (etat.alertes || []).filter((a) => ms(a) >= debut);
+    const nonVues = jour.filter((a) => !a.acquittee && !TYPES_INFO[a.type]);
+    const enRetard = nonVues.filter((a) => Date.now() - ms(a) > seuilMs);
+    set('rCountTotal', deux(jour.length));
+    set('rCountUnseen', deux(nonVues.length));
+    set('rCountLate', deux(enRetard.length));
+    set('rCountLateLabel', 'au-delà de ' + (etat.seuilRougeMin || 10) + ' min');
+    const n = new Date();
+    set('rCounterDate', n.getDate() + ' ' + MOIS[n.getMonth()] + ' ' + n.getFullYear() + ' · ' + deux(n.getHours()) + ':' + deux(n.getMinutes()));
+    const aVoir = affichees.filter((a) => !a.acquittee && !TYPES_INFO[a.type]).length;
+    set('alertsFootLeft', affichees.length + (affichees.length > 1 ? ' événements · ' : ' événement · ') +
+      aVoir + ' non vus · ' + (affichees.length - aVoir) + ' vus ou informatifs');
+    set('alertsFootSeuil', 'Seuil d’alerte rouge : ' + (etat.seuilRougeMin || 10) + ' minutes · configurable dans Settings');
+  }
+
   function render(etat) {
     const tbody = document.getElementById('alertsBody');
     if (!tbody) return;
@@ -50,13 +84,15 @@
       alertes = alertes.filter((a) => String(a.dt_code || '').toUpperCase().indexOf(f) >= 0);
     }
     if (filtreType) alertes = alertes.filter((a) => a.type === filtreType);
-    if (seulementNonVues) alertes = alertes.filter((a) => !a.acquittee);
+    if (seulementNonVues) alertes = alertes.filter((a) => !a.acquittee && !TYPES_INFO[a.type]);
 
     const compteur = document.getElementById('alertsCompteur');
     if (compteur) {
       const nonVues = (etat.alertes || []).filter((a) => !a.acquittee && !TYPES_INFO[a.type]).length;
       compteur.textContent = nonVues ? nonVues + ' a traiter' : '';
     }
+
+    rendreCompteurs(etat, alertes);
 
     if (!alertes.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="muted">' +
@@ -79,10 +115,10 @@
         '<td>' + MSUI.esc(a.message) + '</td>' +
         '<td>' + (a.acquittee
           ? '<span class="status-done">Vue</span>'
-          : (aTraiter ? '<span class="' + cls + '">A traiter</span>'
+          : (aTraiter ? '<span class="' + cls + '">Non vue</span>'
                       : '<span class="status-done">Info</span>')) + '</td>' +
         '<td>' + (aTraiter ?
-          '<button class="team-btn" data-acquit="' + a.id + '"><i class="fas fa-check"></i> Vu</button>' : '') +
+          '<button class="team-btn" data-acquit="' + a.id + '">Marquer vu</button>' : (a.acquittee ? '<span class="muted">Acquittée</span>' : '')) +
         '</td>' +
         '</tr>';
     }).join('');
