@@ -3784,3 +3784,21 @@ body {
 #page-digplan .dp-diagram[hidden] { display: none !important; }
 #page-digplan .dp-overmine-liste { display: block !important; background: none !important; border: 0 !important; padding: 0 !important; }
 #page-digplan .dp-overmine-item { display: flex !important; flex-direction: column !important; background: none !important; border: 0 !important; padding: 0 !important; border-radius: 0 !important; margin-bottom: 10px; }
+/* detail par bloc dans la carte Avancement (ancien format, charte sombre) */
+#page-digplan .dp-diagram { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.12); background: none !important; border-radius: 0; }
+#page-digplan .dp-diag-legende { display: flex; gap: 18px; font-size: 11.5px; color: rgba(236,233,223,.7); margin-bottom: 12px; }
+#page-digplan .dp-diag-legende > span { display: inline-flex; align-items: center; gap: 8px; }
+#page-digplan .dp-leg-mine, #page-digplan .dp-leg-theo { display: inline-block; width: 18px; height: 6px; border-radius: 3px; }
+#page-digplan .dp-leg-mine { background: #fbd51a; }
+#page-digplan .dp-leg-theo { background: rgba(255,255,255,.22); }
+#page-digplan .dp-diag-barres { display: flex; flex-direction: column; gap: 12px; }
+#page-digplan .dp-bar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "nom val" "piste piste"; gap: 6px 12px; align-items: baseline; }
+#page-digplan .dp-bar-label { grid-area: nom; font-family: var(--mono); font-size: 12px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#page-digplan .dp-bar-value { grid-area: val; font-size: 12px; color: rgba(236,233,223,.85); white-space: nowrap; }
+#page-digplan .dp-bar-value em { font-style: normal; font-family: var(--mono); margin-left: 6px; color: #fbd51a; }
+#page-digplan .dp-bar-value em.ok { color: #7fd58b; }
+#page-digplan .dp-bar-track { grid-area: piste; position: relative; height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+#page-digplan .dp-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+#page-digplan .dp-bar-fill.theo { background: rgba(255,255,255,.22); }
+#page-digplan .dp-bar-fill.mine { background: var(--fam, #fbd51a); }
+#page-digplan .dp-overmine-item { align-items: flex-start !important; text-align: left; }

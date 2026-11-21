@@ -1343,7 +1343,9 @@
       const pctM = Math.max(0, Math.min(100, Math.round((m / maxT) * 100)));
       const pct = t ? Math.min(100, Math.round((m / t) * 100)) : 0;
       const ok = t ? (m >= t * 0.98) : false; // atteint si >= 98% du plan
-      return '<div class="dp-bar-row">' +
+      const ob = oreblocs.find((o) => o.nom === nom) || {};
+      const couleur = window.OTCouleurs ? OTCouleurs.famille(ob.destination) : '#8d887a';
+      return '<div class="dp-bar-row" style="--fam:' + couleur + '">' +
         '<span class="dp-bar-label" title="' + esc(nom) + '">' + esc(nom) + '</span>' +
         '<div class="dp-bar-track">' +
           '<div class="dp-bar-fill theo" style="width:' + pctT + '%"></div>'
