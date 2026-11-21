@@ -115,7 +115,10 @@
       etat = await appel('/api/tablettes');
       if (!silencieux) statut('', true);
     } catch (e) {
-      etat = { tablettes: [], apk: {}, adb: { erreur: 'passerelle injoignable (' + e.message + ')' } };
+      const ancienne = e.status === 404 || /endpoint inconnu/i.test(e.message);
+      etat = { tablettes: [], apk: {}, adb: { erreur: ancienne
+        ? 'la passerelle en cours ne gère pas encore les tablettes : redémarrez-la (lanceur.py)'
+        : 'passerelle injoignable (' + e.message + ')' } };
     } finally {
       enCours = false;
     }
