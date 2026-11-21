@@ -2428,6 +2428,8 @@ def traiter_trame_xbee(conn, ligne):
     return (code, x, y)
 
 
+_xbee_serie = {"ser": None}            # port ouvert par l'ecouteur (pour la simulation d'une pelle)
+_xbee_ecriture = threading.Lock()
 _xbee_etat = {"pyserial": serial is not None, "connecte": False, "port": "", "baud": 0, "erreur": "",
               "valides": 0, "rejetees": 0, "derniere_valide": "", "derniere_recue": "",
               "pelles_ok": 0, "pelles_non_signee": 0, "pelles_invalide": 0, "derniere_pelle": None}
@@ -2470,6 +2472,60 @@ def xbee_ecrire_conf(conn, port, baud):
     return 200, {"ok": True, "port": port, "baud": baud}
 
 
+def _crc16_ccitt(texte):
+    """CRC-16/CCITT-FALSE sur les codes de caracteres (comme radio-protocol.ts : crc16)."""
+    crc = 0xFFFF
+    for c in texte:
+        crc ^= (ord(c) & 0xFFFF) << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return "%04x" % crc
+
+
+MODES_PELLE_TEST = ("signee", "non_signee", "mauvaise_cle", "inconnue")
+
+
+def trame_pelle_test(conn, pelle, mode, dt_code):
+    """Proposition de chargement (k=prop) d'une pelle SIMULEE, adressee a `dt_code`, a la position de ce DT, pour tester le filtre
+    de signature des DT avec une seule radio libre. Memes octets que l'app Excavatrice (serializeFrame + signerLigne)."""
+    if mode not in MODES_PELLE_TEST:
+        raise ValueError("mode inconnu : %s" % mode)
+    eng = conn.execute("SELECT x, y FROM engins WHERE code=?", (dt_code,)).fetchone()
+    if not eng:
+        raise ValueError("DT inconnu : %s" % dt_code)
+    zone, hemi = repere_site(conn)
+    ll = _vers_latlng(eng["x"], eng["y"], zone, hemi or "N") if zone else None
+    ident = pelle if mode != "inconnue" else "EX-9999"
+    trame = {"v": 3, "k": "prop", "id": ident, "nom": "EX", "dt": dt_code,
+             "heure": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")}
+    if ll:
+        trame["Long"], trame["Lat"] = round(ll[1], 7), round(ll[0], 7)
+    trame.update({"Ele": 359.0, "E": round(eng["x"], 1), "N": round(eng["y"], 1),
+                  "Zone": "%s%s" % (zone or 30, hemi or "N"), "Statut": "OL", "points": 0, "p": 30, "ld": 600})
+    corps = json.dumps(trame, separators=(",", ":"), ensure_ascii=False)
+    if mode != "non_signee":
+        cle = cle_radio_courante(conn, pelle) if mode == "signee" else secrets.token_hex(32)
+        if not cle:
+            raise ValueError("pelle sans cle radio : %s" % pelle)
+        sg = hmac.new(bytes.fromhex(cle), corps.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+        corps = corps[:-1] + ',"sg":"%s"}' % sg
+    return corps[:-1] + ',"ck":"%s"}' % _crc16_ccitt(corps)
+
+
+def xbee_emettre(ligne):
+    """Ecrit une ligne sur la radio de la passerelle ; (ok, motif)."""
+    ser = _xbee_serie["ser"]
+    if ser is None:
+        return False, "radio non connectee"
+    try:
+        with _xbee_ecriture:
+            ser.write((ligne + "\r\n").encode("utf-8"))
+            ser.flush()
+        return True, ""
+    except Exception as e:
+        return False, "%s: %s" % (type(e).__name__, str(e)[:100])
+
+
 def xbee_etat_public():
     port, baud = xbee_conf()
     return dict(_xbee_etat, configure_port=port, configure_baud=baud, bauds=list(XBEE_BAUDS), ports=xbee_ports(),
@@ -2495,6 +2551,7 @@ def ecouteur_xbee():
             with serial.Serial(port, baud, timeout=5) as ser:
                 print("XBEE: connecte sur %s @ %d bauds" % (port, baud))
                 _xbee_etat.update(connecte=True, port=port, baud=baud, erreur="")
+                _xbee_serie["ser"] = ser
                 while True:
                     if xbee_conf() != (port, baud):
                         break                # reglage change dans la console : on rouvre avec le nouveau
@@ -2516,6 +2573,7 @@ def ecouteur_xbee():
                     else:
                         _xbee_etat["rejetees"] += 1
         except Exception as e:
+            _xbee_serie["ser"] = None
             _xbee_etat.update(connecte=False, erreur="%s: %s" % (type(e).__name__, str(e)[:120]))
             print("XBEE: erreur liaison serie (%s), nouvelle tentative dans 5s" % e)
             time.sleep(5)
@@ -7825,6 +7883,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._route_gnss(path, method)
         if path.startswith("/api/jetons"):
             return self._route_jetons(path, method)
+        if path == "/api/radio/emettre" and method == "POST":
+            conn = get_conn()
+            try:
+                body = json.loads(self._read_body() or b"{}")
+                ligne = trame_pelle_test(conn, str(body.get("pelle") or ""), str(body.get("mode") or ""), str(body.get("dt") or "DT-01"))
+                ok, motif = xbee_emettre(ligne)
+            except (ValueError, TypeError) as e:
+                return self._send_json(400, {"error": str(e)})
+            finally:
+                conn.close()
+            return self._send_json(200 if ok else 503, {"ok": ok, "erreur": motif, "ligne": ligne})
         if path == "/api/radio":
             if method == "GET":
                 return self._send_json(200, xbee_etat_public())

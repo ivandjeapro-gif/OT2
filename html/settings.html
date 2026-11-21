@@ -609,6 +609,19 @@
                             <span class="lbl">Radio de la passerelle (XBee)</span>
                             <div class="pm-gnss-recepteur" id="radioEtat"><em>Chargement…</em></div>
                             <label class="pm-gnss-trame pm-radio-exiger"><input type="checkbox" id="radioExiger" /> Exiger la signature des excavatrices : les DT ignorent toute pelle non signée ou inconnue</label>
+                            <details class="pm-radio-test">
+                                <summary>Simuler une excavatrice avec cette radio (test)</summary>
+                                <div class="pm-gnss-champs">
+                                    <label class="pm-champ"><span class="lbl">Pelle</span><input type="text" id="radioTestPelle" placeholder="EX-1250" /></label>
+                                    <label class="pm-champ"><span class="lbl">DT visé</span><input type="text" id="radioTestDt" value="DT-01" /></label>
+                                    <label class="pm-champ"><span class="lbl">Trame</span><select id="radioTestMode">
+                                        <option value="signee">Signée (clé de la pelle)</option>
+                                        <option value="non_signee">Non signée</option>
+                                        <option value="mauvaise_cle">Signée avec une mauvaise clé</option>
+                                        <option value="inconnue">Pelle inconnue (EX-9999)</option></select></label>
+                                    <button type="button" class="pm-btn-sombre pm-radio-btn" id="radioTestEnvoyer">Envoyer</button>
+                                </div>
+                            </details>
                             <form class="pm-gnss-champs" id="radioForm">
                                 <label class="pm-champ"><span class="lbl">Port</span><select id="radioPort"></select></label>
                                 <label class="pm-champ"><span class="lbl">Vitesse</span><select id="radioBaud"></select></label>

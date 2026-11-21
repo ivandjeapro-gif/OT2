@@ -422,6 +422,12 @@
         statut(veut ? 'Signature exigée : à partir de la prochaine lecture des paramètres par chaque DT.' : 'Signature non exigée : toutes les trames passent.', true);
       } catch (err) { statut(err.message, false); e.target.checked = !veut; }
     });
+    $('#radioTestEnvoyer').addEventListener('click', async () => {
+      try {
+        const r = await appel('/api/radio/emettre', 'POST', { pelle: $('#radioTestPelle').value.trim(), dt: $('#radioTestDt').value.trim(), mode: $('#radioTestMode').value });
+        statut('Trame envoyée par la radio du PC (' + $('#radioTestMode').selectedOptions[0].textContent + ').', true);
+      } catch (err) { statut(err.message, false); }
+    });
     $('#gnssDetecter').addEventListener('click', detecter);
     $('#gnssConfigurer').addEventListener('click', configurer);
     $('#gnssFermer').addEventListener('click', async () => {
