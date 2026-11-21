@@ -123,8 +123,19 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(pas);
     }
 
+    // Libelle « Planned » : precise la base quand l'objectif journalier est ramene a un shift
+    function libellesPlanned() {
+        const shift = facteurObjectif() !== 1;
+        document.querySelectorAll('.planned').forEach((el) => {
+            el.title = shift ? 'Objectif journalier ÷ 2 (shift de 12 h)' : 'Objectif de la journée';
+            const t = el.firstChild;
+            if (t && t.nodeType === 3) t.textContent = shift ? 'Planned shift ' : 'Planned ';
+        });
+    }
+
     function renderKpiCarte(cle, suffixe, unite) {
         const k = data[cle];
+        libellesPlanned();
         const plan = k.planned === null ? null : k.planned * facteurObjectif();
         rouler($('kpi' + suffixe), k.current);
         $('plan' + suffixe).textContent = plan === null ? '--' : fmt(plan) + ' ' + unite;
