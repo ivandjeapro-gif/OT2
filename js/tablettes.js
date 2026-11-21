@@ -88,7 +88,7 @@
     }
     box.innerHTML = etat.tablettes.map((t) => {
       const job = jobs[t.serie];
-      const profilBtns = PROFILS.map(([k, nom]) => '<button type="button" class="pm-seg-btn' + (k === t.profil ? ' actif' : '') + '" data-tab-profil="' + esc(t.serie) + '" data-val="' + k + '"' + (t.connectee ? '' : ' disabled') + '>' + nom + '</button>').join('');
+      const profilOpts = PROFILS.map(([k, nom]) => '<option value="' + k + '"' + (k === t.profil ? ' selected' : '') + '>' + nom + '</option>').join('');
       const transports = t.transports.map((x) => '<span class="pm-tab-puce">' + (x === 'wifi' ? 'Wi-Fi' : 'USB') + '</span>').join('');
       const nomProfil = (PROFILS.find((x) => x[0] === t.profil) || [])[1] || '';
       const appTxt = t.app_installee
@@ -106,7 +106,7 @@
           '<span class="pm-tab-id"><b>' + esc(t.modele || 'Tablette') + '</b><small>' + esc(t.serie) +
             (t.batterie != null ? ' · ' + t.batterie + ' %' : '') + (t.android ? ' · Android ' + esc(t.android) : '') + '</small>' +
             '<span class="pm-tab-transports">' + transports + (t.ip ? '<span class="pm-tab-ip">' + esc(t.ip) + '</span>' : '') + (etatTxt ? '<span class="pm-tab-alerte">' + etatTxt + '</span>' : '') + '</span></span>' +
-          '<span class="pm-tab-app' + (t.app_installee ? ' ok' : '') + '"><span class="pm-seg">' + profilBtns + '</span>' +
+          '<span class="pm-tab-app' + (t.app_installee ? ' ok' : '') + '"><select data-tab-profil="' + esc(t.serie) + '"' + dis + '>' + profilOpts + '</select>' +
             '<small>' + appTxt + (t.installee_le ? ' · le ' + esc(t.installee_le.slice(0, 16)) : '') + (autres.length ? ' · aussi : ' + esc(autres.join(', ')) : '') + '</small></span>' +
           '<span class="pm-tab-dt">' + identite(t, dis) + '</span>' +
           '<span class="pm-actions pm-tab-actions">' +
@@ -137,10 +137,9 @@
       return '<input type="text" data-tab-champ="ident" data-serie="' + s + '" value="' + esc(t.ident) + '" placeholder="Id"' + dis + ' />' +
              '<input type="text" data-tab-champ="famille" data-serie="' + s + '" value="' + esc(t.famille) + '" placeholder="Famille"' + dis + ' />';
     }
-    const puces = liste.map((d) => '<button type="button" class="pm-chip' + (d.code === t.ident ? ' actif' : '') + '" data-tab-flotte="' + s + '" data-code="' + esc(d.code) + '"' + dis + '>' + esc(d.code) + '<small>' + esc(d.famille) + '</small></button>').join('');
-    const inconnu = t.ident && !liste.some((d) => d.code === t.ident)
-      ? '<button type="button" class="pm-chip actif" data-tab-flotte="' + s + '" data-code="' + esc(t.ident) + '"' + dis + '>' + esc(t.ident) + '<small>' + esc(t.famille) + '</small></button>' : '';
-    return '<span class="pm-chips">' + (puces + inconnu || '<small>Aucune machine dans la flotte (Settings › Sync)</small>') + '</span>';
+    const opts = '<option value="">Choisir…</option>' + liste.map((d) => '<option value="' + esc(d.code) + '"' + (d.code === t.ident ? ' selected' : '') + '>' + esc(d.code) + ' · ' + esc(d.famille) + '</option>').join('') +
+      (t.ident && !liste.some((d) => d.code === t.ident) ? '<option value="' + esc(t.ident) + '" selected>' + esc(t.ident) + ' · ' + esc(t.famille) + '</option>' : '');
+    return '<select data-tab-flotte="' + s + '"' + dis + '>' + opts + '</select><small>' + (t.famille ? 'Famille ' + esc(t.famille) : 'Id + famille') + '</small>';
   }
 
   async function rafraichir(silencieux) {
@@ -242,16 +241,15 @@
       } catch (err) { statut(err.message, false); }
       await rafraichir(true);
     }
-    pane.addEventListener('click', (e) => {
-      const pr = e.target.closest('[data-tab-profil]');
-      if (pr && !pr.classList.contains('actif')) { enregistrer(pr.dataset.tabProfil, { profil: pr.dataset.val, ident: '', famille: '', equipe: '' }); return; }
-      const pu = e.target.closest('[data-tab-flotte]');
-      if (pu) {
-        const d = flotte.find((x) => x.code === pu.dataset.code);
-        enregistrer(pu.dataset.tabFlotte, { ident: pu.dataset.code, famille: d ? d.famille : '' });
-      }
-    });
     pane.addEventListener('change', (e) => {
+      const pr = e.target.closest('[data-tab-profil]');
+      if (pr) { enregistrer(pr.dataset.tabProfil, { profil: pr.value, ident: '', famille: '', equipe: '' }); return; }
+      const sel = e.target.closest('[data-tab-flotte]');
+      if (sel) {
+        const d = flotte.find((x) => x.code === sel.value);
+        enregistrer(sel.dataset.tabFlotte, { ident: sel.value, famille: d ? d.famille : '' });
+        return;
+      }
       const ch = e.target.closest('[data-tab-champ]');
       if (ch) { const c = {}; c[ch.dataset.tabChamp] = ch.value; enregistrer(ch.dataset.serie, c); }
     });
