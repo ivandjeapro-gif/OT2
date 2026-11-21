@@ -458,6 +458,9 @@
       });
       const ster = $('#codesSteriles');
       if (ster) ster.value = (d.steriles || []).join(', ');
+      document.querySelectorAll('#codesTeneurForm [data-couleur]').forEach((inp) => {
+        if (d.couleurs && d.couleurs[inp.dataset.couleur]) inp.value = d.couleurs[inp.dataset.couleur];
+      });
       if (st) st.textContent = '';
     } catch (e) {
       if (st) st.textContent = 'Passerelle injoignable : codes non chargés';
@@ -471,14 +474,17 @@
     document.querySelectorAll('#codesTeneurForm [data-grade]').forEach((inp) => {
       listeCodes(inp.value).forEach((c) => { codes[c] = inp.dataset.grade; });
     });
+    const couleurs = {};
+    document.querySelectorAll('#codesTeneurForm [data-couleur]').forEach((inp) => { couleurs[inp.dataset.couleur] = inp.value; });
     try {
       const r = await fetch(passerelleCodes() + '/api/codes_teneur', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codes, steriles: listeCodes(($('#codesSteriles') || {}).value) }),
+        body: JSON.stringify({ codes, steriles: listeCodes(($('#codesSteriles') || {}).value), couleurs }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
       if (st) st.textContent = 'Codes de teneur enregistrés.';
+      if (window.OTCouleurs) OTCouleurs.recharger();
       chargerCodesTeneur();
     } catch (err) {
       if (st) st.textContent = 'Enregistrement impossible : ' + err.message;

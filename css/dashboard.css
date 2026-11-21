@@ -390,10 +390,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 .grade .rail::after { content: ''; position: absolute; left: 80%; top: -3px; width: 1px; height: 5px; background: var(--text-3); }
 .grade.bad { background: linear-gradient(90deg, rgba(238,122,42,.10), var(--panel) 60%); }
-.g-high     { --c: var(--orange); }
-.g-medium   { --c: var(--blue-hi); }
-.g-low      { --c: #F2C200; }
-.g-marginal { --c: #A9A595; }
+.g-high     { --c: var(--c-high, var(--orange)); }
+.g-medium   { --c: var(--c-medium, var(--blue-hi)); }
+.g-low      { --c: var(--c-low, #F2C200); }
+.g-marginal { --c: var(--c-marginal, #A9A595); }
 
 /* environnement */
 .env dl {

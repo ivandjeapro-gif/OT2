@@ -149,17 +149,9 @@
    * Appelee aussi depuis chargerZones() : au demarrage les teneurs peuvent
    * arriver avant la liste des Dumping Areas, et le nom manquerait.
    */
-  // Couleur d'une famille : grade du 1er code de bloc, lu dans la table reglable de la passerelle
-  // (Settings > Terrain > Codes de teneur). Aucun code ni couleur en dur cote page.
-  let tableGrades = {};
-  async function chargerTableGrades() {
-    try {
-      const r = await fetch(base().replace(/\/$/, '') + '/api/codes_teneur', { cache: 'no-store' });
-      if (r.ok) { tableGrades = (await r.json()).codes || {}; rendreChipsInstruction(); }
-    } catch (e) { /* passerelle injoignable : familles sans couleur */ }
-  }
+  // Couleur d'une famille : js/couleurs.js (grade du 1er code de bloc, ou couleur propre de la famille).
+  window.addEventListener('couleurs:pret', () => rendreChipsInstruction());
   const premierCode = (t) => String(t.codes || '').split(/[,\s;]+/).filter(Boolean)[0] || '';
-  const gradeDe = (t) => tableGrades[premierCode(t).toUpperCase()] || 'inconnu';
 
   /**
    * Liste « Consignes de déchargement » (onglet Consignes) : une ligne par famille de teneur
@@ -174,7 +166,7 @@
     box.innerHTML = teneurs.length ? teneurs.map((t) => {
       const da = dumpingAreas.find((z) => z.id === t.dumping_area_id);
       const code = premierCode(t);
-      const bloc = '<div class="sg-cons-fam g-' + gradeDe(t) + '"><span class="sg-cons-code g-' + gradeDe(t) + '">' + esc(code || '?') + '</span>' +
+      const bloc = '<div class="sg-cons-fam"><span class="sg-cons-code">' + esc(code || '?') + '</span>' +
         '<div><b>' + esc(t.nom) + '</b><small>' + (t.codes ? 'Code de bloc : ' + esc(String(t.codes).trim()) : 'Aucun code de bloc') + '</small></div></div>';
       const plage = '<span class="sg-cons-plage">' + fmt(t.valeur_min) + ' – ' + fmt(t.valeur_max) + ' %</span>';
       const aire = da
@@ -182,7 +174,7 @@
           '<i class="far fa-square-full"></i><span><b>' + esc(da.nom) + '</b><small>Aire polygonale affectée</small></span><i class="fas fa-chevron-down"></i></button>'
         : '<button type="button" class="sg-cons-aire manquante" data-teneur-assign="' + t.id + '" title="Cliquer pour affecter">' +
           '<i class="fas fa-triangle-exclamation"></i><span><b>Affecter une aire</b><small>Obligatoire pour cette famille</small></span><i class="fas fa-arrow-right"></i></button>';
-      return '<div class="sg-cons-row' + (da ? '' : ' manquante') + '">' + bloc + plage + '<i class="fas fa-arrow-right sg-cons-fleche"></i>' + aire + '</div>';
+      return '<div class="sg-cons-row' + (da ? '' : ' manquante') + '" style="--fam:' + (window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a') + '">' + bloc + plage + '<i class="fas fa-arrow-right sg-cons-fleche"></i>' + aire + '</div>';
     }).join('') : '<div class="sg2-di-empty">Aucune famille de teneur pour cette source.</div>';
 
     const manquantes = teneurs.filter((t) => !t.dumping_area_id).length;
@@ -318,6 +310,9 @@
     $('#sgNewTeneurMin').value = t ? t.valeur_min : '';
     $('#sgNewTeneurMax').value = t ? t.valeur_max : '';
     $('#sgNewTeneurCodes').value = t ? (t.codes || '') : '';
+    const propre = t && /^#[0-9a-f]{6}$/i.test(t.couleur || '');
+    $('#sgNewTeneurAuto').checked = !propre;
+    $('#sgNewTeneurCouleur').value = propre ? t.couleur : (t && window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a');
     const bouton = $('#sgTeneurSubmit');
     if (bouton) bouton.textContent = t ? 'Modifier' : 'Enregistrer';
     form.style.display = '';
@@ -333,6 +328,7 @@
     $('#sgNewTeneurMin').value = '';
     $('#sgNewTeneurMax').value = '';
     $('#sgNewTeneurCodes').value = '';
+    $('#sgNewTeneurAuto').checked = true;
     const bouton = $('#sgTeneurSubmit');
     if (bouton) bouton.textContent = 'Enregistrer';
   }
@@ -346,20 +342,23 @@
     let valeurMin = parseFloat(String($('#sgNewTeneurMin').value || '').replace(',', '.')) || 0;
     let valeurMax = parseFloat(String($('#sgNewTeneurMax').value || '').replace(',', '.')) || 0;
     const codes = ($('#sgNewTeneurCodes').value || '').trim();
+    // couleur propre a la famille ; vide = couleur de son grade (voir js/couleurs.js)
+    const couleur = $('#sgNewTeneurAuto').checked ? '' : ($('#sgNewTeneurCouleur').value || '');
     if (!nom) return;
     if (valeurMin > valeurMax) { const t = valeurMin; valeurMin = valeurMax; valeurMax = t; }
     try {
       if (idEdit) {
         await jsend('/api/teneur_maj', 'POST', {
           id: Number(idEdit), nom: nom, valeur_min: valeurMin,
-          valeur_max: valeurMax, codes: codes,
+          valeur_max: valeurMax, codes: codes, couleur: couleur,
         });
       } else {
         await jsend('/api/teneurs', 'POST', {
           source_id: sourceSelectionnee, nom: nom, valeur_min: valeurMin,
-          valeur_max: valeurMax, codes: codes,
+          valeur_max: valeurMax, codes: codes, couleur: couleur,
         });
       }
+      if (window.OTCouleurs) await OTCouleurs.recharger();
       fermerFormTeneur();
       await chargerTeneurs();
       setStatus('#sgDestStatus', idEdit ? 'Teneur modifiee' : 'Teneur ajoutee', true);
@@ -1075,7 +1074,6 @@
       if (r) r.hidden = !r.hidden;
     });
 
-    chargerTableGrades();
     chargerSources();
     chargerZones();
     chargerCheckpoints();

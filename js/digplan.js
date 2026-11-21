@@ -870,12 +870,16 @@
   function couleurDestination(dest) {
     const key = (dest || '').toUpperCase();
     if (PALETTE_DEST[key]) return PALETTE_DEST[key];
+    // couleur de la famille de teneur : meme source que toutes les pages (js/couleurs.js)
+    if (window.OTCouleurs && OTCouleurs.estConnue(dest)) return OTCouleurs.famille(dest);
     if (!coursOreColorMap[key]) {
       coursOreColorMap[key] = COULEURS_ORE[coursOreColor % COULEURS_ORE.length];
       coursOreColor++;
     }
     return coursOreColorMap[key];
   }
+
+  window.addEventListener('couleurs:pret', () => { try { rendrePlan(); } catch (e) { /* plan pas encore pret */ } });
 
   function rendrePlan() {
     const b = blastCourant();

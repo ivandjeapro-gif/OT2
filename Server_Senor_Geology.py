@@ -383,6 +383,7 @@ CREATE TABLE IF NOT EXISTS teneurs (
     -- meme teneur, separes par des virgules. C'est ce qui permet de remplir
     -- `destination` automatiquement a l'import d'un blast.
     codes TEXT DEFAULT '',
+    couleur TEXT DEFAULT '',        -- 21/11 : couleur propre a la famille (#rrggbb) ; vide = celle de son grade
     actif INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
 );
@@ -3135,6 +3136,47 @@ def codes_steriles():
     brut = param_lire("CODES_STERILES", "")
     codes = tuple(c.strip().upper() for c in brut.split(",") if c.strip())
     return codes or CODES_STERILES_DEFAUT
+
+
+# 21/11 - COULEURS : source unique pour TOUTES les pages (Dig Plan, Senor, Inbox, Dashboard...).
+# Une couleur par GRADE (reglable dans Settings, param COULEURS_GRADES = JSON {grade: "#rrggbb"}) ; chaque
+# famille de teneur herite de la couleur du grade de son premier code de bloc, sauf si elle a la sienne
+# (colonne teneurs.couleur, vide = automatique).
+COULEURS_GRADES_DEFAUT = {"high": "#e8641c", "medium": "#1d6fd1", "low": "#e0b413",
+                          "marginal": "#8a5cc2", "waste": "#8d887a"}
+COULEUR_INCONNUE = "#b8b3a2"
+_RE_COULEUR = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def couleur_valide(v):
+    v = str(v or "").strip()
+    return v.lower() if _RE_COULEUR.fullmatch(v) else ""
+
+
+def couleurs_grades():
+    table = dict(COULEURS_GRADES_DEFAUT)
+    try:
+        lue = json.loads(param_lire("COULEURS_GRADES", "") or "{}")
+        for g, c in (lue or {}).items():
+            if g in table and couleur_valide(c):
+                table[g] = couleur_valide(c)
+    except (ValueError, AttributeError):
+        pass
+    return table
+
+
+def couleurs_teneur(conn):
+    """{grades, familles, codes, inconnue} : les couleurs EFFECTIVES, lues par toutes les pages."""
+    grades, table = couleurs_grades(), codes_teneur()
+    codes = {c: grades.get(g, COULEUR_INCONNUE) for c, g in table.items()}
+    for c in codes_steriles():
+        codes.setdefault(c, grades["waste"])
+    familles = {}
+    for r in conn.execute("SELECT nom, codes, couleur FROM teneurs WHERE actif=1 ORDER BY id"):
+        propre = couleur_valide(r["couleur"])
+        premier = next((c.strip().upper() for c in str(r["codes"] or "").split(",") if c.strip()), "")
+        familles[r["nom"]] = propre or codes.get(premier, COULEUR_INCONNUE)
+    return {"grades": grades, "familles": familles, "codes": codes, "inconnue": COULEUR_INCONNUE}
 
 
 def classer_voyage(nom, destination, minerai):
@@ -6369,9 +6411,15 @@ class Handler(BaseHTTPRequestHandler):
         # 20/11 : /api/offroad et /api/alertes sont sondees chaque seconde par CHAQUE dashboard ouvert ;
         # sous le verrou global elles se disputaient la place des positions (donc des alertes).
         # Lecture seule : hors verrou, comme /api/suivi_dt et /api/kpi.
+        if path == "/api/couleurs" and method == "GET":
+            conn = get_conn()
+            try:
+                return self._send_json(200, couleurs_teneur(conn))
+            finally:
+                conn.close()
         if path == "/api/codes_teneur" and method == "GET":
             return self._send_json(200, {"codes": codes_teneur(), "steriles": list(codes_steriles()),
-                                         "grades": list(GRADES_VALIDES)})
+                                         "grades": list(GRADES_VALIDES), "couleurs": couleurs_grades()})
         if path == "/api/offroad" and method == "GET":
             conn = get_conn()
             try:
@@ -7502,9 +7550,9 @@ class Handler(BaseHTTPRequestHandler):
                     valeur_max = _num(body.get("valeur_max")) or 0
                     codes = normaliser_codes(body.get("codes"))
                     cur = conn.execute(
-                        "INSERT INTO teneurs (source_id, nom, valeur_min, valeur_max, codes) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (sid, nom, valeur_min, valeur_max, codes))
+                        "INSERT INTO teneurs (source_id, nom, valeur_min, valeur_max, codes, couleur) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (sid, nom, valeur_min, valeur_max, codes, couleur_valide(body.get("couleur"))))
                     conn.commit()
                     return self._send_json(201, {"id": cur.lastrowid, "ok": True,
                                                  "nom": nom, "codes": codes})
@@ -7539,6 +7587,9 @@ class Handler(BaseHTTPRequestHandler):
                     if "codes" in body:
                         conn.execute("UPDATE teneurs SET codes=? WHERE id=?",
                                      (normaliser_codes(body["codes"]), tid))
+                    if "couleur" in body:      # "" = retour a la couleur du grade
+                        conn.execute("UPDATE teneurs SET couleur=? WHERE id=?",
+                                     (couleur_valide(body["couleur"]), tid))
                     vmin = _num(body.get("valeur_min")) if "valeur_min" in body else None
                     vmax = _num(body.get("valeur_max")) if "valeur_max" in body else None
                     if vmin is not None and vmax is not None and vmin > vmax:
@@ -8002,9 +8053,20 @@ class Handler(BaseHTTPRequestHandler):
                         st.append(c)
                     if not propre:
                         return self._send_json(400, {"error": "au moins un code de teneur requis"})
+                    couleurs = body.get("couleurs")
+                    if couleurs is not None:
+                        if not isinstance(couleurs, dict):
+                            return self._send_json(400, {"error": "couleurs : objet {grade: #rrggbb} attendu"})
+                        propres = {}
+                        for g, c in couleurs.items():
+                            if g not in COULEURS_GRADES_DEFAUT or not couleur_valide(c):
+                                return self._send_json(400, {"error": "couleur invalide pour %r" % g})
+                            propres[g] = couleur_valide(c)
+                        param_ecrire(conn, "COULEURS_GRADES", json.dumps(propres, sort_keys=True))
                     param_ecrire(conn, "CODES_TENEUR", json.dumps(propre, sort_keys=True))
                     param_ecrire(conn, "CODES_STERILES", ",".join(st))
-                    return self._send_json(200, {"ok": True, "codes": codes_teneur(), "steriles": list(codes_steriles())})
+                    return self._send_json(200, {"ok": True, "codes": codes_teneur(), "steriles": list(codes_steriles()),
+                                                 "couleurs": couleurs_grades()})
 
                 if path == "/api/alertes" and method == "POST":
                     # acquittement : {"id": N} ou {"tous": true}
@@ -8131,6 +8193,9 @@ def main():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(teneurs)")]
     if "codes" not in cols:
         conn.execute("ALTER TABLE teneurs ADD COLUMN codes TEXT DEFAULT ''")
+        conn.commit()
+    if "couleur" not in cols:
+        conn.execute("ALTER TABLE teneurs ADD COLUMN couleur TEXT DEFAULT ''")
         conn.commit()
 
     cols = [r[1] for r in conn.execute("PRAGMA table_info(blasts)")]

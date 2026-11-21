@@ -667,15 +667,15 @@
                                 <details class="pm-facteurs" id="codesTeneurBox">
                                     <summary>Codes de teneur (classement des voyages)</summary>
                                     <form id="codesTeneurForm">
-                                        <label class="pm-champ"><span class="lbl">High Grade</span><input type="text" data-grade="high" placeholder="HG, SHG" /></label>
-                                        <label class="pm-champ"><span class="lbl">Medium Grade</span><input type="text" data-grade="medium" placeholder="MG, MG1" /></label>
-                                        <label class="pm-champ"><span class="lbl">Low Grade</span><input type="text" data-grade="low" placeholder="LG, LG1" /></label>
-                                        <label class="pm-champ"><span class="lbl">Marginal Ore</span><input type="text" data-grade="marginal" placeholder="MO" /></label>
-                                        <label class="pm-champ"><span class="lbl">Stérile (Waste)</span><input type="text" id="codesSteriles" placeholder="WST, WASTE, ST, STERILE" /></label>
+                                        <label class="pm-champ"><span class="lbl">High Grade</span><input type="text" data-grade="high" placeholder="HG, SHG" /><input type="color" data-couleur="high" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Medium Grade</span><input type="text" data-grade="medium" placeholder="MG, MG1" /><input type="color" data-couleur="medium" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Low Grade</span><input type="text" data-grade="low" placeholder="LG, LG1" /><input type="color" data-couleur="low" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Marginal Ore</span><input type="text" data-grade="marginal" placeholder="MO" /><input type="color" data-couleur="marginal" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Stérile (Waste)</span><input type="text" id="codesSteriles" placeholder="WST, WASTE, ST, STERILE" /><input type="color" data-couleur="waste" class="pm-couleur" title="Couleur du stérile (toutes les pages)" /></label>
                                         <button type="submit" class="pm-btn-sombre">Enregistrer sur la passerelle</button>
                                     </form>
                                     <div class="account-status" id="codesTeneurStatus"></div>
-                                    <p class="pm-aide">Le code de teneur est le 4<sup>e</sup> segment du nom du bloc (260_LMP2_113_<b>MG</b>_FR_021_OP). Plusieurs codes : séparés par des virgules. La liste « Stérile » sert partout : affectation des dumping areas, import Geosum (en plus de la destination W), Inbox et KPI. Prise en compte sans redémarrage ; un nouvel import Geosum est nécessaire pour reclasser les blocs déjà importés.</p>
+                                    <p class="pm-aide">Le code de teneur est le 4<sup>e</sup> segment du nom du bloc (260_LMP2_113_<b>MG</b>_FR_021_OP). Plusieurs codes : séparés par des virgules. La liste « Stérile » sert partout : affectation des dumping areas, import Geosum (en plus de la destination W), Inbox et KPI. Chaque grade a sa couleur, reprise par Dig Plan, Senor, Inbox et le Dashboard (une famille peut avoir la sienne dans Senor). Prise en compte sans redémarrage ; un nouvel import Geosum est nécessaire pour reclasser les blocs déjà importés.</p>
                                 </details>
                             </section>
                         </div>
@@ -723,6 +723,7 @@
     <script src="../js/sync-pill.js"></script>
     <script src="../js/ot-config.js"></script>
     <script src="../js/api.js"></script>
+    <script src="../js/couleurs.js"></script>
     <script type="module" src="../js/auth.js"></script>
     <script src="../js/ot-settings.js"></script>
     <script src="../js/passerelle-relais.js"></script>
