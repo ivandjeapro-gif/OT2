@@ -957,7 +957,7 @@
     grille.innerHTML = uniques.map((t) => '<span>' + esc(t) + '</span>').join('<i>·</i>');
   }
 
-  // onglet Map : affiche telle quelle la carte importee (Name_Map), rien de genere.
+  // onglet Map : affiche la carte importee (Name_Map) en plein cadre ; rien de genere.
   function rendreMapImage(b) {
     const wrap = $('#dpMapImageWrap');
     if (!wrap) return;
@@ -970,38 +970,75 @@
     const src = b && (b.map_apercu || b.map_url || b.map_image);
     rognage = null;
     if (src) {
-      // Rogner : seulement en consultation. Pendant une saisie, l'image rognee
-      // partirait avec des fichiers du formulaire pas encore valides.
-      const bouton = mode === 'consultation'
-        ? '<button type="button" class="dp-crop-toggle" id="dpCropBtn" title="Rogner la carte">' +
-          '<i class="fas fa-crop-simple"></i> Rogner</button>'
+      // Rogner : seulement en consultation (le formulaire est verrouille).
+      const boutons = mode === 'consultation'
+        ? '<div class="dp-crop-barre">' +
+          (lireRognage(b) ? '<button type="button" class="dp-crop-toggle" id="dpCropReset" title="Revenir a la carte entiere"><i class="fas fa-expand"></i> Plein cadre</button>' : '') +
+          '<button type="button" class="dp-crop-toggle" id="dpCropBtn" title="Rogner la carte (affichage local a ce poste)"><i class="fas fa-crop-simple"></i> Rogner</button>' +
+          '</div>'
         : '';
-      wrap.innerHTML = '<img id="dpMapImg" src="' + esc(src) + '" alt="Carte du blast" />' + bouton;
+      wrap.innerHTML = '<div class="dp-map-box" id="dpMapBox"><img id="dpMapImg" src="' + esc(src) + '" alt="Carte du blast" /></div>' + boutons;
+      const img = $('#dpMapImg');
+      img.addEventListener('load', () => ajusterCarte(false));
+      if (img.complete) ajusterCarte(false);
       const btn = $('#dpCropBtn');
       if (btn) btn.addEventListener('click', () => ouvrirRognage(b));
+      const reset = $('#dpCropReset');
+      if (reset) reset.addEventListener('click', () => { ecrireRognage(b, null); rendreMapImage(b); });
     } else {
       wrap.innerHTML = '<div class="dp-note">Aucune carte importee. Utilisez le champ Name_Map pour en ajouter une.</div>';
     }
   }
 
-  /* ============================ Rogner la carte ============================ */
-  // Rectangle trace sur l'image affichee, converti en pixels NATURELS, decoupe
-  // par canvas et enregistre sous `<nom>_rogne.<ext>` : l'original reste.
+  /* ============================ Rogner la carte (LOCAL) ============================ */
+  // Le rognage est un simple cadrage d'AFFICHAGE, propre a ce poste : le rectangle trace est memorise
+  // en fractions de l'image (localStorage). Rien n'est envoye ni enregistre : ni Drive, ni passerelle,
+  // ni fichier ; l'original et ce que voient les tablettes ne changent pas.
 
-  // URL de meme origine que la page : le SaaS sert aussi /data/plans/. L'URL
-  // de la passerelle (:8101) est une AUTRE origine, sans en-tete CORS : le
-  // canvas serait « contamine » et toDataURL echouerait.
-  function urlMemeOrigine(src) {
+  const cleRognage = (b) => 'dp-rognage:' + (b.id || b.numero || '') + ':' + (b.name_map || '');
+
+  function lireRognage(b) {
     try {
-      const u = new URL(src, window.location.href);
-      if (u.origin !== window.location.origin && u.pathname.indexOf('/data/plans/') === 0) {
-        return window.location.origin + u.pathname;
-      }
-      return u.href;
-    } catch (e) {
-      return src;
-    }
+      const v = JSON.parse(localStorage.getItem(cleRognage(b)) || 'null');
+      if (v && v.w > 0.02 && v.h > 0.02 && v.x >= 0 && v.y >= 0 && v.x + v.w <= 1.001 && v.y + v.h <= 1.001) return v;
+    } catch (e) { /* stockage indisponible ou illisible : carte entiere */ }
+    return null;
   }
+
+  function ecrireRognage(b, frac) {
+    try {
+      if (frac) localStorage.setItem(cleRognage(b), JSON.stringify(frac));
+      else localStorage.removeItem(cleRognage(b));
+    } catch (e) { /* stockage indisponible : le cadrage ne sera pas memorise */ }
+  }
+
+  // Dimensionne la carte pour REMPLIR la zone disponible (zone cadree si un rognage existe, sinon image entiere).
+  function ajusterCarte(complet) {
+    const wrap = $('#dpMapImageWrap'), box = $('#dpMapBox'), img = $('#dpMapImg');
+    if (!wrap || !box || !img || !img.naturalWidth) return;
+    const b = blastCourant();
+    const frac = (!complet && b && lireRognage(b)) || { x: 0, y: 0, w: 1, h: 1 };
+    // largeur : celle de la zone ; hauteur maximale : ce que la fenetre permet (la zone s'ajuste ensuite a l'image)
+    const W = wrap.clientWidth;
+    const H = Math.max(420, Math.min(window.innerHeight - 330, 900));
+    if (!W) return;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    const cw = frac.w * nw, ch = frac.h * nh;
+    const sc = Math.min(W / cw, H / ch);
+    box.style.width = (cw * sc) + 'px';
+    box.style.height = (ch * sc) + 'px';
+    img.style.width = (nw * sc) + 'px';
+    img.style.height = (nh * sc) + 'px';
+    img.style.left = (-frac.x * nw * sc) + 'px';
+    img.style.top = (-frac.y * nh * sc) + 'px';
+    wrap.style.height = Math.max(ch * sc, 160) + 'px';   // pas de vide autour d'une carte basse ou large
+  }
+
+  let minuteurRedim = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(minuteurRedim);
+    minuteurRedim = setTimeout(() => { if (!rognage) ajusterCarte(false); }, 120);
+  });
 
   function ouvrirRognage(b) {
     const img = $('#dpMapImg');
@@ -1011,7 +1048,9 @@
       return;
     }
     fermerRognage();
-    const zone = img.getBoundingClientRect();
+    ajusterCarte(true);                 // on trace toujours sur l'image ENTIERE
+    const box = $('#dpMapBox');
+    const zone = box.getBoundingClientRect();
     const base = wrap.getBoundingClientRect();
     const couche = document.createElement('div');
     couche.className = 'dp-crop-layer';
@@ -1019,7 +1058,7 @@
     couche.style.top = (zone.top - base.top) + 'px';
     couche.style.width = zone.width + 'px';
     couche.style.height = zone.height + 'px';
-    couche.innerHTML = '<div class="dp-crop-hint">Tracez la zone a garder</div>' +
+    couche.innerHTML = '<div class="dp-crop-hint">Tracez la zone a garder (affichage local)</div>' +
       '<div class="dp-crop-box" hidden></div>';
     const barre = document.createElement('div');
     barre.className = 'dp-crop-actions';
@@ -1028,8 +1067,8 @@
       '<button type="button" class="dp-crop-cancel"><i class="fas fa-xmark"></i> Annuler</button>';
     wrap.appendChild(couche);
     wrap.appendChild(barre);
-    const btn = $('#dpCropBtn');
-    if (btn) btn.hidden = true;
+    const tools = wrap.querySelector('.dp-crop-barre');
+    if (tools) tools.hidden = true;
     rognage = { b: b, couche: couche, barre: barre, cadre: couche.querySelector('.dp-crop-box'),
                 rect: null, x0: 0, y0: 0, actif: false };
 
@@ -1067,7 +1106,7 @@
     };
     couche.addEventListener('pointerup', fin);
     couche.addEventListener('pointercancel', fin);
-    barre.querySelector('.dp-crop-cancel').addEventListener('click', fermerRognage);
+    barre.querySelector('.dp-crop-cancel').addEventListener('click', () => { fermerRognage(); ajusterCarte(false); });
     barre.querySelector('.dp-crop-ok').addEventListener('click', validerRognage);
     document.addEventListener('keydown', echapRognage);
   }
@@ -1086,7 +1125,7 @@
   }
 
   function echapRognage(ev) {
-    if (ev.key === 'Escape') fermerRognage();
+    if (ev.key === 'Escape') { fermerRognage(); ajusterCarte(false); }
   }
 
   function fermerRognage() {
@@ -1095,76 +1134,21 @@
     rognage.couche.remove();
     rognage.barre.remove();
     rognage = null;
-    const btn = $('#dpCropBtn');
-    if (btn) btn.hidden = false;
+    const tools = document.querySelector('#dpMapImageWrap .dp-crop-barre');
+    if (tools) tools.hidden = false;
   }
 
-  function chargerImage(url) {
-    return new Promise((resolve, reject) => {
-      const im = new Image();
-      im.crossOrigin = 'anonymous';
-      im.onload = () => resolve(im);
-      im.onerror = () => reject(new Error('image illisible'));
-      im.src = url;
-    });
-  }
-
-  async function validerRognage() {
+  // Valide : memorise le cadrage LOCALEMENT (fractions de l'image), sans aucun envoi.
+  function validerRognage() {
     if (!rognage || !rognage.rect) return;
     const b = rognage.b;
-    const img = $('#dpMapImg');
     const couche = rognage.couche.getBoundingClientRect();
     const r = rognage.rect;
-    if (!img || !couche.width || !couche.height) return;
-    const ex = img.naturalWidth / couche.width;
-    const ey = img.naturalHeight / couche.height;
-    const sx = Math.round(r.x * ex), sy = Math.round(r.y * ey);
-    const sw = Math.max(1, Math.round(r.w * ex)), sh = Math.max(1, Math.round(r.h * ey));
-
-    // Nom : `<nom>_rogne.<ext>`, sans empiler les suffixes d'un rognage
-    // precedent. L'ancien fichier n'est jamais ecrase.
-    const nomActuel = String(b.name_map || ((b.numero || 'carte') + '.jpg'));
-    const m = nomActuel.match(/^(.*?)(\.[A-Za-z0-9]+)?$/);
-    const ext = ((m && m[2]) || '.jpg').toLowerCase();
-    const racine = ((m && m[1]) || nomActuel).replace(/_rogne$/i, '');
-    const png = ext === '.png';
-    const nouveauNom = racine + '_rogne' + (png ? '.png' : (ext === '.jpeg' ? '.jpeg' : '.jpg'));
-
-    let dataUrl;
-    try {
-      const source = await chargerImage(urlMemeOrigine(img.currentSrc || img.src));
-      const canvas = document.createElement('canvas');
-      canvas.width = sw;
-      canvas.height = sh;
-      canvas.getContext('2d').drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
-      dataUrl = png ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
-    } catch (err) {
-      // Carte hors de ce poste (lien Drive en mode Serveur_OT) : le navigateur
-      // interdit de la relire, on ne peut pas la decouper ici.
-      setStatus('Rognage impossible : carte non disponible sur ce poste (' + err.message + ')', false);
-      return;
-    }
-
-    const payload = {
-      id: b.id, numero: b.numero || b.id, nom: b.nom || b.numero || '',
-      name_map: nouveauNom, map_contenu: dataUrl,
-    };
-    CHAMPS_FICHIER.forEach((cle) => {
-      if (cle !== 'map') payload['name_' + cle] = b['name_' + cle] || '';
-    });
+    if (!couche.width || !couche.height) return;
+    ecrireRognage(b, { x: r.x / couche.width, y: r.y / couche.height, w: r.w / couche.width, h: r.h / couche.height });
     fermerRognage();
-    Splash.bloquer('Rognage de la carte...', nouveauNom);
-    try {
-      Splash.etape('Enregistrement de la carte rognee...');
-      const id = await API().enregistrer(payload, false);
-      Splash.etape('Rechargement du blast...');
-      await chargerBlasts(id);
-      Splash.succes('Carte rognee', nouveauNom + ' (original conserve : ' + nomActuel + ')');
-      setStatus('Carte rognee : ' + nouveauNom, true);
-    } catch (err) {
-      Splash.erreur('Rognage impossible', err.message);
-      setStatus(err.message, false);
-    }
+    rendreMapImage(b);
+    setStatus('Carte rognee pour ce poste (rien n\'est modifie sur le serveur ni le Drive)', true);
   }
 
   // point-in-polygon (ray casting), miroir de point_in_polygon() cote serveur
@@ -1252,7 +1236,7 @@
   const estSterile = (b) => b && (b.minerai === 0 || b.minerai === '0' || b.minerai === false);
   function pastilleMatiere(b) {
     return estSterile(b)
-      ? '<span class="dp-matiere waste" title="Bloc stérile">stérile</span>'
+      ? '<span class="dp-matiere waste" title="Bloc stérile"><i class="fas fa-mountain"></i></span>'
       : '<span class="dp-matiere ore" title="Bloc de minerai"><i class="fas fa-gem"></i></span>';
   }
 

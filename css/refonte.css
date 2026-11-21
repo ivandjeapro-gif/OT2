@@ -3830,3 +3830,14 @@ body {
 #page-digplan .dp-avancement .dp-matiere.waste { background: rgba(255,255,255,.12); color: rgba(236,233,223,.8); }
 #page-digplan .dp-avancement .dp-matiere { height: 18px; margin-right: 8px; }
 #page-digplan .dp-table tbody td:first-child { white-space: nowrap; }
+/* type de materiau : deux icones (minerai = gemme, sterile = roche) */
+#page-digplan .dp-matiere.waste { width: 22px; padding: 0; font-size: 11px; background: #e4e0d4; color: #6b675d; }
+#page-digplan .dp-avancement .dp-matiere.waste { width: 18px; }
+#page-digplan .dp-avancement .dp-matiere.ore { width: 18px; }
+/* carte : plein cadre dans la zone, rognage local */
+#page-digplan .dp-map-image-wrap { height: clamp(420px, calc(100vh - 330px), 900px); position: relative; overflow: hidden; }
+#page-digplan .dp-map-box { position: relative; overflow: hidden; flex: none; }
+#page-digplan #dpMapImg { position: absolute; max-width: none !important; max-height: none !important; width: auto; height: auto; }
+#page-digplan .dp-crop-barre { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 8px; }
+#page-digplan .dp-crop-barre[hidden] { display: none; }
+#page-digplan .dp-crop-barre .dp-crop-toggle { position: static; }
