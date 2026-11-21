@@ -463,3 +463,8 @@
 .pm-ligne-gnss .pm-tab-app small, .pm-ligne-gnss .pm-tab-id small { font-size: 12px; color: var(--pm-gris); }
 .pm-codes-teneur { margin-top: 28px; }
 @media (max-width: 1100px) { .pm-gnss-cartes { grid-template-columns: 1fr; } }
+
+.pm-radio-carte { margin-top: 14px; }
+.pm-radio-carte .pm-gnss-champs { align-items: flex-end; }
+.pm-radio-btn { height: 42px; padding: 0 22px; }
+.pm-radio-carte select:disabled { opacity: .55; }

@@ -84,8 +84,9 @@ HOST = "0.0.0.0"
 # XBEE_PORT n'est pas renseigne (pas de radio branchee en dev). A activer sur
 # site en fixant la variable d'environnement, ex. XBEE_PORT=COM5 (Windows) ou
 # XBEE_PORT=/dev/ttyUSB0 (Linux).
-XBEE_PORT = os.environ.get("XBEE_PORT", "")
-XBEE_BAUD = int(os.environ.get("XBEE_BAUD", "9600"))
+# 21/11 : ces deux reglages se font aussi depuis la console (Settings > GNSS > Radio de la passerelle) : la variable
+# d'environnement, si elle existe, reste prioritaire.
+XBEE_BAUDS = (9600, 19200, 38400, 57600, 115200, 230400)
 
 # Descente des ordres par MQTT (4G) : chaque DT ecoute son propre canal
 # camions/<dt_code>/mission (+ camions/<dt_code>/alerte pour les alertes et
@@ -2317,32 +2318,91 @@ def traiter_trame_xbee(conn, ligne):
     return (code, x, y)
 
 
+_xbee_etat = {"pyserial": serial is not None, "connecte": False, "port": "", "baud": 0, "erreur": "",
+              "valides": 0, "rejetees": 0, "derniere_valide": "", "derniere_recue": ""}
+
+
+def xbee_conf():
+    """(port, vitesse) de la radio de la passerelle : variable d'environnement, sinon reglage de la console."""
+    port = param_lire("XBEE_PORT", "").strip()
+    try:
+        baud = int(param_lire("XBEE_BAUD", "9600"))
+    except ValueError:
+        baud = 9600
+    return port, (baud if baud in XBEE_BAUDS else 9600)
+
+
+def xbee_ports():
+    """Ports serie du poste (pour choisir la radio dans la console)."""
+    if serial is None:
+        return []
+    try:
+        from serial.tools import list_ports
+        return [{"device": p.device, "description": (p.description or "")[:80]} for p in sorted(list_ports.comports(), key=lambda x: x.device)]
+    except Exception:
+        return []
+
+
+def xbee_ecrire_conf(conn, port, baud):
+    port = str(port or "").strip()
+    if port and not re.match(r"^(COM\d{1,3}|/dev/[A-Za-z0-9_./-]{2,40})$", port):
+        return 400, {"error": "port invalide (COM5, /dev/ttyUSB0)"}
+    try:
+        baud = int(baud)
+    except (TypeError, ValueError):
+        return 400, {"error": "vitesse invalide"}
+    if baud not in XBEE_BAUDS:
+        return 400, {"error": "vitesse non prise en charge : %s" % baud}
+    param_ecrire(conn, "XBEE_PORT", port)
+    param_ecrire(conn, "XBEE_BAUD", baud)
+    return 200, {"ok": True, "port": port, "baud": baud}
+
+
+def xbee_etat_public():
+    port, baud = xbee_conf()
+    return dict(_xbee_etat, configure_port=port, configure_baud=baud, bauds=list(XBEE_BAUDS), ports=xbee_ports(),
+                environnement=bool(os.environ.get("XBEE_PORT")))
+
+
 def ecouteur_xbee():
     """Thread d'ecoute radio XBee (montee des positions DT via la Base RTK +
     relais DigiMesh). Se desactive proprement si pyserial n'est pas
     installe ou si XBEE_PORT n'est pas configure (poste de dev sans
     radio branchee) ; le reste du serveur continue de fonctionner."""
     if serial is None:
+        _xbee_etat["erreur"] = "pyserial non installe (pip install pyserial)"
         print("XBEE: pyserial non installe, ecoute radio desactivee (pip install pyserial)")
         return
-    if not XBEE_PORT:
-        print("XBEE: XBEE_PORT non configure, ecoute radio desactivee")
-        return
     while True:
+        port, baud = xbee_conf()
+        if not port:
+            _xbee_etat.update(connecte=False, port="", baud=0, erreur="")
+            time.sleep(5)                    # aucun port choisi : on attend qu'il le soit (console)
+            continue
         try:
-            with serial.Serial(XBEE_PORT, XBEE_BAUD, timeout=5) as ser:
-                print("XBEE: connecte sur %s @ %d bauds" % (XBEE_PORT, XBEE_BAUD))
+            with serial.Serial(port, baud, timeout=5) as ser:
+                print("XBEE: connecte sur %s @ %d bauds" % (port, baud))
+                _xbee_etat.update(connecte=True, port=port, baud=baud, erreur="")
                 while True:
+                    if xbee_conf() != (port, baud):
+                        break                # reglage change dans la console : on rouvre avec le nouveau
                     brut = ser.readline()
                     if not brut:
                         continue
+                    _xbee_etat["derniere_recue"] = now_iso()
                     conn = get_conn()
                     try:
                         with LOCK:
-                            traiter_trame_xbee(conn, brut.decode("utf-8", errors="replace"))
+                            res = traiter_trame_xbee(conn, brut.decode("utf-8", errors="replace"))
                     finally:
                         conn.close()
+                    if res:
+                        _xbee_etat["valides"] += 1
+                        _xbee_etat["derniere_valide"] = now_iso()
+                    else:
+                        _xbee_etat["rejetees"] += 1
         except Exception as e:
+            _xbee_etat.update(connecte=False, erreur="%s: %s" % (type(e).__name__, str(e)[:120]))
             print("XBEE: erreur liaison serie (%s), nouvelle tentative dans 5s" % e)
             time.sleep(5)
 
@@ -7157,7 +7217,7 @@ def gnss_lister(conn):
 # AUTH_ECRITURES=0 coupe le controle (depannage).
 RANG_ROLE = {"geologue": 1, "senor": 2, "admin": 3}
 # Prefixes d'ecritures : le plus restrictif d'abord. Ecriture inconnue = admin (refus par defaut).
-ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/jetons", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
+ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/jetons", "/api/radio", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
                    "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
@@ -7619,6 +7679,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._route_gnss(path, method)
         if path.startswith("/api/jetons"):
             return self._route_jetons(path, method)
+        if path == "/api/radio":
+            if method == "GET":
+                return self._send_json(200, xbee_etat_public())
+            if method == "POST":
+                conn = get_conn()
+                try:
+                    body = json.loads(self._read_body() or b"{}")
+                    code, rep_ = xbee_ecrire_conf(conn, body.get("port"), body.get("baud"))
+                finally:
+                    conn.close()
+                return self._send_json(code, rep_)
+            return self._send_json(405, {"error": "methode non supportee"})
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())

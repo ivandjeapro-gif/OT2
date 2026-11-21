@@ -605,6 +605,15 @@
                             <div class="pm-thead"><span>Récepteur</span><span>Configuration</span><span>Tablette</span><span>Engin</span><span class="pm-droite">Actions</span></div>
                             <div id="gnssListe"><div class="pm-vide">Chargement…</div></div>
                         </div>
+                        <section class="pm-gnss-carte pm-radio-carte">
+                            <span class="lbl">Radio de la passerelle (XBee)</span>
+                            <div class="pm-gnss-recepteur" id="radioEtat"><em>Chargement…</em></div>
+                            <form class="pm-gnss-champs" id="radioForm">
+                                <label class="pm-champ"><span class="lbl">Port</span><select id="radioPort"></select></label>
+                                <label class="pm-champ"><span class="lbl">Vitesse</span><select id="radioBaud"></select></label>
+                                <button type="submit" class="pm-btn-sombre pm-radio-btn">Enregistrer</button>
+                            </form>
+                        </section>
                     </div><!-- /onglet gnss -->
                 </section>
 

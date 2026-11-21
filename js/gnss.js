@@ -268,7 +268,31 @@
     }).join('');
   }
 
-  function rendre() { rendreProfil(); rendreRecepteur(); rendreListe(); }
+  let radio = null;
+  async function chargerRadio() {
+    try { radio = await appel('/api/radio'); } catch (e) { radio = null; }
+    rendreRadio();
+  }
+
+  function rendreRadio() {
+    const box = $('#radioEtat');
+    const sp = $('#radioPort'), sb = $('#radioBaud');
+    if (!box || !sp) return;
+    if (!radio) { box.innerHTML = '<em>Passerelle injoignable (ou à redémarrer)</em>'; return; }
+    box.innerHTML = !radio.pyserial
+      ? '<b>Radio désactivée</b><small>pyserial n\'est pas installé sur ce poste</small>'
+      : (radio.connecte
+        ? '<b>Connectée</b><small>' + esc(radio.port) + ' · ' + radio.baud + ' bauds · ' + radio.valides + ' position(s) valide(s) · ' + radio.rejetees + ' rejetée(s)' + (radio.derniere_valide ? ' · dernière ' + esc(radio.derniere_valide.slice(11, 19)) : '') + '</small>'
+        : '<b>' + (radio.configure_port ? 'Non connectée' : 'Aucun port choisi') + '</b><small>' + esc(radio.erreur || (radio.configure_port ? '' : 'Branchez la radio, puis choisissez son port')) + '</small>');
+    if (document.activeElement === sp || document.activeElement === sb) return;
+    const ports = radio.ports || [];
+    sp.innerHTML = '<option value="">Aucun</option>' + ports.map((p) => '<option value="' + esc(p.device) + '"' + (p.device === radio.configure_port ? ' selected' : '') + '>' + esc(p.device) + ' · ' + esc(p.description) + '</option>').join('') +
+      (radio.configure_port && !ports.some((p) => p.device === radio.configure_port) ? '<option value="' + esc(radio.configure_port) + '" selected>' + esc(radio.configure_port) + ' (absent)</option>' : '');
+    sb.innerHTML = (radio.bauds || []).map((b) => '<option value="' + b + '"' + (b === radio.configure_baud ? ' selected' : '') + '>' + b + ' bauds</option>').join('');
+    sp.disabled = sb.disabled = !!radio.environnement;
+  }
+
+  function rendre() { rendreProfil(); rendreRecepteur(); rendreListe(); chargerRadio(); }
 
   async function rafraichir(silencieux) {
     try {
@@ -376,6 +400,14 @@
     document.querySelector('#settingsOnglets').addEventListener('click', (e) => {
       const b = e.target.closest('.onglet');
       if (b && b.dataset.onglet === 'gnss') demarrer();
+    });
+    $('#radioForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await appel('/api/radio', 'POST', { port: $('#radioPort').value, baud: Number($('#radioBaud').value) });
+        statut('Radio enregistrée : la passerelle la rouvre d\'elle-même (quelques secondes).', true);
+      } catch (err) { statut(err.message, false); }
+      setTimeout(chargerRadio, 6500);
     });
     $('#gnssDetecter').addEventListener('click', detecter);
     $('#gnssConfigurer').addEventListener('click', configurer);
