@@ -2535,6 +2535,9 @@ def verifier_arrivee_da(conn, dt_code):
         return None
     conn.execute("UPDATE missions SET arrivee=1 WHERE id=?", (mission["id"],))
     conn.commit()
+    # 21/11 : fin de mission dans SA dumping area (pas une autre) -> les alertes encore ouvertes du DT sont closes
+    for typ in ("offroad", "deviation", "checkpoint"):
+        clore_alertes_ouvertes(conn, dt_code, typ, cause="arrivee_da")
     message = "Vous etes arrive : dumping area %s." % da["nom"]
     creer_alerte(conn, "arrivee", dt_code, message)
     enregistrer_pour_office(conn, {"mission_id": mission["id"], "dt_code": dt_code,
@@ -2586,13 +2589,14 @@ def deviation_reglages():
 _retour_candidat = {}      # code DT -> instant du premier releve revenu sur le trajet (confirmation)
 
 
-def clore_alertes_ouvertes(conn, dt_code, type_alerte, instant=None):
-    """Note le retour sur les alertes `type_alerte` encore ouvertes du DT : heure et duree.
+def clore_alertes_ouvertes(conn, dt_code, type_alerte, instant=None, cause="retour"):
+    """Note le retour sur les alertes `type_alerte` encore ouvertes du DT : heure, duree et cause
+    ('retour' = revenu sur son trajet / sa piste, 'arrivee_da' = mission terminee dans SA dumping area).
     Meme convention d'heure que created_at (UTC, SQLite)."""
     conn.execute(
-        "UPDATE alertes SET retour_le=datetime('now'), "
+        "UPDATE alertes SET retour_le=datetime('now'), retour_cause=?, "
         "retour_duree_s=MAX(0, CAST((julianday('now') - julianday(created_at)) * 86400 AS INTEGER)) "
-        "WHERE dt_code=? AND type=? AND retour_le=''", (dt_code, type_alerte))
+        "WHERE dt_code=? AND type=? AND retour_le=''", (cause, dt_code, type_alerte))
     conn.commit()
 
 
@@ -7932,7 +7936,8 @@ def main():
                       ("acquittee_par", "TEXT DEFAULT ''"),
                       ("acquittee_le", "TEXT DEFAULT ''"),
                       ("retour_le", "TEXT DEFAULT ''"),          # 21/11 : retour du DT (cloture cote DT)
-                      ("retour_duree_s", "INTEGER DEFAULT 0")):
+                      ("retour_duree_s", "INTEGER DEFAULT 0"),
+                      ("retour_cause", "TEXT DEFAULT ''")):
         if nom not in cols:
             conn.execute("ALTER TABLE alertes ADD COLUMN %s %s" % (nom, decl))
     # 21/11 : alertes anterieures au cycle de vie -> retour deduit de l'evenement « retour » suivant du meme DT

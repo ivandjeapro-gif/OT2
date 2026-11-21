@@ -17,6 +17,7 @@
     non_conforme: 'Dumping non conforme',
     fin_mission: 'Fin de mission',
     blast_rejete: 'Blast refuse',
+    checkpoint: 'Checkpoint saute',
     arrivee: 'Arrivee DA',
     mission: 'Nouvelle mission',
   };
@@ -92,13 +93,15 @@
   }
 
   // Cycle de vie (offroad / deviation) : ouverte -> le DT est revenu (retour_le) -> cloturee quand l'Office l'a aussi vue
-  const AVEC_CYCLE = { offroad: 1, deviation: 1 };
+  const AVEC_CYCLE = { offroad: 1, deviation: 1, checkpoint: 1 };
   function dureeCourte(s) {
     s = Math.max(0, Math.round(Number(s) || 0));
     return s >= 60 ? Math.floor(s / 60) + ' min ' + deux(s % 60) + ' s' : s + ' s';
   }
   function etatCycle(a) {
     if (!AVEC_CYCLE[a.type]) return '';
+    if (a.retour_le && a.retour_cause === 'arrivee_da') return 'Mission terminée en dumping area à ' + MSUI.heure(a.retour_le);
+    if (a.type === 'checkpoint') return '';
     return a.retour_le
       ? 'DT revenu à ' + MSUI.heure(a.retour_le) + ' (après ' + dureeCourte(a.retour_duree_s) + ')'
       : 'DT toujours hors trajet';
