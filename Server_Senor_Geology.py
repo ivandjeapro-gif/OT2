@@ -6059,6 +6059,11 @@ def boucle_comptes_mqtt():
         except Exception as e:
             _mqtt_etat["erreur"] = "%s: %s" % (type(e).__name__, e)
             print("MQTT comptes : erreur %s" % e)
+        try:
+            connexion_diffuser()
+        except Exception as e:
+            _connexion_etat["erreur"] = "%s: %s" % (type(e).__name__, e)
+            print("Connexion des tablettes : erreur %s" % e)
         _mqtt_reveil.wait(MQTT_COMPTES_INTERVALLE_S)
         _mqtt_reveil.clear()
 
@@ -6491,7 +6496,8 @@ def tablettes_lister(conn):
         profils[pr] = {"nom": d["nom"], "retenu": retenu["nom"] if retenu else "", "motif": motif,
                        "fichiers": [{k: v for k, v in a.items() if k != "chemin"} for a in apks]}
     return {"adb": {"chemin": adb_chemin(), "erreur": erreur}, "tablettes": tablettes,
-            "apk": {"dossier": dossier, "profils": profils}}
+            "apk": {"dossier": dossier, "profils": profils},
+            "connexion": {"envoyee_le": _connexion_etat["envoyee_le"], "erreur": _connexion_etat["erreur"]}}
 
 
 def tablette_ouvrir_wifi(serie):
@@ -6673,6 +6679,60 @@ def tablette_installer(job, serie, adresse_adb, k, zone, autoriser_test, reinsta
         with _jobs_verrou:
             _jobs_tablettes[job]["etat"] = "erreur"
             _jobs_tablettes[job]["erreur"] = str(e)
+
+
+# ---- diffusion de la connexion aux tablettes (via Serveur_OT) ----
+# Les serveurs n°1 (Serveur_OT) et n°2 (Serveur_SG) saisis dans la console sont envoyes a Serveur_OT
+# (action connexion_ecrire) ; les tablettes les relisent dans referentiels et les adoptent apres test.
+_RE_EXEC = re.compile(r"^https://script\.google\.com/macros/s/[A-Za-z0-9_-]{20,}/exec$")
+_RE_JETON_SRV = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_connexion_etat = {"envoyee_le": "", "erreur": "", "dernier_essai": 0.0}
+CONNEXION_REESSAI_S = 600
+
+
+def connexion_corps():
+    """(corps a envoyer, motifs de refus). Un serveur dont l'adresse ou le jeton est invalide n'est pas envoye."""
+    corps, motifs = {}, []
+    url1, jeton1 = office_conf()
+    url2, jeton2, _ = sg_conf()
+    for cle, nom, url, jeton in (("serveur1", "n°1", url1, jeton1), ("serveur2", "n°2", url2, jeton2)):
+        if not url:
+            continue
+        if not _RE_EXEC.match(url):
+            motifs.append("adresse du serveur %s : une /exec Apps Script est attendue" % nom)
+        elif not _RE_JETON_SRV.match(jeton or ""):
+            motifs.append("jeton du serveur %s invalide (16 a 128 caracteres : lettres, chiffres, - _)" % nom)
+        else:
+            corps[cle] = {"url": url, "token": jeton}
+    return corps, motifs
+
+
+def connexion_diffuser(forcer=False):
+    """Envoie la connexion a Serveur_OT si elle a change (empreinte) ; un echec n'est retente que toutes les 10 min."""
+    corps, motifs = connexion_corps()
+    if not office_conf()[0]:
+        _connexion_etat["erreur"] = "Serveur_OT non configure (Parametres > Liaisons)"
+        return False
+    if not corps:
+        _connexion_etat["erreur"] = "; ".join(motifs) or "aucun serveur a diffuser"
+        return False
+    empreinte = _empreinte(json.dumps(corps, sort_keys=True))
+    if not forcer and param_lire("CONNEXION_OT_EMPREINTE", "") == empreinte:
+        _connexion_etat["erreur"] = "; ".join(motifs)
+        return True
+    if not forcer and time.time() - _connexion_etat["dernier_essai"] < CONNEXION_REESSAI_S and _connexion_etat["erreur"]:
+        return False
+    _connexion_etat["dernier_essai"] = time.time()
+    if office_appel("connexion_ecrire", corps):
+        conn = get_conn()
+        try:
+            param_ecrire(conn, "CONNEXION_OT_EMPREINTE", empreinte)
+        finally:
+            conn.close()
+        _connexion_etat.update(envoyee_le=now_iso(), erreur="; ".join(motifs))
+        return True
+    _connexion_etat["erreur"] = "Serveur_OT a refuse ou n'a pas repondu (action connexion_ecrire deployee ?)"
+    return False
 
 
 def ecrire_provision(cible, serie, paquet, contenu):

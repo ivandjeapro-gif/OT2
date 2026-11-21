@@ -67,6 +67,12 @@
         ? 'adb indisponible : ' + etat.adb.erreur
         : n + (n > 1 ? ' tablettes connectées' : ' tablette connectée') + ' · ' + etat.tablettes.length + ' enregistrée' + (etat.tablettes.length > 1 ? 's' : '');
     }
+    const cx = $('#tabConnexionEtat');
+    if (cx) {
+      const c = etat.connexion || {};
+      cx.textContent = c.envoyee_le && !c.erreur ? 'Connexion des tablettes distribuée par Serveur_OT · ' + c.envoyee_le.slice(0, 16)
+        : (c.erreur ? 'Distribution de la connexion : ' + c.erreur : (c.envoyee_le ? 'Connexion des tablettes distribuée par Serveur_OT · ' + c.envoyee_le.slice(0, 16) : ''));
+    }
     const apkBox = $('#tabApk');
     if (apkBox) {
       const pr = apk.profils || {};
