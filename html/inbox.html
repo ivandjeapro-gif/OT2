@@ -65,7 +65,7 @@
                             <span class="r-breadcrumb-current">Inbox</span>
                         </nav>
                         <h1 class="r-title">Journal des voyages</h1>
-                        <p class="r-subtitle">Tous les voyages des DT, classifiés par <strong class="highlight-green">ROM Pad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
+                        <p class="r-subtitle">Tous les voyages des DT, classifiés par ROM Pad.</p>
                     </div>
 
                     <!-- CARTE DE FILTRES (maquette : MATÉRIAU + puces + date/shift) -->
@@ -73,31 +73,36 @@
                         <div class="r-filtercard-main">
                             <div class="r-filter-label">Matériau</div>
                             <div class="r-chips" role="group" aria-label="Filtre matériau">
-                                <button type="button" class="r-chip is-active" data-chip="" >Tous <span class="r-chip-count">&nbsp;</span></button>
-                                <button type="button" class="r-chip" data-chip="ore">Ore · Minéral <span class="r-chip-count">&nbsp;</span></button>
-                                <button type="button" class="r-chip" data-chip="waste">Waste · Stérile <span class="r-chip-count">&nbsp;</span></button>
+                                <button type="button" class="r-chip is-active" data-chip="">Tous <span class="r-chip-count" id="chipTous">--</span></button>
+                                <button type="button" class="r-chip" data-chip="ore">Ore · Minerai <span class="r-chip-count" id="chipOre">--</span></button>
+                                <button type="button" class="r-chip" data-chip="waste">Waste · Stérile <span class="r-chip-count" id="chipWaste">--</span></button>
                             </div>
-                            <!-- Select conservé pour la logique existante (masqué visuellement) -->
-                            <select id="inboxFiltreMateriel" class="r-sr-select" aria-hidden="true" tabindex="-1">
-                                <option value="" selected>Tous</option>
-                                <option value="ore">Ore (minerai)</option>
-                                <option value="waste">Waste (sterile)</option>
+                        </div>
+                        <div class="r-filtercard-period">
+                            <label class="r-filter-label" for="inboxPeriode">Période</label>
+                            <select id="inboxPeriode" class="r-input" title="Journée d'exploitation : 06 h à 06 h">
+                                <option value="">Toutes les dates</option>
+                                <option value="jour">Journée en cours</option>
+                                <option value="hier">Hier</option>
+                                <option value="7j">7 derniers jours</option>
+                                <option value="date">Une date précise…</option>
                             </select>
+                            <input type="date" id="inboxDateSel" class="r-input" hidden />
                         </div>
                         <div class="r-filtercard-aside">
-                            <span class="r-filtercard-date" id="statusDate">17 novembre 2026</span>
-                            <span class="r-filtercard-shift">Shift de jour · Tous les engins</span>
+                            <span class="r-filtercard-date" id="inboxDate">--</span>
+                            <span class="r-filtercard-shift" id="inboxShift">--</span>
                         </div>
                     </div>
 
                     <!-- EN-TÊTE DE LISTE : grand compteur + légende -->
                     <div class="r-listhead">
-                        <h2 class="r-bigcount"><span class="r-bigcount-num" id="inboxCompteur">00</span> voyages</h2>
+                        <h2 class="r-bigcount"><span class="r-bigcount-num" id="inboxCompteur">00</span> <span id="inboxVoyagesMot">voyages</span></h2>
                         <p class="r-listhead-note">Un journal complet, distinct de la liste des alertes.</p>
                         <span class="r-listhead-legend">Classification du déchargement par ROM Pad</span>
                     </div>
 
-                    <div class="r-panel">
+                    <div class="r-panel r-panel-plain">
                         <table class="data-table r-table">
                             <thead>
                                 <tr>
@@ -115,6 +120,7 @@
                                 <tr><td colspan="8" class="muted">Chargement...</td></tr>
                             </tbody>
                         </table>
+                        <p class="r-tablefoot" id="inboxPied">--</p>
                         <div class="r-recapband" id="inboxRecap"></div>
                     </div>
                 </section>
@@ -130,8 +136,8 @@
                 <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
             </div>
             <div class="status-right">
-                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
-                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+                <span class="status-item" id="statusDate">--</span>
+                <span class="status-item" id="statusTime">--</span>
             </div>
         </footer>
     </div>
@@ -165,26 +171,6 @@
     <script src="../js/inbox.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
-    <!-- REFONTE UI : pont visuel puces -> select existant (aucune logique metier modifiee) -->
-    <script>
-    (function(){
-        var sel = document.getElementById('inboxFiltreMateriel');
-        if(!sel) return;
-        document.querySelectorAll('#page-inbox .r-chip').forEach(function(chip){
-            chip.addEventListener('click', function(){
-                document.querySelectorAll('#page-inbox .r-chip').forEach(function(c){ c.classList.remove('is-active'); });
-                chip.classList.add('is-active');
-                sel.value = chip.getAttribute('data-chip') || '';
-                sel.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-        });
-        sel.addEventListener('change', function(){
-            document.querySelectorAll('#page-inbox .r-chip').forEach(function(c){
-                c.classList.toggle('is-active', (c.getAttribute('data-chip') || '') === sel.value);
-            });
-        });
-    })();
-    </script>
 </body>
 </html>
 
