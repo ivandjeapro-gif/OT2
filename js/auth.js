@@ -124,13 +124,15 @@ function hideLogin() {
   if (app) app.style.visibility = 'visible';
 }
 
-function renderUser(user) {
+function renderUser(user, role) {
+  const roleEl = $('.user-role');
+  if (roleEl) roleEl.textContent = user && role ? libelleRole(role) : '';
   const name = $('.user-name');
   const email = $('.user-email');
   if (name) name.textContent = user ? (user.nom || user.displayName || user.email || '') : '';
   if (email) email.textContent = user ? (user.email || '') : '';
   // la barre de navigation (js/navbar.js) reaffiche ces valeurs des son premier rendu sur la page suivante
-  if (window.OreNavbar) window.OreNavbar.memoriser({ nom: name ? name.textContent : '', email: email ? email.textContent : '' });
+  if (window.OreNavbar) window.OreNavbar.memoriser({ nom: name ? name.textContent : '', email: email ? email.textContent : '', role: roleEl ? roleEl.textContent : '' });
 }
 
 function resetLoginForm() {
@@ -588,7 +590,7 @@ function initAuth() {
       }
       renderUser(myProfile && myProfile.nom
         ? { nom: myProfile.nom, email: user.email }
-        : user);
+        : user, myProfile ? myProfile.role : '');
       const roleCourant = normaliserRole(myProfile ? myProfile.role : '');
       // profil « Senor_Geology » : un seul poste a la fois
       if (!(await prendreSessionUnique(user, roleCourant))) return;

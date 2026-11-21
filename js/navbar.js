@@ -81,6 +81,8 @@
     var mail = document.querySelector('.sidebar-user .user-email');
     if (nom && c.nom) nom.textContent = c.nom;
     if (mail && c.email) mail.textContent = c.email;
+    var role = document.querySelector('.sidebar-user .user-role');
+    if (role && c.role) role.textContent = c.role;
     (c.masques || []).forEach(function (p) {
       var l = document.querySelector('.sidebar-link[data-page="' + p + '"]');
       if (l) l.classList.add('nav-hidden');
@@ -124,7 +126,7 @@
       '<div class="sidebar-user">' +
         '<div class="user-info">' +
           '<span class="user-name"></span>' +
-          '<span class="user-role">Superviseur</span>' +
+          '<span class="user-role"></span>' +
           '<span class="user-email"></span>' +
         '</div>' +
         '<button class="btn-logout" title="Déconnexion">' +
