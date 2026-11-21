@@ -536,6 +536,15 @@
                         <h2 class="pm-titre-onglet">Équipes spotter</h2>
                         <p class="pm-sous" id="cptEquipes">Chargement…</p>
 
+                        <!-- Equipe de service : choisie par l'admin, affichee sur Home -->
+                        <div class="pm-eq-creation" id="serviceBox">
+                            <label class="pm-champ"><span class="lbl">Équipe de service · jour (06 h – 18 h)</span>
+                                <select id="equipeJour"><option value="">Non définie</option></select></label>
+                            <label class="pm-champ"><span class="lbl">Équipe de service · nuit (18 h – 06 h)</span>
+                                <select id="equipeNuit"><option value="">Non définie</option></select></label>
+                            <small class="pm-sous" id="serviceStatus">Le choix reste actif jusqu'au prochain changement ; Home affiche l'équipe du shift en cours.</small>
+                        </div>
+
                         <!-- Creation : une equipe nait avec son chef -->
                         <form class="pm-eq-creation" id="teamAddForm">
                             <label class="pm-champ"><span class="lbl">Code</span>

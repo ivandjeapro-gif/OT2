@@ -387,22 +387,25 @@
       'Minage en cours' + (b ? ' · ' + (b.numero || b.nom) : '') + (exca.length > 1 ? ' · ' + exca.length + ' excavatrices' : ''));
   }
 
-  // Equipes spotter actives (referentiel SaaS, table sync_identifiants, profil SPOT) : « Alpha · K. Traoré / ... ».
+  // Equipe de service du shift en cours : choisie par l'admin (Settings > Equipes, params equipe_jour / equipe_nuit),
+  // titre = equipe, detail = ses membres (chef en premier). Rien d'invente : sans choix, on le dit.
   function rendreEquipes() {
     const rows = TERRAIN.equipes;
-    if (!rows) { ecrireItem('terrainEquipes', 'Équipes spotter', 'Connectez-vous pour les afficher.'); return; }
-    const parEquipe = {};
-    rows.filter((r) => r.profil === 'SPOT').forEach((r) => {
-      const cle = r.equipe || '(sans équipe)';
-      (parEquipe[cle] = parEquipe[cle] || []).push(r);
-    });
-    const actives = Object.keys(parEquipe).filter((c) => parEquipe[c].some((r) => r.actif === 1)).sort();
-    if (!actives.length) { ecrireItem('terrainEquipes', 'Aucune équipe spotter active', ''); return; }
-    const detail = actives.map((c) => {
-      const chef = parEquipe[c].find((r) => String(r.role || '').toUpperCase() === 'CHEF_EQUIPE');
-      return c + (chef ? ' · ' + (chef.nom || chef.identifiant || '') : '');
-    }).join(' / ');
-    ecrireItem('terrainEquipes', actives.length + (actives.length > 1 ? ' équipes spotter actives' : ' équipe spotter active'), detail);
+    if (!rows) { ecrireItem('terrainEquipes', 'Équipe de service', 'Connectez-vous pour afficher l’équipe.'); return; }
+    const h = new Date().getHours();
+    const jour = h >= 6 && h < 18;
+    const code = (TERRAIN.service || {})[jour ? 'jour' : 'nuit'] || '';
+    const shift = jour ? 'jour' : 'nuit';
+    if (!code) {
+      ecrireItem('terrainEquipes', 'Équipe de service non définie',
+        'Choisir l’équipe du shift de ' + shift + ' dans Settings › Équipes.');
+      return;
+    }
+    const membres = rows.filter((r) => r.profil === 'SPOT' && r.equipe === code && r.actif === 1)
+      .sort((a, b) => (String(b.role).toUpperCase() === 'CHEF_EQUIPE') - (String(a.role).toUpperCase() === 'CHEF_EQUIPE'));
+    const noms = membres.map((r) => (r.nom || r.identifiant || '') +
+      (String(r.role).toUpperCase() === 'CHEF_EQUIPE' ? ' (chef)' : ''));
+    ecrireItem('terrainEquipes', 'Équipe ' + code + ' · shift de ' + shift, noms.length ? noms.join(', ') : 'Aucun membre actif');
   }
 
   // Liaisons : Cloud (SaaS joignable), LAN temps reel (passerelle joignable), Office (relais configure).
@@ -429,7 +432,11 @@
     fetch(base + '/api/relais', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { TERRAIN.relais = d; rendreLiaisons(); }).catch(() => { TERRAIN.relais = null; rendreLiaisons(); });
     if (typeof API !== 'undefined' && API.getConfig) {
-      API.getConfig().then(() => { TERRAIN.cloud = true; rendreLiaisons(); }).catch(() => { TERRAIN.cloud = false; rendreLiaisons(); });
+      API.getConfig().then((c) => {
+        const p = (c && (c.params || c)) || {};
+        TERRAIN.service = { jour: p.equipe_jour || '', nuit: p.equipe_nuit || '' };
+        TERRAIN.cloud = true; rendreLiaisons(); rendreEquipes();
+      }).catch(() => { TERRAIN.cloud = false; rendreLiaisons(); });
     }
     if (typeof API !== 'undefined' && API.getRows) {
       API.getRows('sync_identifiants').then((d) => { TERRAIN.equipes = (d && d.rows) || []; rendreEquipes(); })

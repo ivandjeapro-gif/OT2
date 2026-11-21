@@ -409,7 +409,41 @@
     return TEAM_COLORS[h % TEAM_COLORS.length];
   }
 
+  // Equipe de service (params equipe_jour / equipe_nuit) : lue par Home.
+  const SERVICE = { jour: '', nuit: '', charge: false };
+  function renderService(rows) {
+    const selJ = $('#equipeJour'), selN = $('#equipeNuit');
+    if (!selJ || !selN) return;
+    const codes = Array.from(new Set((rows || []).filter((r) => r.profil === 'SPOT' && r.actif === 1)
+      .map((r) => r.equipe).filter(Boolean))).sort();
+    [[selJ, SERVICE.jour], [selN, SERVICE.nuit]].forEach(([sel, val]) => {
+      const liste = val && !codes.includes(val) ? codes.concat(val) : codes;
+      sel.innerHTML = '<option value="">Non définie</option>' +
+        liste.map((c) => '<option value="' + eqEscape(c) + '"' + (c === val ? ' selected' : '') + '>' + eqEscape(c) + '</option>').join('');
+    });
+  }
+  async function chargerService(rows) {
+    try {
+      const r = await API.getConfig();
+      const p = (r && (r.params || r)) || {};
+      SERVICE.jour = p.equipe_jour || '';
+      SERVICE.nuit = p.equipe_nuit || '';
+    } catch (e) { /* serveur indisponible : listes vides */ }
+    renderService(rows);
+  }
+  async function enregistrerService(cle, valeur) {
+    const st = $('#serviceStatus');
+    try {
+      await API.saveConfig({ [cle]: valeur });
+      SERVICE[cle === 'equipe_jour' ? 'jour' : 'nuit'] = valeur;
+      if (st) st.textContent = 'Équipe de service enregistrée.';
+    } catch (e) {
+      if (st) st.textContent = 'Enregistrement impossible : ' + ((e && e.message) || 'serveur indisponible');
+    }
+  }
+
   function renderTeams(rows) {
+    renderService(rows);
     const box = $('#teamContainer');
     if (!box) return;
     const membres = (rows || []).filter((r) => r.profil === 'SPOT');
@@ -496,6 +530,7 @@
   async function loadTeams() {
     try {
       const rows = await loadMembresSync();
+      if (!SERVICE.charge) { SERVICE.charge = true; await chargerService(rows); }
       renderTeams(rows);
       setEquipAuthUi(true);
     } catch (e) {
@@ -1641,6 +1676,11 @@
         if (excavFamilleAutre) excavFamilleAutre.style.display = excavFamille.value === 'AUTRE' ? '' : 'none';
       });
     }
+
+    // equipe de service
+    const selJ = $('#equipeJour'), selN = $('#equipeNuit');
+    if (selJ) selJ.addEventListener('change', () => enregistrerService('equipe_jour', selJ.value));
+    if (selN) selN.addEventListener('change', () => enregistrerService('equipe_nuit', selN.value));
 
     // teams (spotter)
     const teamForm = $('#teamAddForm');
