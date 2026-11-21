@@ -153,6 +153,109 @@
     }).join('') : '<div class="sg-vide">Aucune aire de déchargement.</div>';
   }
 
+  /* ---- Trajectoires : source -> dumping area, avec la liste ORDONNEE des checkpoints ----
+   * Ce qui est defini ici fait foi : la passerelle l'applique aux missions et le pousse vers
+   * Serveur_OT puis Serveur_SG (synchroniserSG), qui se mettent a jour d'apres cette liste. */
+  let trajectoires = [];
+  let tousCheckpoints = [];
+  let trajEdition = null;            // { id, ids: [checkpoint ids dans l'ordre] }
+
+  async function synchroniserSG() {
+    if (!window.OTCFG) return;
+    setStatus('#sgTrajStatus', 'Synchronisation avec Serveur_SG…', true);
+    try {
+      await OTCFG.pousserReferentiel();
+      const r = await fetch(base().replace(/\/$/, '') + '/api/sg/sync_ref', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) throw new Error(d.error || ('HTTP ' + r.status));
+      setStatus('#sgTrajStatus', 'Serveur_SG mis à jour avec ces trajectoires', true);
+    } catch (e) {
+      setStatus('#sgTrajStatus', 'Enregistré ici, mais Serveur_SG non synchronisé : ' + e.message, false);
+    }
+  }
+
+  function rendreTrajectoires() {
+    const box = $('#sgTrajList');
+    if (!box) return;
+    const cpt = $('#sgTrajCompte');
+    if (cpt) cpt.textContent = trajectoires.length ? '· ' + deuxN(trajectoires.length) : '';
+    if (!trajectoires.length) {
+      box.innerHTML = '<div class="sg-vide">Aucune trajectoire. Sans trajectoire, les checkpoints viennent de Serveur_SG.</div>';
+      return;
+    }
+    box.innerHTML = trajectoires.map((t) => {
+      const ouvert = trajEdition && trajEdition.id === t.id;
+      const liste = ouvert ? trajEdition.ids.map((id) => tousCheckpoints.find((c) => c.id === id)).filter(Boolean) : t.checkpoints;
+      const puces = liste.length
+        ? liste.map((c, i) => '<span class="sg-cp-puce"><b>' + (i + 1) + '</b>' + esc(c.nom) + '</span>').join('<i class="fas fa-chevron-right sg-cp-sep"></i>')
+        : '<em>Aucun checkpoint</em>';
+      let editeur = '';
+      if (ouvert) {
+        const libres = tousCheckpoints.filter((c) => trajEdition.ids.indexOf(c.id) < 0);
+        editeur = '<div class="sg-traj-edit">' +
+          (liste.length ? liste.map((c, i) =>
+            '<div class="sg-traj-cp"><span class="sg-traj-rang">' + (i + 1) + '</span><b>' + esc(c.nom) + '</b>' +
+            '<button type="button" class="sg-ico-btn" data-traj-haut="' + i + '" title="Monter"' + (i === 0 ? ' disabled' : '') + '><i class="fas fa-arrow-up"></i></button>' +
+            '<button type="button" class="sg-ico-btn" data-traj-bas="' + i + '" title="Descendre"' + (i === liste.length - 1 ? ' disabled' : '') + '><i class="fas fa-arrow-down"></i></button>' +
+            '<button type="button" class="sg-ico-btn danger" data-traj-retirer="' + i + '" title="Retirer"><i class="fas fa-xmark"></i></button></div>').join('')
+            : '<div class="sg-vide">Ajoutez les checkpoints dans l\'ordre de passage.</div>') +
+          '<div class="sg-traj-ajout">' +
+            '<select id="sgTrajAjoutSel" class="sg-input"><option value="">Ajouter un checkpoint…</option>' +
+              libres.map((c) => '<option value="' + c.id + '">' + esc(c.nom) + '</option>').join('') + '</select>' +
+            '<button type="button" class="sg-btn" data-traj-ajouter="1">Ajouter</button>' +
+            '<button type="button" class="sg-btn sg-btn-ok" data-traj-enregistrer="' + t.id + '">Enregistrer</button>' +
+            '<button type="button" class="sg-btn" data-traj-annuler="1">Annuler</button>' +
+          '</div></div>';
+      }
+      return '<div class="sg-traj' + (ouvert ? ' ouvert' : '') + '">' +
+        '<div class="sg-ligne">' +
+          '<i class="fas fa-route sg-ligne-ico"></i>' +
+          '<span class="sg-ligne-nom"><b>' + esc(t.source) + ' <i class="fas fa-arrow-right sg-traj-fleche"></i> ' + esc(t.dumping_area) + '</b>' +
+            '<span class="sg-cp-suite">' + puces + '</span></span>' +
+          '<button type="button" class="sg-ico-btn" data-traj-edit="' + t.id + '" title="Modifier l\'ordre des checkpoints"><i class="fas fa-pen"></i></button>' +
+          '<button type="button" class="sg-ico-btn danger" data-traj-del="' + t.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+        '</div>' + editeur + '</div>';
+    }).join('');
+  }
+
+  async function chargerTrajectoires() {
+    if (!$('#sgTrajList')) return;
+    try {
+      trajectoires = (await jsend('/api/trajectoires', 'GET')).trajectoires || [];
+      tousCheckpoints = (await jsend('/api/checkpoints', 'GET')).checkpoints || [];
+      rendreTrajectoires();
+    } catch (e) {
+      setStatus('#sgTrajStatus', 'Trajectoires injoignables (' + e.message + ')', false);
+    }
+  }
+
+  function remplirFormTrajectoire() {
+    const ss = $('#sgTrajSource'), sd = $('#sgTrajDa');
+    if (ss) ss.innerHTML = sources.map((x) => '<option value="' + x.id + '">' + esc(x.nom) + '</option>').join('');
+    if (sd) sd.innerHTML = dumpingAreas.map((z) => '<option value="' + z.id + '">' + esc(z.nom) + '</option>').join('');
+  }
+
+  async function creerTrajectoire(e) {
+    e.preventDefault();
+    try {
+      const d = await jsend('/api/trajectoires', 'POST', {
+        source_id: Number($('#sgTrajSource').value), dumping_area_id: Number($('#sgTrajDa').value) });
+      $('#sgTrajForm').style.display = 'none';
+      await chargerTrajectoires();
+      trajEdition = { id: d.id, ids: [] };      // ouvre l'editeur : on ajoute aussitot les checkpoints
+      rendreTrajectoires();
+    } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
+  }
+
+  async function enregistrerTrajectoire(id) {
+    try {
+      await jsend('/api/trajectoire_checkpoints', 'POST', { id: id, checkpoints: trajEdition.ids });
+      trajEdition = null;
+      await chargerTrajectoires();
+      await synchroniserSG();
+    } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
+  }
+
   async function chargerSources() {
     try {
       const d = await jsend('/api/sources', 'GET');
@@ -809,9 +912,10 @@
     try {
       const d = await jsend('/api/checkpoints', 'GET');
       renderCheckpoints(d.checkpoints || []);
+      chargerTrajectoires();
     } catch (e) {
       const b = $('#sgChkList');
-      if (b) b.innerHTML = '<div class="sg2-note">Passerelle injoignable</div>';
+      if (b) b.innerHTML = '<div class="sg-vide">Passerelle injoignable.</div>';
     }
   }
 
@@ -961,7 +1065,45 @@
   function init() {
     if (!$('#sgSourceLabel')) return; // pas sur cette page
 
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
+      // trajectoires : edition de l'ordre des checkpoints
+      const tEd = e.target.closest('[data-traj-edit]');
+      if (tEd) {
+        const t = trajectoires.find((x) => x.id === Number(tEd.dataset.trajEdit));
+        trajEdition = t ? { id: t.id, ids: t.checkpoints.map((c) => c.id) } : null;
+        rendreTrajectoires();
+        return;
+      }
+      if (trajEdition) {
+        const haut = e.target.closest('[data-traj-haut]');
+        const bas = e.target.closest('[data-traj-bas]');
+        const ret = e.target.closest('[data-traj-retirer]');
+        const ids = trajEdition.ids;
+        if (haut) { const i = Number(haut.dataset.trajHaut); [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; rendreTrajectoires(); return; }
+        if (bas) { const i = Number(bas.dataset.trajBas); [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]]; rendreTrajectoires(); return; }
+        if (ret) { ids.splice(Number(ret.dataset.trajRetirer), 1); rendreTrajectoires(); return; }
+        if (e.target.closest('[data-traj-ajouter]')) {
+          const v = Number(($('#sgTrajAjoutSel') || {}).value);
+          if (v) { ids.push(v); rendreTrajectoires(); }
+          return;
+        }
+        const enr = e.target.closest('[data-traj-enregistrer]');
+        if (enr) { enregistrerTrajectoire(Number(enr.dataset.trajEnregistrer)); return; }
+        if (e.target.closest('[data-traj-annuler]')) { trajEdition = null; rendreTrajectoires(); return; }
+      }
+      const tSup = e.target.closest('[data-traj-del]');
+      if (tSup) {
+        const t = trajectoires.find((x) => x.id === Number(tSup.dataset.trajDel));
+        if (t && await confirmerPopup('Supprimer la trajectoire ' + t.source + ' → ' + t.dumping_area + ' ?')) {
+          try {
+            await jsend('/api/trajectoires?id=' + t.id, 'DELETE');
+            if (trajEdition && trajEdition.id === t.id) trajEdition = null;
+            await chargerTrajectoires();
+            await synchroniserSG();
+          } catch (err) { setStatus('#sgTrajStatus', err.message, false); }
+        }
+        return;
+      }
       // source : activer
       const srcSel = e.target.closest('[data-src-select]');
       if (srcSel) {
@@ -1136,6 +1278,18 @@
     const selCouleur = $('#sgNewTeneurCouleur');
     if (selCouleur) selCouleur.addEventListener('input', () => { $('#sgNewTeneurAuto').checked = false; });
 
+    // trajectoires : formulaire d'ajout
+    const btnTraj = $('#sgBtnTrajAdd');
+    if (btnTraj) btnTraj.addEventListener('click', () => {
+      remplirFormTrajectoire();
+      const f = $('#sgTrajForm');
+      f.style.display = f.style.display === 'none' ? '' : 'none';
+    });
+    const formTraj = $('#sgTrajForm');
+    if (formTraj) formTraj.addEventListener('submit', creerTrajectoire);
+    const annulTraj = $('#sgTrajCancel');
+    if (annulTraj) annulTraj.addEventListener('click', () => { $('#sgTrajForm').style.display = 'none'; });
+
     // onglets
     const tabs = document.querySelectorAll('.sg-tab');
     const ouvrirOnglet = (nom) => {
@@ -1165,6 +1319,7 @@
     chargerSources();
     chargerZones();
     chargerCheckpoints();
+    chargerTrajectoires();
     chargerRoads();
     chargerGeo();
     demarrerSuivi();

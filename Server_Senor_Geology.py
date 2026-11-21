@@ -360,6 +360,18 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- 21/11 : TRAJECTOIRE = une source (pit) vers une dumping area ; porte la liste ORDONNEE des checkpoints
+-- que doit franchir un DT dont la mission relie ces deux points. Les checkpoints (lignes de passage)
+-- restent definis dans la table `checkpoints`.
+CREATE TABLE IF NOT EXISTS trajectoires (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL,
+    dumping_area_id INTEGER NOT NULL,
+    checkpoints TEXT DEFAULT '[]',      -- JSON : ids de checkpoints, dans l'ordre de passage
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (source_id, dumping_area_id)
+);
+
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nom TEXT NOT NULL,              -- source miniere : Main Pit, Second Pit...
@@ -2771,17 +2783,62 @@ def sg_lire_itineraires():
     return res
 
 
+def source_pour_nom(conn, nom):
+    """Id de la source (pit) dont un code admis figure dans le nom du bloc/blast
+    (280_LMP2_119_WST... -> LMP2 -> Main Pit), sinon 0. Meme regle que Home."""
+    segs = [x for x in re.split(r"[_\s.\-]+", str(nom or "").upper()) if x]
+    for src in conn.execute("SELECT id, codes FROM sources WHERE actif=1 ORDER BY id"):
+        codes = [c.strip().upper() for c in re.split(r"[,\s;]+", src["codes"] or "") if c.strip()]
+        if any(c in segs for c in codes):
+            return src["id"]
+    return 0
+
+
+def checkpoints_trajectoire(conn, source_id, da_id):
+    """Liste ordonnee [{nom, x1, y1, x2, y2}] de la trajectoire source -> dumping area ([] si aucune)."""
+    if not source_id or not da_id:
+        return []
+    t = conn.execute("SELECT checkpoints FROM trajectoires WHERE source_id=? AND dumping_area_id=?",
+                     (source_id, da_id)).fetchone()
+    if not t:
+        return []
+    try:
+        ids = [int(i) for i in json.loads(t["checkpoints"] or "[]")]
+    except (TypeError, ValueError):
+        return []
+    res = []
+    for i in ids:
+        c = conn.execute("SELECT nom, x1, y1, x2, y2 FROM checkpoints WHERE id=? AND actif=1", (i,)).fetchone()
+        if c:
+            res.append({"nom": c["nom"], "x1": c["x1"], "y1": c["y1"], "x2": c["x2"], "y2": c["y2"]})
+    return res
+
+
 def charger_checkpoints_missions():
-    """Une passe : les missions en cours sans checkpoints les recoivent."""
+    """Une passe : les missions en cours sans checkpoints les recoivent. PRIORITE a la trajectoire definie
+    dans Senor (source du bloc -> dumping area de la mission) ; Serveur_SG ne sert que de repli."""
     conn = get_conn()
     try:
         sans = [dict(r) for r in conn.execute(
-            "SELECT id, dt_code FROM missions WHERE statut='en_cours' "
+            "SELECT id, dt_code, orebloc_id, dumping_area_id FROM missions WHERE statut='en_cours' "
             "AND (cp_json IS NULL OR cp_json IN ('', '[]'))")]
         if not sans:
             return 0
-        par_dt = sg_lire_itineraires()
         n = 0
+        restantes = []
+        for m in sans:
+            ob = conn.execute("SELECT nom FROM oreblocs WHERE id=?", (m["orebloc_id"],)).fetchone() if m["orebloc_id"] else None
+            cps = checkpoints_trajectoire(conn, source_pour_nom(conn, ob["nom"] if ob else ""), m["dumping_area_id"])
+            if cps:
+                conn.execute("UPDATE missions SET cp_json=?, cp_etat='{}' WHERE id=?", (json.dumps(cps), m["id"]))
+                n += 1
+            else:
+                restantes.append(m)
+        conn.commit()
+        if not restantes:
+            return n
+        sans = restantes
+        par_dt = sg_lire_itineraires()
         for m in sans:
             cps = par_dt.get(m["dt_code"])
             if cps:
@@ -6143,7 +6200,7 @@ ECRITURES_ADMIN = ("/api/relais", "/api/offroad", "/api/mqtt/", "/api/sg/", "/ap
                    "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
-ECRITURES_SENOR = ("/api/oreblocs", "/api/dumping_area", "/api/teneur", "/api/sources", "/api/checkpoints",
+ECRITURES_SENOR = ("/api/oreblocs", "/api/dumping_area", "/api/teneur", "/api/sources", "/api/checkpoints", "/api/trajectoire",
                    "/api/travels_roads", "/api/geographic_system", "/api/minage_declare")
 ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts", "/api/enregistrements")
 _roles_cache = {}                       # jeton -> (role | None, expire)
@@ -7039,6 +7096,74 @@ class Handler(BaseHTTPRequestHandler):
                         "ok": True, "crees": crees, "mis_a_jour": maj,
                         "rejets": [{"nom": n, "motif": m} for n, m in rejets],
                         "convertis_utm": convertis})
+
+                # ------------------------------------------- trajectoires --
+                # {id, source_id, source, dumping_area_id, dumping_area, checkpoints:[{id, nom, longueur_m}]}
+                if path == "/api/trajectoires" and method == "GET":
+                    rows = []
+                    for t in conn.execute(
+                            "SELECT t.id, t.source_id, s.nom AS source, t.dumping_area_id, d.nom AS dumping_area, "
+                            "t.checkpoints FROM trajectoires t "
+                            "LEFT JOIN sources s ON s.id = t.source_id LEFT JOIN dumping_areas d ON d.id = t.dumping_area_id "
+                            "ORDER BY s.nom, d.nom"):
+                        try:
+                            ids = [int(i) for i in json.loads(t["checkpoints"] or "[]")]
+                        except (TypeError, ValueError):
+                            ids = []
+                        cps = []
+                        for i in ids:
+                            c = conn.execute("SELECT id, nom, x1, y1, x2, y2 FROM checkpoints WHERE id=? AND actif=1", (i,)).fetchone()
+                            if c:
+                                cps.append({"id": c["id"], "nom": c["nom"],
+                                            "longueur_m": round(distance(c["x1"], c["y1"], c["x2"], c["y2"]), 1)})
+                        rows.append({"id": t["id"], "source_id": t["source_id"], "source": t["source"] or "",
+                                     "dumping_area_id": t["dumping_area_id"], "dumping_area": t["dumping_area"] or "",
+                                     "checkpoints": cps})
+                    return self._send_json(200, {"trajectoires": rows})
+
+                if path == "/api/trajectoires" and method == "POST":
+                    body = json.loads(self._read_body() or b"{}")
+                    sid, did = int(body.get("source_id", 0)), int(body.get("dumping_area_id", 0))
+                    if not sid or not did:
+                        return self._send_json(400, {"error": "source_id et dumping_area_id requis"})
+                    if not conn.execute("SELECT id FROM sources WHERE id=? AND actif=1", (sid,)).fetchone():
+                        return self._send_json(404, {"error": "source introuvable"})
+                    if not conn.execute("SELECT id FROM dumping_areas WHERE id=? AND actif=1", (did,)).fetchone():
+                        return self._send_json(404, {"error": "dumping area introuvable"})
+                    if conn.execute("SELECT id FROM trajectoires WHERE source_id=? AND dumping_area_id=?", (sid, did)).fetchone():
+                        return self._send_json(409, {"error": "cette trajectoire existe deja"})
+                    cur = conn.execute("INSERT INTO trajectoires (source_id, dumping_area_id) VALUES (?, ?)", (sid, did))
+                    conn.commit()
+                    return self._send_json(201, {"ok": True, "id": cur.lastrowid})
+
+                # liste ORDONNEE des checkpoints d'une trajectoire : {"id": N, "checkpoints": [ids]}
+                if path == "/api/trajectoire_checkpoints" and method == "POST":
+                    body = json.loads(self._read_body() or b"{}")
+                    tid = int(body.get("id", 0))
+                    liste = body.get("checkpoints")
+                    if not tid or not isinstance(liste, list):
+                        return self._send_json(400, {"error": "id et checkpoints (liste) requis"})
+                    ids = []
+                    for i in liste:
+                        i = int(i)
+                        if i in ids:
+                            return self._send_json(400, {"error": "checkpoint en double dans la liste"})
+                        if not conn.execute("SELECT id FROM checkpoints WHERE id=? AND actif=1", (i,)).fetchone():
+                            return self._send_json(404, {"error": "checkpoint %d introuvable" % i})
+                        ids.append(i)
+                    if not conn.execute("SELECT id FROM trajectoires WHERE id=?", (tid,)).fetchone():
+                        return self._send_json(404, {"error": "trajectoire introuvable"})
+                    conn.execute("UPDATE trajectoires SET checkpoints=? WHERE id=?", (json.dumps(ids), tid))
+                    conn.commit()
+                    return self._send_json(200, {"ok": True, "id": tid, "checkpoints": ids})
+
+                if path == "/api/trajectoires" and method == "DELETE":
+                    tid = int(self._qs().get("id", ["0"])[0])
+                    if not tid:
+                        return self._send_json(400, {"error": "id requis"})
+                    conn.execute("DELETE FROM trajectoires WHERE id=?", (tid,))
+                    conn.commit()
+                    return self._send_json(200, {"ok": True, "id": tid})
 
                 if path == "/api/checkpoints" and method == "DELETE":
                     qs = self._qs()

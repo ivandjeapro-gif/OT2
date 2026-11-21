@@ -205,7 +205,21 @@
                                 <div class="sg2-status" id="sgRoadStatus"></div>
 
                                 <div class="sg-pane-head sg-pane-head-2">
-                                    <h2 class="sg-pane-titre">Checkpoints <small id="sgChkCompte"></small></h2>
+                                    <h2 class="sg-pane-titre">Trajectoires <small id="sgTrajCompte"></small></h2>
+                                    <button type="button" class="sg-btn" id="sgBtnTrajAdd"><i class="fas fa-plus"></i> Ajouter une trajectoire</button>
+                                </div>
+                                <form class="sg-form" id="sgTrajForm" style="display:none">
+                                    <select id="sgTrajSource" class="sg-input" required></select>
+                                    <i class="fas fa-arrow-right" style="color:var(--r-text-3)"></i>
+                                    <select id="sgTrajDa" class="sg-input" required></select>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Créer</button>
+                                    <button type="button" class="sg-btn" id="sgTrajCancel">Annuler</button>
+                                </form>
+                                <div class="sg-liste" id="sgTrajList"></div>
+                                <div class="sg2-status" id="sgTrajStatus"></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Points de passage <small id="sgChkCompte"></small></h2>
                                     <div class="sg-actions">
                                         <button type="button" class="sg-btn" id="btnSgImportChk" title="CSV : colonnes Y, X, id, Nom, avec deux lignes par nom (les deux extrémités). Degrés convertis en UTM ; un nom déjà présent est mis à jour."><i class="fas fa-file-import"></i> Importer CSV</button>
                                         <button type="button" class="sg-btn sg-btn-danger" id="btnSgChkToutSuppr" title="Supprimer tous les checkpoints"><i class="fas fa-trash"></i></button>
@@ -386,6 +400,7 @@
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>
+    <script src="../js/ot-config.js"></script>
     <script src="../js/api.js"></script>
     <script src="../js/couleurs.js"></script>
     <script type="module" src="../js/auth.js"></script>

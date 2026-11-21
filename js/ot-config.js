@@ -147,6 +147,27 @@
         });
       } catch (e) { checkpoints = null; }   // passerelle ancienne : onglet garde
 
+      // Trajectoires (21/11) : source -> dumping area + checkpoints ORDONNES (lignes de passage en UTM).
+      // Serveur_SG les tire par sync_ref : ses missions suivent donc ce qui est defini dans Senor.
+      let trajectoires;
+      try {
+        const rt2 = await fetch(base + '/api/trajectoires');
+        if (rt2.ok) {
+          const dtj = await rt2.json();
+          const cps = {};
+          ((await (await fetch(base + '/api/checkpoints')).json()).checkpoints || []).forEach(function (c) { cps[c.id] = c; });
+          trajectoires = (dtj.trajectoires || []).map(function (t) {
+            return {
+              source: t.source, dumping_area: t.dumping_area,
+              checkpoints: t.checkpoints.map(function (c) {
+                const full = cps[c.id] || {};
+                return { nom: c.nom, points: [[full.x1, full.y1], [full.x2, full.y2]] };
+              }),
+            };
+          });
+        }
+      } catch (e) { trajectoires = undefined; }   // passerelle ancienne : trajectoires de OT conservees
+
       const sources = brutes.map(function (s) { return { nom: s.nom }; });
       const teneurs = [];
       for (const s of brutes) {
@@ -175,7 +196,7 @@
 
       return OTCFG.appelOt('POST', 'dig_referentiel', null, {
         sources: sources, teneurs: teneurs, dumping_areas: dumpingAreas,
-        geo: geo, checkpoints: checkpoints || undefined,
+        geo: geo, checkpoints: checkpoints || undefined, trajectoires: trajectoires,
       });
     },
 
