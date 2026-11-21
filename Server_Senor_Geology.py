@@ -390,6 +390,19 @@ CREATE TABLE IF NOT EXISTS tablettes (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_tablettes_dt ON tablettes(dt_code) WHERE dt_code <> '';
 
+-- 21/11 : RECEPTEURS GNSS (console, Settings > GNSS). Identifie par la puce (UBX-SEC-UNIQID), recoit un ID
+-- GNSS-NN, est configure selon le profil GNSS du site, puis affecte a UNE tablette (donc a un engin).
+CREATE TABLE IF NOT EXISTS gnss (
+    chip TEXT PRIMARY KEY,             -- identifiant unique de la puce (hex)
+    id TEXT NOT NULL UNIQUE,           -- GNSS-01 : l'etiquette physique du recepteur
+    modele TEXT DEFAULT '',
+    configure_le TEXT DEFAULT '',      -- derniere configuration verifiee sur le recepteur
+    config_sig TEXT DEFAULT '',        -- profil applique (vitesse|frequence|trames)
+    tablette TEXT DEFAULT '',          -- numero de serie de la tablette qui le porte
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_gnss_tablette ON gnss(tablette) WHERE tablette <> '';
+
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nom TEXT NOT NULL,              -- source miniere : Main Pit, Second Pit...
@@ -6658,6 +6671,133 @@ def tablette_reinitialiser(serie, adresse_adb, profil="dt"):
     return {"ok": code == 0, "erreur": err}
 
 
+# ------------------------------------------------------------------ GNSS (recepteurs) ---
+# Un recepteur = une puce reconnue (lue par le navigateur, Web Serial) -> un ID GNSS-NN -> une configuration
+# commune (profil du site, reglable) -> UNE tablette. La configuration materielle (UBX) est faite par le
+# navigateur branche sur le recepteur ; la passerelle garde l'inventaire, le profil et l'affectation.
+GNSS_BAUDS = (9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600)
+GNSS_TRAMES = ("GGA", "RMC", "VTG", "GSA", "GSV", "GLL")
+_RE_PUCE = re.compile(r"^[0-9A-F]{8,16}$")
+
+
+def gnss_profil():
+    """Profil de configuration des recepteurs du site (reglages GNSS_BAUD, GNSS_HZ, GNSS_TRAMES)."""
+    try:
+        baud = int(param_lire("GNSS_BAUD", "115200"))
+    except ValueError:
+        baud = 115200
+    try:
+        hz = int(param_lire("GNSS_HZ", "1"))
+    except ValueError:
+        hz = 1
+    trames = [t for t in re.split(r"[,; ]+", param_lire("GNSS_TRAMES", "GGA,RMC,VTG").upper()) if t in GNSS_TRAMES]
+    return {"baud": baud if baud in GNSS_BAUDS else 115200, "hz": min(10, max(1, hz)),
+            "trames": trames or ["GGA", "RMC"]}
+
+
+def gnss_signature(profil):
+    return "%d|%d|%s" % (profil["baud"], profil["hz"], ",".join(sorted(profil["trames"])))
+
+
+def gnss_profil_ecrire(conn, d):
+    try:
+        baud, hz = int(d.get("baud")), int(d.get("hz"))
+    except (TypeError, ValueError):
+        return 400, {"error": "vitesse et frequence : des nombres"}
+    trames = [t for t in (d.get("trames") or []) if t in GNSS_TRAMES]
+    if baud not in GNSS_BAUDS:
+        return 400, {"error": "vitesse non prise en charge : %s" % baud}
+    if not 1 <= hz <= 10:
+        return 400, {"error": "frequence entre 1 et 10 Hz"}
+    if "GGA" not in trames:
+        return 400, {"error": "la trame GGA est indispensable (position et qualite du fix)"}
+    param_ecrire(conn, "GNSS_BAUD", baud)
+    param_ecrire(conn, "GNSS_HZ", hz)
+    param_ecrire(conn, "GNSS_TRAMES", ",".join(trames))
+    return 200, {"ok": True, "profil": gnss_profil()}
+
+
+def gnss_enregistrer(conn, chip, modele=""):
+    """Reconnait la puce ; si elle est nouvelle, lui attribue le premier ID GNSS-NN libre."""
+    chip = str(chip or "").strip().upper()
+    if not _RE_PUCE.match(chip):
+        return 400, {"error": "identifiant de puce invalide"}
+    existant = conn.execute("SELECT id FROM gnss WHERE chip=?", (chip,)).fetchone()
+    if existant:
+        if modele:
+            conn.execute("UPDATE gnss SET modele=? WHERE chip=?", (str(modele)[:60], chip))
+            conn.commit()
+        return 200, {"ok": True, "chip": chip, "id": existant["id"], "nouveau": False}
+    pris = {r["id"] for r in conn.execute("SELECT id FROM gnss")}
+    n = 1
+    while "GNSS-%02d" % n in pris:
+        n += 1
+    ident = "GNSS-%02d" % n
+    conn.execute("INSERT INTO gnss (chip, id, modele) VALUES (?, ?, ?)", (chip, ident, str(modele or "")[:60]))
+    conn.commit()
+    return 200, {"ok": True, "chip": chip, "id": ident, "nouveau": True}
+
+
+def gnss_affecter(conn, chip, tablette):
+    """Affecte le recepteur a une tablette (vide = dissocier). Une tablette porte UN recepteur ; le Spotter n'en a pas."""
+    chip = str(chip or "").strip().upper()
+    tablette = str(tablette or "").strip()
+    g = conn.execute("SELECT id FROM gnss WHERE chip=?", (chip,)).fetchone()
+    if not g:
+        return 404, {"error": "recepteur inconnu"}
+    if tablette:
+        t = conn.execute("SELECT serial, nom, profil FROM tablettes WHERE serial=?", (tablette,)).fetchone()
+        if not t:
+            return 404, {"error": "tablette inconnue (detectez-la d'abord dans l'onglet Tablettes)"}
+        if t["profil"] == "spotter":
+            return 409, {"error": "le Spotter n'a pas de recepteur GNSS"}
+        autre = conn.execute("SELECT id FROM gnss WHERE tablette=? AND chip<>?", (tablette, chip)).fetchone()
+        if autre:
+            return 409, {"error": "cette tablette porte deja %s" % autre["id"]}
+    conn.execute("UPDATE gnss SET tablette=? WHERE chip=?", (tablette, chip))
+    conn.commit()
+    return 200, {"ok": True, "id": g["id"], "tablette": tablette}
+
+
+def gnss_configure_note(conn, chip):
+    """Memorise qu'un recepteur a ete configure ET verifie avec le profil actuel."""
+    chip = str(chip or "").strip().upper()
+    if not conn.execute("SELECT 1 FROM gnss WHERE chip=?", (chip,)).fetchone():
+        return 404, {"error": "recepteur inconnu"}
+    conn.execute("UPDATE gnss SET configure_le=datetime('now','localtime'), config_sig=? WHERE chip=?",
+                 (gnss_signature(gnss_profil()), chip))
+    conn.commit()
+    return 200, {"ok": True}
+
+
+def gnss_supprimer(conn, chip):
+    conn.execute("DELETE FROM gnss WHERE chip=?", (str(chip or "").strip().upper(),))
+    conn.commit()
+    return 200, {"ok": True}
+
+
+def gnss_lister(conn):
+    profil = gnss_profil()
+    sig = gnss_signature(profil)
+    tabs = {r["serial"]: dict(r) for r in conn.execute("SELECT serial, nom, profil, ident, famille FROM tablettes")}
+    liste = []
+    for r in conn.execute("SELECT * FROM gnss ORDER BY id"):
+        t = tabs.get(r["tablette"]) if r["tablette"] else None
+        engin = ""
+        if t:
+            engin = t["ident"] if t["profil"] in ("dt", "exc") and t["ident"] else ("Mesure" if t["profil"] == "link" else "")
+        liste.append({"chip": r["chip"], "id": r["id"], "modele": r["modele"], "configure_le": r["configure_le"],
+                      "a_jour": bool(r["configure_le"]) and r["config_sig"] == sig,
+                      "tablette": r["tablette"], "tablette_nom": (t or {}).get("nom", ""),
+                      "profil_tablette": (t or {}).get("profil", ""), "engin": engin,
+                      "famille": (t or {}).get("famille", "")})
+    portees = {g["tablette"] for g in liste if g["tablette"]}
+    tablettes = [{"serial": k, "nom": v["nom"], "profil": v["profil"], "engin": v["ident"], "famille": v["famille"],
+                  "libre": k not in portees}
+                 for k, v in tabs.items() if v["profil"] != "spotter"]
+    return {"gnss": liste, "tablettes": tablettes, "profil": profil, "bauds": list(GNSS_BAUDS), "trames": list(GNSS_TRAMES)}
+
+
 # ------------------------------------------------ authentification des ecritures ---
 # 20/11 : la passerelle n'avait AUCUNE authentification : toute machine du reseau pouvait
 # changer les reglages (sortie de route, liaisons, MQTT...). Les LECTURES restent ouvertes
@@ -6669,7 +6809,7 @@ def tablette_reinitialiser(serie, adresse_adb, profil="dt"):
 # AUTH_ECRITURES=0 coupe le controle (depannage).
 RANG_ROLE = {"geologue": 1, "senor": 2, "admin": 3}
 # Prefixes d'ecritures : le plus restrictif d'abord. Ecriture inconnue = admin (refus par defaut).
-ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
+ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
                    "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
@@ -6835,6 +6975,31 @@ class Handler(BaseHTTPRequestHandler):
                     bool(body.get("autoriser_test")), bool(body.get("reinstaller")))).start()
                 return self._send_json(202, {"job": job})
             return self._send_json(404, {"error": "endpoint inconnu: /api/tablettes/" + sous})
+        finally:
+            conn.close()
+
+    def _route_gnss(self, path, method):
+        sous = path[len("/api/gnss"):].strip("/")
+        conn = get_conn()
+        try:
+            if method == "GET" and sous == "":
+                return self._send_json(200, gnss_lister(conn))
+            if method != "POST":
+                return self._send_json(405, {"error": "methode non supportee"})
+            body = json.loads(self._read_body() or b"{}")
+            if sous == "enregistrer":
+                code, rep_ = gnss_enregistrer(conn, body.get("chip"), body.get("modele"))
+            elif sous == "affecter":
+                code, rep_ = gnss_affecter(conn, body.get("chip"), body.get("tablette"))
+            elif sous == "configure":
+                code, rep_ = gnss_configure_note(conn, body.get("chip"))
+            elif sous == "supprimer":
+                code, rep_ = gnss_supprimer(conn, body.get("chip"))
+            elif sous == "profil":
+                code, rep_ = gnss_profil_ecrire(conn, body)
+            else:
+                return self._send_json(404, {"error": "endpoint inconnu: /api/gnss/" + sous})
+            return self._send_json(code, rep_)
         finally:
             conn.close()
 
@@ -7074,6 +7239,8 @@ class Handler(BaseHTTPRequestHandler):
         # Tablettes (adb) : detection, Wi-Fi, affectation, installation. Hors verrou : adb prend plusieurs secondes.
         if path.startswith("/api/tablettes"):
             return self._route_tablettes(path, method)
+        if path.startswith("/api/gnss"):
+            return self._route_gnss(path, method)
         # Test des liaisons sortantes : appels au cloud, donc HORS verrou.
         if path == "/api/relais/tester" and method == "POST":
             return self._send_json(200, relais_tester())

@@ -88,7 +88,7 @@
                         <button class="onglet actif" data-onglet="connexion">Connexion</button>
                         <button class="onglet" data-onglet="flotte">Flotte</button>
                         <button class="onglet" data-onglet="tablettes">Tablettes</button>
-                        <button class="onglet" data-onglet="terrain">Terrain</button>
+                        <button class="onglet" data-onglet="gnss">GNSS</button>
                     </div>
 
                     <!-- ===== ONGLET CONNEXION : maquette « Paramètres » (menu de sections + cartes numérotées) ===== -->
@@ -529,6 +529,22 @@
                                 <div class="account-status" id="excavatorStatus"></div>
                             </section>
                         </div>
+                        <div class="pm-codes-teneur">
+                                <!-- Codes de teneur : classement des voyages (Inbox, KPI du Dashboard) -->
+                                <details class="pm-facteurs" id="codesTeneurBox">
+                                    <summary>Codes de teneur (classement des voyages)</summary>
+                                    <form id="codesTeneurForm">
+                                        <label class="pm-champ"><span class="lbl">High Grade</span><input type="text" data-grade="high" placeholder="HG, SHG" /><input type="color" data-couleur="high" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Medium Grade</span><input type="text" data-grade="medium" placeholder="MG, MG1" /><input type="color" data-couleur="medium" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Low Grade</span><input type="text" data-grade="low" placeholder="LG, LG1" /><input type="color" data-couleur="low" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Marginal Ore</span><input type="text" data-grade="marginal" placeholder="MO" /><input type="color" data-couleur="marginal" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
+                                        <label class="pm-champ"><span class="lbl">Stérile (Waste)</span><input type="text" id="codesSteriles" placeholder="WST, WASTE, ST, STERILE" /><input type="color" data-couleur="waste" class="pm-couleur" title="Couleur du stérile (toutes les pages)" /></label>
+                                        <button type="submit" class="pm-btn-sombre">Enregistrer sur la passerelle</button>
+                                    </form>
+                                    <div class="account-status" id="codesTeneurStatus"></div>
+                                    <p class="pm-aide">Le code de teneur est le 4<sup>e</sup> segment du nom du bloc (260_LMP2_113_<b>MG</b>_FR_021_OP). Plusieurs codes : séparés par des virgules. La liste « Stérile » sert partout : affectation des dumping areas, import Geosum (en plus de la destination W), Inbox et KPI. Chaque grade a sa couleur, reprise par Dig Plan, Senor, Inbox et le Dashboard (une famille peut avoir la sienne dans Senor). Prise en compte sans redémarrage ; un nouvel import Geosum est nécessaire pour reclasser les blocs déjà importés.</p>
+                                </details>
+                        </div>
                     </div><!-- /onglet flotte -->
 
                     <!-- ===== ONGLET TABLETTES : detection auto (adb), affectation DT, installation ===== -->
@@ -557,43 +573,39 @@
                         </div>
                     </div><!-- /onglet tablettes -->
 
-                    <!-- ===== ONGLET TERRAIN : tablette, GNSS, radio, affectation (maquette « Paramètres › Terrain ») ===== -->
-                    <div class="onglet-pane pm-terrain" data-onglet="terrain" hidden>
-                        <div class="pm-flotte-cols">
+                    <!-- ===== ONGLET GNSS : identification, configuration, affectation a une tablette ===== -->
+                    <div class="onglet-pane pm-gnss" data-onglet="gnss" hidden>
+                        <h2 class="pm-titre-onglet">GNSS</h2>
+                        <p class="pm-sous" id="gnssCompteur">Chargement…</p>
 
-                            <!-- Colonne gauche : materiel du terrain -->
-                            <section class="pm-col" aria-labelledby="titreTablette">
-                                <h2 id="titreTablette">Tablette &amp; GNSS</h2>
-
-                                <!-- Cette tablette : detection auto (locale) ou saisie manuelle -->
-                                <div class="pm-bloc equip-list" id="thisDevicePanel">
-                                    <span class="lbl">Tablette locale</span>
-                                    <div id="thisDeviceBanner"></div>
-                                    <div id="deviceInfoBox"></div>
-                                    <form class="pm-bloc-action" id="deviceDetectForm">
-                                        <button type="submit" class="pm-btn-bloc" title="Detection automatique de cette tablette (appareil local)">Détecter la tablette</button>
-                                    </form>
-                                    <details class="pm-manuel">
-                                        <summary>Saisie manuelle</summary>
-                                        <form class="pm-ajout-ligne" id="tabletAddForm">
-                                            <input type="text" id="newTabletId" placeholder="ID (TAB-001)" required />
-                                            <button type="submit" class="pm-btn-sombre" title="Ajouter une tablette">+ Ajouter</button>
-                                        </form>
-                                    </details>
-                                    <div class="account-status" id="tabletStatus"></div>
+                        <div class="pm-gnss-cartes">
+                            <section class="pm-gnss-carte">
+                                <span class="lbl">Récepteur branché sur ce poste</span>
+                                <div class="pm-gnss-recepteur" id="gnssRecepteur"><em>Aucun récepteur branché sur ce poste</em></div>
+                                <div class="pm-gnss-boutons">
+                                    <button type="button" class="pm-btn-sombre" id="gnssDetecter">Détecter</button>
+                                    <button type="button" class="pm-btn-sombre" id="gnssConfigurer" disabled>Configurer</button>
+                                    <button type="button" class="pm-lien" id="gnssFermer" hidden>Déconnecter</button>
                                 </div>
-
-                                <!-- GNSS : detection auto par cable (Web Serial) -->
-                                <div class="pm-bloc equip-list" id="gnssPairPanel">
-                                    <span class="lbl">GNSS par câble</span>
-                                    <form class="pm-bloc-action" id="wizardForm">
-                                        <button type="submit" class="pm-btn-bloc" id="btnUnlockGnss" title="Detecter un GNSS via le cable (Web Serial)">Détecter un GNSS (câble)</button>
-                                    </form>
-                                    <div class="account-status" id="wizardStatus"></div>
-                                    <div class="gnss-bind-result" id="gnssBindResult"></div>
+                            </section>
+                            <form class="pm-gnss-carte" id="gnssProfilForm">
+                                <span class="lbl">Profil de configuration</span>
+                                <div class="pm-gnss-champs">
+                                    <label class="pm-champ"><span class="lbl">Vitesse</span><select id="gnssBaud"></select></label>
+                                    <label class="pm-champ"><span class="lbl">Fréquence</span><select id="gnssHz"></select></label>
                                 </div>
+                                <div class="pm-gnss-trames" id="gnssTrames"></div>
+                                <div class="pm-gnss-boutons"><button type="submit" class="pm-btn-sombre">Enregistrer le profil</button></div>
+                            </form>
+                        </div>
+                        <div class="account-status" id="gnssStatus"></div>
 
-                                <!-- Radio XBee : montee des positions GNSS vers le serveur central -->
+                        <div class="pm-table pm-table-gnss">
+                            <div class="pm-thead"><span>Récepteur</span><span>Configuration</span><span>Tablette</span><span>Engin</span><span class="pm-droite">Actions</span></div>
+                            <div id="gnssListe"><div class="pm-vide">Chargement…</div></div>
+                        </div>
+
+                        <!-- Radio XBee : montee des positions GNSS vers le serveur central -->
                                 <div class="pm-bloc equip-list" id="xbeePanel">
                                     <span class="lbl">Radio XBee</span>
                                     <p class="pm-bloc-texte">Clé HMAC : empreinte enregistrée, jamais en clair.</p>
@@ -607,59 +619,7 @@
                                     </form>
                                     <div class="account-status" id="xbeeCleStatus"></div>
                                 </div>
-                            </section>
-
-                            <!-- Colonne droite : affectation engin <-> GNSS <-> tablette -->
-                            <section class="pm-col" aria-labelledby="titreAffectation">
-                                <h2 id="titreAffectation">Affectation unifiée</h2>
-
-                                <div class="pm-bloc equip-list" id="tabEquipPanel">
-                                    <span class="lbl">Engin affecté à cette tablette</span>
-                                    <div id="tabEquipContainer"><div class="pm-vide">Chargement…</div></div>
-                                    <form class="pm-ajout-ligne" id="tabEquipAddForm">
-                                        <select id="tabEquipSelect" required>
-                                            <option value="">Choisir un engin...</option>
-                                        </select>
-                                        <button type="submit" class="pm-btn-sombre" title="Affecter">Mettre à jour l'affectation</button>
-                                    </form>
-                                    <p class="pm-aide">L'engin, le récepteur et la tablette sont liés dans la même vue.</p>
-                                    <div class="account-status" id="tabEquipStatus"></div>
-                                </div>
-
-                                <h3 class="pm-sous-titre">Flotte · matériel affecté</h3>
-                                <div class="pm-table pm-table-terrain equip-list" id="fleetPanel">
-                                    <div class="pm-thead"><span>Tablette</span><span>GNSS</span><span>Engin</span><span class="pm-droite">Actions</span></div>
-                                    <div id="fleetContainer"><div class="pm-vide">Chargement…</div></div>
-                                </div>
-
-                                <!-- Catalogue GNSS : recepteurs enregistres (ajout manuel possible) -->
-                                <details class="pm-catalogue" id="gnssCatalogue">
-                                    <summary><span id="cptGnss">Catalogue GNSS</span><span class="pm-catalogue-ajout">+ Ajouter manuellement un GNSS</span></summary>
-                                    <form class="pm-ajout-ligne" id="gnssAddForm">
-                                        <input type="text" id="newGnssId" placeholder="ID GNSS (GNSS-04)" required />
-                                        <button type="submit" class="pm-btn-sombre" title="Enregistrer le GNSS au catalogue">+ Enregistrer</button>
-                                    </form>
-                                    <div class="account-status" id="gnssAddStatus"></div>
-                                    <div id="gnssRegistryContainer"><div class="pm-vide">Chargement…</div></div>
-                                </details>
-
-                                <!-- Codes de teneur : classement des voyages (Inbox, KPI du Dashboard) -->
-                                <details class="pm-facteurs" id="codesTeneurBox">
-                                    <summary>Codes de teneur (classement des voyages)</summary>
-                                    <form id="codesTeneurForm">
-                                        <label class="pm-champ"><span class="lbl">High Grade</span><input type="text" data-grade="high" placeholder="HG, SHG" /><input type="color" data-couleur="high" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
-                                        <label class="pm-champ"><span class="lbl">Medium Grade</span><input type="text" data-grade="medium" placeholder="MG, MG1" /><input type="color" data-couleur="medium" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
-                                        <label class="pm-champ"><span class="lbl">Low Grade</span><input type="text" data-grade="low" placeholder="LG, LG1" /><input type="color" data-couleur="low" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
-                                        <label class="pm-champ"><span class="lbl">Marginal Ore</span><input type="text" data-grade="marginal" placeholder="MO" /><input type="color" data-couleur="marginal" class="pm-couleur" title="Couleur du grade (toutes les pages)" /></label>
-                                        <label class="pm-champ"><span class="lbl">Stérile (Waste)</span><input type="text" id="codesSteriles" placeholder="WST, WASTE, ST, STERILE" /><input type="color" data-couleur="waste" class="pm-couleur" title="Couleur du stérile (toutes les pages)" /></label>
-                                        <button type="submit" class="pm-btn-sombre">Enregistrer sur la passerelle</button>
-                                    </form>
-                                    <div class="account-status" id="codesTeneurStatus"></div>
-                                    <p class="pm-aide">Le code de teneur est le 4<sup>e</sup> segment du nom du bloc (260_LMP2_113_<b>MG</b>_FR_021_OP). Plusieurs codes : séparés par des virgules. La liste « Stérile » sert partout : affectation des dumping areas, import Geosum (en plus de la destination W), Inbox et KPI. Chaque grade a sa couleur, reprise par Dig Plan, Senor, Inbox et le Dashboard (une famille peut avoir la sienne dans Senor). Prise en compte sans redémarrage ; un nouvel import Geosum est nécessaire pour reclasser les blocs déjà importés.</p>
-                                </details>
-                            </section>
-                        </div>
-                    </div><!-- /onglet terrain -->
+                    </div><!-- /onglet gnss -->
                 </section>
 
                 </main>
@@ -709,6 +669,7 @@
     <script src="../js/passerelle-relais.js"></script>
     <script src="../js/server-ui.js"></script>
     <script src="../js/tablettes.js"></script>
+    <script src="../js/gnss.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/xbee-serial.js"></script>
     <script src="../js/app.js"></script>
