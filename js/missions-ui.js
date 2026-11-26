@@ -126,7 +126,11 @@
   // rouge  : alerte haute non acquittee > seuil, ou DT ODT sans mission,
   //          ou passerelle muette (pas de donnees fraiches)
   // alertes d'information : rien a traiter (fin, arrivee, retours a la normale)
-  const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1 };
+  // 25/11 (calibrage) : la passerelle marque chaque alerte (champ `info`, ALERTES_INFO) ; cette liste identique
+  // ne sert que face a une passerelle plus ancienne. Toutes les pages comptent avec estInfo / aTraiter.
+  const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
+    demi_tour: 1, checkpoint_valide: 1, zone_approche: 1, blast_rejete: 1 };
+  const estInfo = (a) => !!(a && (a.info !== undefined ? Number(a.info) : TYPES_INFO[a.type]));
 
   // Rejet d'import Dig Plan : erreur de donnees, pas une urgence terrain.
   const TYPES_HORS_FILE = { blast_rejete: 1 };
@@ -145,7 +149,7 @@
   // Alerte a traiter MAINTENANT : non acquittee, ni info, ni rejet de blast, et du shift en cours
   // (les anciennes restent consultables dans Alerts).
   function aTraiter(a) {
-    if (!a || a.acquittee || TYPES_INFO[a.type] || TYPES_HORS_FILE[a.type]) return false;
+    if (!a || Number(a.acquittee) || estInfo(a) || TYPES_HORS_FILE[a.type]) return false;
     const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
     return !(t < debutShiftMs());
   }
@@ -191,6 +195,8 @@
     devoie: { lbl: 'Devie', cls: 'sev-high' },
     // abandonnee : le DT a recommence un cycle (Serveur_SG) ou la mission n'a jamais abouti
     abandonnee: { lbl: 'Abandonnee', cls: 'status-pending' },
+    // 26/11 : annulee chez Serveur_SG (tablette remise a zero, cycle perime) : statut garde tel quel
+    annulee: { lbl: 'Annulee', cls: 'status-pending' },
   };
   const CONFORMITE = {
     conforme: { lbl: 'Conforme', cls: 'status-done' },
@@ -204,7 +210,14 @@
     STATUT_MISSION, CONFORMITE,
     // alerte d'information (fin, arrivee, retour a la normale) : rien a traiter
     aTraiter,
-    estInfo: (a) => !!(a && TYPES_INFO[a.type]),
+    estInfo,
+    debutShiftMs,
+    // 26/11 (calibrage) : mission « en cours » depuis plus de 3 h = cycle jamais clos (tablette non revenue), comme
+    // « cycles jamais clos » du dashboard ; elle n'est plus comptee parmi les missions en cours.
+    missionActive: (m) => !!m && m.statut === 'en_cours' &&
+      !(Date.now() - new Date(String(m.debut || '').replace(' ', 'T')).getTime() > 3 * 3600000),
+    missionNonClose: (m) => !!m && m.statut === 'en_cours' &&
+      Date.now() - new Date(String(m.debut || '').replace(' ', 'T')).getTime() > 3 * 3600000,
     esc: (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   };

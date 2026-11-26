@@ -76,8 +76,16 @@
                         </div>
                         <div class="r-filter-field">
                             <label class="r-filter-label" for="fltType">Type d'événement</label>
+                            <select id="fltStatut" class="form-select-sm r-input" title="Off-route : sortie de route, déviation, checkpoint sauté · Wrong Dumping : mauvaise direction, zone ou checkpoint interdit, dumping non conforme">
+                                <option value="">Tous les statuts</option>
+                                <option value="wrong_dumping">Wrong Dumping</option>
+                                <option value="off_route">Off-route</option>
+                            </select>
                             <select id="fltType" class="form-select-sm r-input">
                                 <option value="">Tous les types</option>
+                                <option value="mauvaise_direction">Mauvaise direction</option>
+                                <option value="demi_tour">Demi-tour en cours</option>
+                                <option value="retour_direction">Retour bonne direction</option>
                                 <option value="deviation">Déviation</option>
                                 <option value="retour_trajet">Retour sur trajet</option>
                                 <option value="offroad">Sortie de route</option>
@@ -85,6 +93,10 @@
                                 <option value="non_conforme">Dumping non conforme</option>
                                 <option value="fin_mission">Fin de mission</option>
                                 <option value="checkpoint">Checkpoint sauté</option>
+                                <option value="checkpoint_interdit">Checkpoint interdit</option>
+                                <option value="zone_approche">Zone interdite proche</option>
+                                <option value="zone_interdite">Entrée en zone interdite</option>
+                                <option value="dumping_hors_zone">Dumping hors zone</option>
                                 <option value="blast_rejete">Blast refusé</option>
                             </select>
                         </div>
@@ -129,6 +141,7 @@
                                 <tr>
                                     <th>Heure</th>
                                     <th>Engin</th>
+                                    <th>Statut</th>
                                     <th>Type</th>
                                     <th>Description</th>
                                     <th>Vue</th>
@@ -143,6 +156,28 @@
                             <span id="alertsFootLeft">--</span>
                             <span class="r-tablefoot-right" id="alertsFootSeuil">Seuil d'alerte rouge : 10 minutes · configurable dans Settings</span>
                         </div>
+                    </div>
+
+                    <!-- RAPPORTS (23/11) : dumping par mission + sorties de route, memes filtres (engin, periode) -->
+                    <h2 class="r-listtitle">Dumping report <small class="muted" id="rapDumpInfo"></small>
+                        <button type="button" class="r-btn-dark team-btn" id="btnRapDumpCsv" style="float:right">Exporter CSV</button></h2>
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr><th>Début</th><th>Engin</th><th>Matière</th><th>Zone prévue</th><th>Verdict</th><th>Zone du dumping</th><th>Demi-tours</th></tr>
+                            </thead>
+                            <tbody id="rapDumpBody"><tr><td colspan="7" class="muted">Chargement...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <h2 class="r-listtitle">Off-road report <small class="muted" id="rapOffInfo"></small>
+                        <button type="button" class="r-btn-dark team-btn" id="btnRapOffCsv" style="float:right">Exporter CSV</button></h2>
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr><th>Sortie</th><th>Engin</th><th>Distance</th><th>Retour sur piste</th><th>Durée hors piste</th></tr>
+                            </thead>
+                            <tbody id="rapOffBody"><tr><td colspan="5" class="muted">Chargement...</td></tr></tbody>
+                        </table>
                     </div>
                 </section>
 
@@ -190,6 +225,7 @@
     <script src="../js/server-ui.js"></script>
     <script src="../js/missions-ui.js"></script>
     <script src="../js/alerts.js"></script>
+    <script src="../js/rapports.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
 </body>

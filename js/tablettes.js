@@ -124,6 +124,7 @@
               '<button type="button" class="pm-lien danger" data-tab-jeton="revoquer" data-code="' + esc(t.ident) + '" title="Coupe l\'accès de cette tablette immédiatement">Révoquer</button>' : '') +
             ((t.profil === 'dt' || t.profil === 'exc') && t.ident ? '<button type="button" class="pm-lien" data-tab-cle-radio="' + esc(t.ident) + '" title="Nouvelle clé de signature des positions envoyées par radio ; l\'ancienne reste valable 7 jours">Renouveler la clé radio</button>' : '') +
             (t.connectee && t.app_installee && (t.profil === 'dt' || t.profil === 'exc') && !manque ? '<button type="button" class="pm-lien" data-tab-parametres="' + esc(t.serie) + '" title="Renvoie le DT et la connexion (serveurs, MQTT) à la tablette, sans réinstaller">Envoyer les paramètres</button>' : '') +
+            (!t.connectee ? '<button type="button" class="pm-lien danger" data-tab-oublier="' + esc(t.serie) + '" title="Supprime cette tablette de la mémoire de la console (elle réapparaît si elle est de nouveau détectée)"><i class="fas fa-trash"></i> Supprimer</button>' : '') +
             (t.connectee && t.app_installee && t.profil !== 'link' && t.profil !== 'spotter' ? '<button type="button" class="pm-lien danger" data-tab-reinit="' + esc(t.serie) + '" title="Supprime l\'identité écrite sur la tablette">Réinitialiser</button>' : '') +
           '</span>' +
         '</div>' + etapes + '</div>';
@@ -280,6 +281,20 @@
           const d = await appel('/api/tablettes/parametres', 'POST', { serie: pa.dataset.tabParametres, adresse_adb: t && t.adresse_adb });
           statut('Paramètres envoyés' + (d.connexion && d.connexion.length ? ' (' + d.connexion.map((x) => ({ serveur1: 'serveur n°1', serveur2: 'serveur n°2', mqtt: 'MQTT' }[x] || x)).join(', ') + ')' : '') + ' : l\'app les reprend d\'elle-même.', true);
         } catch (err) { statut(err.message, false); }
+        return;
+      }
+      const ou = e.target.closest('[data-tab-oublier]');
+      if (ou) {
+        const t = etat.tablettes.find((x) => x.serie === ou.dataset.tabOublier) || {};
+        const nom = (t.modele || 'Tablette') + (t.ident ? ' · ' + t.ident : '');
+        if (window.Splash && Splash.confirmer && !await Splash.confirmer('Supprimer ' + nom + ' ?', {
+          titre: 'Supprimer la tablette', danger: true, libelleOk: 'Supprimer',
+          details: 'Elle est oubliée par la console, avec son profil et son identité. L’app installée sur la tablette n’est pas touchée.' })) return;
+        try {
+          await appel('/api/tablettes/supprimer', 'POST', { serie: ou.dataset.tabOublier });
+          statut(nom + ' supprimée de la mémoire.', true);
+        } catch (err) { statut(err.message, false); }
+        rafraichir(true);
         return;
       }
       const ri = e.target.closest('[data-tab-reinit]');

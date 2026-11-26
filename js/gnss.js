@@ -424,7 +424,7 @@
     });
     $('#radioTestEnvoyer').addEventListener('click', async () => {
       try {
-        const r = await appel('/api/radio/emettre', 'POST', { pelle: $('#radioTestPelle').value.trim(), dt: $('#radioTestDt').value.trim(), mode: $('#radioTestMode').value });
+        const r = await appel('/api/radio/emettre', 'POST', { pelle: $('#radioTestPelle').value.trim(), dt: $('#radioTestDt').value.trim(), mode: $('#radioTestMode').value, type: $('#radioTestType').value });
         statut('Trame envoyée par la radio du PC (' + $('#radioTestMode').selectedOptions[0].textContent + ').', true);
       } catch (err) { statut(err.message, false); }
     });

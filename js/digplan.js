@@ -558,6 +558,7 @@
       '</small></button>').join('');
   }
 
+
   // reinitialise les champs fichier a partir du blast courant (nom deja enregistre,
   // pas de contenu puisqu'on ne retelecharge pas le fichier depuis le serveur) ou vide.
   function rendreChampsFichier(b) {
@@ -610,9 +611,12 @@
         return { grave: true, texte: 'AUCUN bloc du DXF ne correspond au ' + fichier + ' : les noms diffèrent, les valeurs restent à 0. ' +
           'Noms du DXF : ' + exemples(rapport.sans_donnees || []) + ' — noms du ' + fichier + ' : ' + exemples(rapport.absents_du_dxf || []) + '.' };
       }
-      if ((rapport.sans_donnees || []).length) {
-        return { grave: false, texte: rapport.sans_donnees.length + ' bloc(s) du DXF sans donnée dans le ' + fichier + ' (classés stérile) : ' +
-          exemples(rapport.sans_donnees) + '.' };
+      // 26/11 : le Geosum ne liste que le MINERAI ; un bloc deja sterile par son nom (_WST_) y est absent par nature
+      // (ses valeurs viennent du fichier de base) : pas d'avertissement pour lui
+      const manquants = (rapport.sans_donnees || []).filter((n) => !(fichier === 'Geosum' && /_WST_/i.test(String(n))));
+      if (manquants.length) {
+        return { grave: false, texte: manquants.length + ' bloc(s) du DXF sans donnée dans le ' + fichier + ' (classés stérile) : ' +
+          exemples(manquants) + '.' };
       }
       return null;
     };

@@ -30,11 +30,13 @@
         attente_loin: { lib: 'Attente loin des pelles',    court: 'Attente loin', couleur: '#B7B3A3' },
         arret:        { lib: "A l'arrêt (> 2 min)",        court: "A l'arrêt",   couleur: '#8E9FB0' },
         hors_piste:   { lib: 'Hors piste',                 court: 'Hors piste',   couleur: '#E5482F' },
+        // 25/11 : tablette connectee (MQTT) mais sans position recente (GNSS sans fix, module debranche)
+        sans_position: { lib: 'En ligne, sans position',   court: 'Sans position', couleur: '#9A7FD1' },
         signal_perdu: { lib: 'Signal perdu (> 2 min)',     court: 'Signal perdu', couleur: '#6E6C66' },
         minage:       { lib: 'Excavatrice en minage',      court: 'Minage',       couleur: '#FCD525' },
         attente:      { lib: 'Excavatrice en attente',     court: 'Attente',      couleur: '#B7B3A3' },
     };
-    const ETATS_DT = ['chargement', 'mission', 'roulage', 'arret', 'attente_loin', 'hors_piste', 'signal_perdu'];
+    const ETATS_DT = ['chargement', 'mission', 'roulage', 'arret', 'attente_loin', 'hors_piste', 'sans_position', 'signal_perdu'];
     /** Flux d'un DT d'apres la teneur de sa mission : « waste » (sterile) ou « minerai »
      *  (HG / MG / LG / MO) ; '' = pas de mission (rien charge, donc ni l'un ni l'autre). */
     const fluxDe = (e) => e.type !== 'DT' ? '' : (e.teneur === 'waste' ? 'waste' : (e.teneur ? 'minerai' : ''));
@@ -47,7 +49,9 @@
         type: 'tous', flux: 'tous', statut: 'tous', zone: 'toutes', shift: 'encours', date: '',
         teneurs: { high: true, medium: true, low: true, marginal: true },
     };
-    const DIFFUSION_DEFAUT = { trajets: true, animations: true, mode: 'etendu', ecran: 'auto' };
+    // 26/11 : dtVides = afficher les DT sans chargement (sans mission). La regle metier ne suit un DT que charge ;
+    // l'option (Live > Diffusion) decide si les DT vides restent visibles sur la carte.
+    const DIFFUSION_DEFAUT = { trajets: true, animations: true, mode: 'etendu', ecran: 'auto', dtVides: true };
     const RAYON_ZONE_M = 400;          // un engin « est dans » une zone a moins de 400 m de son point
 
     function lireJSON(cle, defaut) {
@@ -78,7 +82,9 @@
         let base = f.date ? new Date(f.date + 'T00:00:00') : new Date(jourProd);
         base.setHours(0, 0, 0, 0);
         if (shift === 'encours') {
-            base = new Date(jourProd);
+            // 26/11 : une date choisie n'est plus ignoree (« Shift en cours » + hier = le meme shift, hier) ; sans date,
+            // le shift en cours d'aujourd'hui
+            if (!f.date) base = new Date(jourProd);
             const h = maintenant.getHours();
             shift = h >= 6 && h < 18 ? 'jour' : 'nuit';
         }
@@ -103,7 +109,10 @@
     function correspond(e, f, zones) {
         if (f.type !== 'tous' && e.type !== f.type) return false;
         if (f.statut !== 'tous' && e.etat !== f.statut) return false;
-        if (f.flux && f.flux !== 'tous' && e.type === 'DT' && fluxDe(e) !== f.flux) return false;   // Minerai / Waste
+        // 25/11 : « Tous » = les engins actifs ; les DT en signal perdu ne s'affichent qu'avec leur propre filtre
+        if (f.statut === 'tous' && e.etat === 'signal_perdu') return false;
+        // Minerai / Waste / 25/11 : « vide » = DT sans mission en cours (rien de charge)
+        if (f.flux && f.flux !== 'tous' && e.type === 'DT' && (fluxDe(e) || 'vide') !== f.flux) return false;
         if (e.type === 'DT' && e.teneur && f.teneurs && f.teneurs[e.teneur] === false) return false;
         if (f.zone && f.zone !== 'toutes') {
             const z = (zones || []).find((x) => x.name === f.zone);
@@ -117,7 +126,7 @@
     function filtresActifs(f) {
         const n = [];
         if (f.type !== 'tous') n.push(f.type === 'DT' ? 'DT' : 'Excavatrices');
-        if (f.flux && f.flux !== 'tous') n.push(f.flux === 'waste' ? 'Waste' : 'Minerai');
+        if (f.flux && f.flux !== 'tous') n.push(f.flux === 'waste' ? 'Waste' : f.flux === 'vide' ? 'DT vide' : 'Minerai');
         if (f.statut !== 'tous') n.push((ETATS[f.statut] || {}).court || f.statut);
         if (f.zone && f.zone !== 'toutes') n.push(f.zone);
         const off = Object.keys(TENEURS).filter((k) => f.teneurs && f.teneurs[k] === false);
@@ -326,6 +335,7 @@
         if (e.type !== 'DT') return e.code;
         if (e.etat === 'hors_piste') return e.code + ' · ' + e.offroad_distance + ' m hors piste';
         if (e.etat === 'signal_perdu') return e.code + ' · signal perdu';
+        if (e.etat === 'sans_position') return e.code + ' · en ligne, sans position';
         return e.code + (e.canal === 'radio' ? ' · radio' : '') + (e.vitesse_kmh >= 3 ? ' · ' + Math.round(e.vitesse_kmh) + ' km/h' : '');
     }
 
@@ -339,6 +349,9 @@
         const marqueurs = {};               // code -> L.marker
         const coucheTrajets = L.layerGroup().addTo(map);
         let filtres = lireFiltres();
+        // 26/11 : DT vides (sans mission) masques si l'option Diffusion « DT vides » est decochee
+        let masquerVides = lireDiffusion().dtVides === false;
+        const estVide = (e) => e.type === 'DT' && !e.mission;
         let zoneCentree = 'toutes';         // derniere zone sur laquelle la carte a zoome
         let dernier = null;                 // derniere reponse /api/suivi_dt
         let choisi = null;                  // code suivi par la camera
@@ -367,6 +380,7 @@
             dernier.engins.forEach((e) => {
                 if (e.type === 'DT') { dt++; compte[e.etat] = (compte[e.etat] || 0) + 1; }
                 if (!correspond(e, filtres, carte.zones)) return;
+                if (masquerVides && estVide(e)) return;
                 if (e.type === 'DT') dtVisibles++;
                 visibles.add(e.code);
                 const cle = e.etat + '|' + (e.cap_deg || '') + '|' + (e.vitesse_kmh >= 3) + '|' + (choisi === e.code);
@@ -399,7 +413,9 @@
                 if (!visibles.has(code)) { map.removeLayer(marqueurs[code]); delete marqueurs[code]; }
             });
             dessinerTrajets(visibles);
+            // 25/11 (calibrage) : flotte = DT du referentiel (comptes MQTT, 18) ; « total » = DT deja positionnes
             if (opts.onMaj) opts.onMaj({ total: dt, affiches: dtVisibles, compte, engins: dernier.engins.length,
+                                         flotte: Number(dernier.flotte_dt) || dt,
                                          visibles: Array.from(visibles), filtres, periode: periode(filtres) });
             if (choisi && opts.onChoix) {
                 const f = dernier.engins.find((e) => e.code === choisi);
@@ -463,9 +479,12 @@
         // reglages venus de Live (autre onglet) : appliques en direct
         function surStockage(ev) {
             if (ev.key === LS_FILTRES) appliquerFiltres(lireFiltres());
-            if (ev.key === LS_DIFFUSION && opts.suivreDiffusion) {
+            if (ev.key === LS_DIFFUSION) {
                 const d = lireDiffusion();
-                reglages({ trajets: d.trajets, animations: d.animations });
+                masquerVides = d.dtVides === false;     // Live et salle de controle : meme option
+                // 26/11 : un seul reglage « Trajets » (barre de la carte Live + onglet Diffusion) : pistes ET trajets DT
+                carte.afficher({ pistes: d.trajets !== false });
+                reglages({ trajets: d.trajets !== false, animations: d.animations });
             }
         }
         global.addEventListener('storage', surStockage);
@@ -483,6 +502,8 @@
 
         function reglages(o) {
             Object.assign(opts, o || {});
+            if (o && 'dtVides' in o) masquerVides = o.dtVides === false;
+            if (o && 'trajets' in o) carte.afficher({ pistes: o.trajets !== false });
             Object.values(marqueurs).forEach((m) => { m._permanent = null; });
             if (o && 'trajets' in o) majTrajets(true);
             dessiner();

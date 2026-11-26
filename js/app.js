@@ -1715,24 +1715,48 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             return p;
         }
-        // restaurer, puis enregistrer l'etat complet (valeurs par defaut comprises)
-        champs.forEach((el) => {
-            const k = el.dataset.planned || el.dataset.alerte;
-            const prop = el.dataset.planned ? 'planned' : 'alerte';
-            if (plan[k] && plan[k][prop] !== undefined) el.value = plan[k][prop];
-            el.addEventListener('change', () => {
-                try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
-            });
-        });
-        try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
-
         const base = () => (window.OTCFG && OTCFG.passerelle)
             ? OTCFG.passerelle()
             : 'http://' + (location.hostname || 'localhost') + ':8101';
+        // 25/11 (calibrage) : objectifs gardes sur la passerelle, lus par le dashboard de tout poste
+        // (avant : seulement dans ce navigateur, d'ou « Planned shift -- » ailleurs)
+        function enregistrer() {
+            const p = lire();
+            try { localStorage.setItem(CLE, JSON.stringify(p)); } catch (e) {}
+            fetch(base() + '/api/kpi/objectifs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ objectifs: p }),
+            }).catch(() => {});
+        }
+        function restaurer(source) {
+            champs.forEach((el) => {
+                const k = el.dataset.planned || el.dataset.alerte;
+                const prop = el.dataset.planned ? 'planned' : 'alerte';
+                if (source[k] && source[k][prop] !== undefined) el.value = source[k][prop];
+            });
+        }
+        restaurer(plan);
+        champs.forEach((el) => el.addEventListener('change', enregistrer));
+        fetch(base() + '/api/kpi/objectifs', { cache: 'no-store' }).then((r) => r.json()).then((d) => {
+            const srv = (d && d.objectifs) || {};
+            if (Object.keys(srv).length) {
+                restaurer(srv);
+                try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
+            } else {
+                enregistrer();           // premiere fois : les valeurs de ce poste deviennent celles de tous
+            }
+        }).catch(() => { try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {} });
+
         const fmt = (v) => (Math.round((v || 0) * 10) / 10);
         async function actualiser() {
             try {
-                const k = await fetch(base() + '/api/kpi', { cache: 'no-store' }).then((r) => r.json());
+                // meme periode que le dashboard (shift en cours par defaut, ou le perimetre choisi)
+                let q = '';
+                if (window.CarteSuivi && CarteSuivi.periode && CarteSuivi.lireFiltres) {
+                    const p = CarteSuivi.periode(CarteSuivi.lireFiltres());
+                    q = '?depuis=' + encodeURIComponent(p.depuis) + '&jusqua=' + encodeURIComponent(p.jusqua);
+                }
+                const k = await fetch(base() + '/api/kpi' + q, { cache: 'no-store' }).then((r) => r.json());
                 const valeurs = {
                     minerais: k.minerais_t, ore: k.onces, waste: k.waste_t,
                     hg: k.grades.high.tonnes, mg: k.grades.medium.tonnes,
@@ -1740,7 +1764,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
                 document.querySelectorAll('input[data-actuel]').forEach((el) => {
                     el.value = fmt(valeurs[el.dataset.actuel]);
-                    el.title = 'Voyages du ' + k.jour + ' (' + k.voyages + ' voyage(s))';
+                    el.title = 'Dumpings validés du ' + k.jour + ' (' + k.voyages + ' voyage(s) comptés sur ' +
+                        (k.chargements !== undefined ? k.chargements : k.voyages) + ' chargement(s))';
                 });
             } catch (e) {
                 document.querySelectorAll('input[data-actuel]').forEach((el) => {
@@ -1748,7 +1773,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         }
-        actualiser();
+        setTimeout(actualiser, 0);           // apres le chargement de carte-suivi.js (periode du dashboard)
         setInterval(actualiser, 10000);
     })();
 
@@ -1861,7 +1886,8 @@ document.addEventListener('DOMContentLoaded', () => {
             zones: getZones(),
             trails: trailsForPresent,
             showZones: document.getElementById('cfgShowZones').checked,
-            showTrails: document.getElementById('cfgShowTrails').checked,
+            // 26/11 : la case « Trails » a disparu ; l'affichage des pistes suit le reglage « Trajets » (Diffusion)
+            showTrails: (document.getElementById('cfgShowTrails') || { checked: true }).checked,
             showLabels: document.getElementById('cfgShowLabels').checked,
             showAlerts: (document.getElementById('cfgShowAlerts') || { checked: true }).checked,
             basemap: basemapVal,

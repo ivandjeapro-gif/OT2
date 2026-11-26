@@ -222,6 +222,45 @@
                                     </div>
                                     <div class="relais-aide" id="relaisRemonteesEtat"></div>
                                     <div class="form-row">
+                                        <label for="relaisMargeAffectation">Tolérance autour d'un bloc de minerai pour l'affectation (m)</label>
+                                        <input type="number" class="form-input" id="relaisMargeAffectation" min="0" max="50" step="0.5" />
+                                    </div>
+                                    <div class="relais-aide" id="relaisMargeEtat"></div>
+                                    <div class="form-row">
+                                        <label for="relaisZActif">Z de la pelle dans le choix du flitch</label>
+                                        <select class="form-input" id="relaisZActif">
+                                            <option value="1">Utilisé : écarte les flitches au-dessus de la pelle</option>
+                                            <option value="0">Non utilisé : toujours le flitch actif le plus haut</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisZAntenne">Hauteur de l'antenne GNSS des pelles au-dessus du sol (m)</label>
+                                        <input type="number" class="form-input" id="relaisZAntenne" min="0" max="20" step="0.1" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisZMarge">Marge avant d'écarter un flitch (m)</label>
+                                        <input type="number" class="form-input" id="relaisZMarge" min="0" max="20" step="0.1" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisGeoPrecision">Positions qui décident de l'alerte « mauvaise direction » (tablette DT)</label>
+                                        <select class="form-input" id="relaisGeoPrecision">
+                                            <option value="gnss">GNSS USB, avec ou sans RTK (recommandé)</option>
+                                            <option value="rtk">GNSS RTK seulement (base active)</option>
+                                            <option value="differentiel">GNSS différentiel ou RTK</option>
+                                            <option value="tous">Toute position GNSS ou GPS du téléphone (essais seulement)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisGeoDistance">Distance de franchissement d'un checkpoint ou d'un bord de zone (m)</label>
+                                        <input type="number" class="form-input" id="relaisGeoDistance" min="0.5" max="50" step="0.5" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="relaisGeoVitesse">Vitesse minimale pour tenir compte du cap GNSS (km/h)</label>
+                                        <input type="number" class="form-input" id="relaisGeoVitesse" min="0" max="30" step="0.5" />
+                                    </div>
+                                    <div class="relais-aide">Un checkpoint n'est franchi que quand le camion est passé à cette distance de l'autre côté de sa ligne, dans le sens de son déplacement (cap GNSS) ; idem pour entrer dans une zone ou en sortir. Le bruit autour de la ligne ne déclenche plus rien.</div>
+                                    <div class="relais-aide">Par défaut : le flitch actif le plus haut. Le Z (médiane du chargement, valeurs aberrantes rejetées) écarte seulement un flitch dont la cote dépasse le niveau de la pelle (Z − hauteur d'antenne) de plus que la marge : flitch déjà miné mais pas clos. Hauteur 0 = prudent (rien n'est écarté à tort).</div>
+                                    <div class="form-row">
                                         <label for="relaisChargementsIntervalle">Lecture de la production (onglet Chargements, KPI du dashboard) toutes les (s)</label>
                                         <input type="number" class="form-input" id="relaisChargementsIntervalle" min="5" max="600" step="1" />
                                     </div>
@@ -234,6 +273,11 @@
                                         </select>
                                     </div>
                                     <div class="relais-aide" id="relaisMissionsAide"></div>
+                                    <div class="form-row">
+                                        <label for="relaisVideosJours">Conservation des vidéos du tracking (jours, 0 = jamais supprimées)</label>
+                                        <input type="number" class="form-input" id="relaisVideosJours" min="0" max="3650" step="1" />
+                                    </div>
+                                    <div class="relais-aide">Les vidéos (Live › Enregistrements) plus anciennes sont supprimées automatiquement du PC de la passerelle ; l'enregistrement en cours n'est jamais touché. Les CSV du tracking sont conservés.</div>
                                     <div class="form-row">
                                         <label for="relaisAlerteRouge">Alerte non vue en rouge apres (min)</label>
                                         <input type="number" class="form-input" id="relaisAlerteRouge" min="1" max="1440" step="1" />
@@ -614,7 +658,8 @@
                                 <div class="pm-gnss-champs">
                                     <label class="pm-champ"><span class="lbl">Pelle</span><input type="text" id="radioTestPelle" placeholder="EX-1250" /></label>
                                     <label class="pm-champ"><span class="lbl">DT visé</span><input type="text" id="radioTestDt" value="DT-01" /></label>
-                                    <label class="pm-champ"><span class="lbl">Trame</span><select id="radioTestMode">
+                                    <label class="pm-champ"><span class="lbl">Type</span><select id="radioTestType"><option value="prop">Proposition</option><option value="load">Chargement (OL)</option><option value="end">Fin (NOM)</option></select></label>
+                                    <label class="pm-champ"><span class="lbl">Signature</span><select id="radioTestMode">
                                         <option value="signee">Signée (clé de la pelle)</option>
                                         <option value="non_signee">Non signée</option>
                                         <option value="mauvaise_cle">Signée avec une mauvaise clé</option>

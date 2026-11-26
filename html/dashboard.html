@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking · Salle de contrôle</title>
-    <link rel="stylesheet" href="../vendor/fonts/fonts.css">
+    <meta name="theme-color" content="#ffffff">
     <link rel="stylesheet" href="../vendor/leaflet/leaflet.css" />
     <link rel="stylesheet" href="../css/dashboard.css" />
     <link rel="stylesheet" href="../css/carte-suivi.css" />
@@ -12,10 +12,10 @@
 <body>
 <div class="cc">
 
-    <!-- ============ BANDEAU HAUT (creme, comme le logo) ============ -->
+    <!-- ============ BANDEAU HAUT (blanc, logo Lafigué foncé) ============ -->
     <header class="cc-top">
         <div class="brand">
-            <img class="site-logo" src="../assets/Logo Lafigue rogne.png" alt="Endeavour Mining · Lafigué Mine">
+            <img class="ot-logo" src="../assets/Logo Ore Tracking rogne.png" alt="Ore Tracking" width="1153" height="1199">
         </div>
 
         <div class="title">
@@ -37,8 +37,8 @@
 
         <a class="back" id="backLive" href="live.html">← Live</a>
 
-        <!-- la bande du logo Lafigue, en signature -->
-        <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <img class="site-logo" src="../assets/Logo Lafigue sombre.png" alt="Endeavour Mining · Lafigué Mine" width="349" height="114">
+
     </header>
 
     <!-- ============ KPI ============ -->
@@ -68,17 +68,14 @@
         <section class="map-wrap">
             <div id="map"></div>
 
-            <div class="map-title">
-                <h2>La flotte en mouvement</h2>
-                <p id="mapZones">--</p>
-            </div>
+            <p id="mapZones" hidden>--</p>
 
             <div class="map-ctrl">
-                <div class="compass" title="Nord"><svg viewBox="0 0 24 24"><path d="M12 3l6 17-6-4-6 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>N</span></div>
+                <div class="compass" title="Nord" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l6 17-6-4-6 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>N</span></div>
                 <div class="zoom">
-                    <button id="zoomIn" type="button" title="Zoom avant">+</button>
-                    <button id="zoomOut" type="button" title="Zoom arrière">−</button>
-                    <button id="zoomCenter" type="button" title="Recentrer"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5" stroke="currentColor" stroke-width="1.6"/></svg></button>
+                    <button id="zoomIn" type="button" title="Zoom avant" aria-label="Zoom avant">+</button>
+                    <button id="zoomOut" type="button" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+                    <button id="zoomCenter" type="button" title="Recentrer" aria-label="Recentrer la carte"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5" stroke="currentColor" stroke-width="1.6"/></svg></button>
                 </div>
             </div>
 
@@ -102,7 +99,7 @@
 
             <!-- TENEURS -->
             <div class="grades" id="gradesBlock">
-                <div class="grades-head"><span>Teneurs</span><span>Actuel</span><span>Planned</span><span>Var.</span></div>
+                <div class="grades-head"><span>Matériau</span><span>Actuel (t)</span><span>Prévu (t)</span><span>Écart (t)</span></div>
                 <div class="grade g-high" id="gradeHG">
                     <span class="name">High Grade</span><b id="hgActuel">--</b><span class="pl" id="hgPlanned">--</span><span class="var" id="hgVar">--</span>
                     <span class="rail"><i></i></span>
@@ -143,15 +140,11 @@
 
     <!-- ============ PIED ============ -->
     <footer class="cc-foot">
-        <div class="links">
-            <span class="lnk" id="lnkCloud"><i></i>Cloud</span>
-            <span class="lnk" id="lnkServeur"><i></i>Serveur</span>
-            <span class="lnk" id="lnkPasserelle"><i></i>Passerelle</span>
-            <span class="lnk" id="lnkOffice"><i></i>Office</span>
-        </div>
+        <!-- 26/11 : pastilles Cloud / Serveur / Passerelle / Office retirees (demande utilisateur) ; la case vide garde
+             le pied centre -->
+        <div class="links" aria-hidden="true"></div>
         <span class="maj" id="derniereMaj">--</span>
         <span class="date" id="dateDuJour">--</span>
-        <img class="foot-logo" src="../assets/Logo Ore Tracking rogne.png" alt="Ore Tracking">
     </footer>
 </div>
 

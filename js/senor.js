@@ -218,12 +218,89 @@
     }).join('');
   }
 
+  /* ---- Trajectoire Waste : checkpoints INTERDITS a un DT charge de waste (23/11) ----
+   * Tous les checkpoints existants sont listes ; coches = interdits (defaut : tous). La passerelle leve
+   * « Checkpoint interdit » quand un DT charge de waste en franchit un. */
+  // 23/11 : deux colonnes par checkpoint, interdit au WASTE (camion de sterile) / interdit au ORE (camion de minerai).
+  let wasteInterdits = new Set();    // ids coches (etat de l'ecran)
+  let oreInterdits = new Set();
+  let wasteEnregistre = '';          // etat enregistre, pour griser « Enregistrer » tant que rien ne change
+
+  const cleSet = (s) => Array.from(s).sort((a, b) => a - b).join(',');
+  const cleWaste = () => cleSet(wasteInterdits) + '|' + cleSet(oreInterdits);
+
+  function rendreWaste() {
+    const box = $('#sgWasteList');
+    if (!box) return;
+    const cpt = $('#sgWasteCompte');
+    if (cpt) cpt.textContent = tousCheckpoints.length
+      ? '· waste ' + wasteInterdits.size + ' · ore ' + oreInterdits.size + ' / ' + tousCheckpoints.length : '';
+    const save = $('#sgWasteSave');
+    if (save) save.disabled = cleWaste() === wasteEnregistre;
+    if (!tousCheckpoints.length) {
+      box.innerHTML = '<div class="sg-vide">Aucun checkpoint : importez-en dans « Points de passage ».</div>';
+      return;
+    }
+    box.innerHTML = tousCheckpoints.map((c) => {
+      const w = wasteInterdits.has(c.id), o = oreInterdits.has(c.id);
+      return '<div class="sg-ligne">' +
+        '<span class="sg-ligne-nom"><b title="' + esc(c.nom) + '">' + esc(c.nom) + '</b></span>' +
+        '<label style="cursor:pointer;white-space:nowrap"><input type="checkbox" data-waste-cp="' + c.id + '"' + (w ? ' checked' : '') + ' /> Waste</label>' +
+        '<label style="cursor:pointer;white-space:nowrap;margin-left:.8em"><input type="checkbox" data-ore-cp="' + c.id + '"' + (o ? ' checked' : '') + ' /> Ore</label>' +
+        '<span class="sg-ligne-meta">' + (w && o ? 'interdit à tous' : w ? 'interdit au waste' : o ? 'interdit au ore' : 'autorisé') + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function initialiserWaste() {
+    wasteInterdits = new Set(tousCheckpoints.filter((c) => c.interdit_waste !== 0).map((c) => c.id));
+    oreInterdits = new Set(tousCheckpoints.filter((c) => c.interdit_ore === 1).map((c) => c.id));
+    wasteEnregistre = cleWaste();
+    rendreWaste();
+  }
+
+  async function enregistrerWaste() {
+    try {
+      await jsend('/api/checkpoints_waste', 'POST', { interdits: Array.from(wasteInterdits) });
+      await jsend('/api/checkpoints_ore', 'POST', { interdits: Array.from(oreInterdits) });
+      wasteEnregistre = cleWaste();
+      rendreWaste();
+      setStatus('#sgWasteStatus', wasteInterdits.size + ' interdit(s) au waste, ' + oreInterdits.size + ' interdit(s) au ore', true);
+    } catch (err) { setStatus('#sgWasteStatus', err.message, false); }
+  }
+
+  /* ---- Zones interdites & dumping (23/11) : reglages du geofencing ore / waste ---- */
+  async function chargerZones() {
+    if (!$('#sgZonesForm')) return;
+    try {
+      const r = await jsend('/api/geofencing/reglages', 'GET');
+      $('#sgZonesActif').checked = !!r.actif;
+      $('#sgZonesApproche').value = r.approche_m;
+      $('#sgZonesArret').value = r.arret_s;
+      $('#sgZonesRayon').value = r.rayon_m;
+      $('#sgZonesVitesse').value = r.vitesse_kmh;
+      $('#sgZonesDepart').value = r.depart_m;
+    } catch (e) { setStatus('#sgZonesStatus', 'Réglages injoignables (' + e.message + ')', false); }
+  }
+
+  async function enregistrerZones(e) {
+    e.preventDefault();
+    try {
+      const r = await jsend('/api/geofencing/reglages', 'POST', {
+        actif: $('#sgZonesActif').checked, approche_m: Number($('#sgZonesApproche').value),
+        arret_s: Number($('#sgZonesArret').value), rayon_m: Number($('#sgZonesRayon').value),
+        vitesse_kmh: Number($('#sgZonesVitesse').value), depart_m: Number($('#sgZonesDepart').value) });
+      setStatus('#sgZonesStatus', 'Enregistré : contrôle à ' + r.depart_m + ' m de la pelle, pré-alerte ' + r.approche_m + ' m, dumping = arrêt ' + r.arret_s + ' s (vitesse GNSS ≤ ' + r.vitesse_kmh + ' km/h, sinon dans ' + r.rayon_m + ' m)', true);
+    } catch (err) { setStatus('#sgZonesStatus', err.message, false); }
+  }
+
   async function chargerTrajectoires() {
     if (!$('#sgTrajList')) return;
     try {
       trajectoires = (await jsend('/api/trajectoires', 'GET')).trajectoires || [];
       tousCheckpoints = (await jsend('/api/checkpoints', 'GET')).checkpoints || [];
       rendreTrajectoires();
+      initialiserWaste();
     } catch (e) {
       setStatus('#sgTrajStatus', 'Trajectoires injoignables (' + e.message + ')', false);
     }
@@ -1312,6 +1389,27 @@
     const selCouleur = $('#sgNewTeneurCouleur');
     if (selCouleur) selCouleur.addEventListener('input', () => { $('#sgNewTeneurAuto').checked = false; });
 
+    // trajectoire waste : cases a cocher, tout interdire / autoriser, enregistrer
+    const listeWaste = $('#sgWasteList');
+    if (listeWaste) listeWaste.addEventListener('change', (e) => {
+      const cb = e.target.closest('[data-waste-cp], [data-ore-cp]');
+      if (!cb) return;
+      const ore = cb.hasAttribute('data-ore-cp');
+      const id = Number(ore ? cb.dataset.oreCp : cb.dataset.wasteCp);
+      const s = ore ? oreInterdits : wasteInterdits;
+      if (cb.checked) s.add(id); else s.delete(id);
+      rendreWaste();
+    });
+    // « Tout interdire / tout autoriser » : colonne Waste
+    const wasteTout = $('#sgWasteTout');
+    if (wasteTout) wasteTout.addEventListener('click', () => { wasteInterdits = new Set(tousCheckpoints.map((c) => c.id)); rendreWaste(); });
+    const wasteRien = $('#sgWasteRien');
+    if (wasteRien) wasteRien.addEventListener('click', () => { wasteInterdits = new Set(); rendreWaste(); });
+    const wasteSave = $('#sgWasteSave');
+    if (wasteSave) wasteSave.addEventListener('click', enregistrerWaste);
+    const zonesForm = $('#sgZonesForm');
+    if (zonesForm) { zonesForm.addEventListener('submit', enregistrerZones); chargerZones(); }
+
     // trajectoires : formulaire d'ajout
     const btnTraj = $('#sgBtnTrajAdd');
     if (btnTraj) btnTraj.addEventListener('click', () => {
@@ -1538,13 +1636,19 @@
       }
     }
 
-    const enCoursN = etat.missions.filter((m) => m.statut === 'en_cours').length;
+    const enCoursN = etat.missions.filter(MSUI.missionActive).length;   // 26/11 : sans les cycles jamais clos
     const sm = $('#sgStatMissions');
     if (sm) sm.textContent = String(enCoursN).padStart(2, '0');
-    const aujourdhuiT = new Date().toISOString().slice(0, 10);
-    const tonnesJour = etat.voyages
-      .filter((v) => String(v.created_at || '').slice(0, 10) === aujourdhuiT)
-      .reduce((t, v) => t + (v.volume_t || 0), 0);
+    // 25/11 (calibrage) : journee de PRODUCTION (06 h -> 06 h, heure locale), comme le dashboard et les KPI ;
+    // les voyages viennent des chargements de Serveur_SG au dumping valide (meme source que les KPI)
+    const debutJour = (() => {
+      const d = new Date();
+      if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+      const z = (n) => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' 06:00:00';
+    })();
+    const duJour = (v) => String(v.created_at || '').replace('T', ' ').slice(0, 19) >= debutJour;
+    const tonnesJour = etat.voyages.filter(duJour).reduce((t, v) => t + (Number(v.volume_t) || 0), 0);
     const st = $('#sgStatTonnes');
     if (st) st.textContent = Math.round(tonnesJour).toLocaleString('fr-FR');
     const derniere = etat.alertes.find((a) => !MSUI.estInfo(a)) || etat.alertes[0];
@@ -1566,9 +1670,8 @@
 
     const boxC = $('#sgSuiviCumuls');
     if (boxC) {
-      const aujourdhui = new Date().toISOString().slice(0, 10);
-      const voy = etat.voyages.filter((v) => String(v.created_at || '').slice(0, 10) === aujourdhui);
-      const tonnes = voy.reduce((s, v) => s + (v.volume_t || 0), 0);
+      const voy = etat.voyages.filter(duJour);
+      const tonnes = voy.reduce((s, v) => s + (Number(v.volume_t) || 0), 0);
       const nonConf = voy.filter((v) => v.conformite === 'non_conforme').length;
       boxC.innerHTML = '<span class="suivi-kpi"><b>' + voy.length + '</b> voyages</span>' +
         '<span class="suivi-kpi"><b>' + Math.round(tonnes) + ' t</b></span>' +

@@ -54,3 +54,22 @@ deploiement/mqtt/windows/diagnostic.log
 
 # APK : binaires, jamais dans le depot (depot public)
 apk/*.apk
+
+# --- 26/11 : donnees d'exploitation et fichiers de travail (depot public) ---
+# Videos, CSV de positions, tuiles satellite et fond de carte du site : donnees, pas du code
+data/enregistrements/
+data/tracking/
+data/tuiles/
+data/fond_video.json
+# Cartes d'audit, paquet geo, tests ponctuels et notes de passation (contiennent des coordonnees du site)
+ggg/
+# Captures d'ecran, maquettes exportees, scripts de travail ponctuels
+/*.png
+/*.zip
+.qa/
+maquettes-src/
+Sans titre*/
+/_tmp*
+/qa-*.mjs
+/apply-*.ps1
+/fix-navbar*.ps1

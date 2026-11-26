@@ -111,7 +111,7 @@
                                         <div class="lv-fiche" id="trkFiche" hidden></div>
                                         <div class="lv-track-barre">
                                             <label><input type="checkbox" id="trkZones" checked> Zones minières</label><i>/</i>
-                                            <label><input type="checkbox" id="trkTrajets" checked> Trajets DT</label><i>/</i>
+                                            <label title="Réseau de pistes et trajets des DT — même réglage que « Trajets » dans Diffusion"><input type="checkbox" id="trkTrajets" checked> Trajets</label><i>/</i>
                                             <label><input type="checkbox" id="trkLabels" checked> Labels engins</label>
                                             <span class="lv-periode" id="trkPeriode"></span>
                                             <span class="lv-fond" id="trkFond">--</span>
@@ -133,7 +133,6 @@
                                     <div class="lv-affichage">
                                         <span class="lbl">Affichage</span>
                                         <label class="check-item"><input type="checkbox" id="cfgShowZones" checked /> Zones</label>
-                                        <label class="check-item"><input type="checkbox" id="cfgShowTrails" checked /> Trails</label>
                                         <label class="check-item"><input type="checkbox" id="cfgShowLabels" checked /> Labels engins</label>
                                     </div>
 
@@ -295,8 +294,17 @@
                             <div class="lv-volet" data-volet="enreg" role="tabpanel" hidden>
                                 <section class="lv-enreg">
                                     <h2>Enregistrements du tracking</h2>
-                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle (un fichier CSV par jour). La vidéo est un film de la carte du dashboard, réalisé en arrière-plan par la passerelle : bouton ● REC ci-dessous, puis ■ Arrêter — la vidéo est alors créée et apparaît dans la liste. La liste ci-dessous suit le « Périmètre de suivi » (Date de production et Shift).</p>
+                                    <p class="lv-aide">Le suivi des DT et des excavatrices est enregistré en continu sur le PC de la passerelle (un fichier CSV par jour). La vidéo est un film de la carte du dashboard, réalisé en arrière-plan par la passerelle : bouton ● REC ci-dessous, puis ■ Arrêter — la vidéo est alors créée et apparaît dans la liste. La liste ci-dessous suit le « Périmètre de suivi » (Date de production et Shift) ; choisis une Date ci-dessous pour retrouver les vidéos et le CSV d'un jour passé.</p>
                                     <div class="lv-enreg-actions">
+                                        <!-- 26/11 : retrouver les videos et CSV d'un jour passe, sans toucher au perimetre du dashboard -->
+                                        <label class="lv-champ lv-enreg-date"><span class="lbl">Date</span>
+                                            <input type="date" id="enregDate" title="Jour de production (06h → 06h). Vide = suivre le Périmètre de suivi." /></label>
+                                        <label class="lv-champ lv-enreg-date"><span class="lbl">Shift</span>
+                                            <select id="enregShift">
+                                                <option value="journee">Journée (06h-06h)</option>
+                                                <option value="jour">Jour (06h-18h)</option>
+                                                <option value="nuit">Nuit (18h-06h)</option>
+                                            </select></label>
                                         <span class="lv-enreg-periode" id="enregPeriode">--</span>
                                         <a class="lv-btn-sombre" id="btnEnregCsv" href="#" download>Télécharger le CSV</a>
                                         <span class="lv-enreg-chrono" id="enregChrono" hidden>00:00:00</span>
@@ -545,10 +553,11 @@
                                             <option value="EXCA">Excavatrices</option>
                                         </select></label>
                                     <label class="lv-champ"><span class="lbl">Matériau</span>
-                                        <select id="fltFlux" title="Sépare les DT qui chargent du minerai de ceux qui chargent du waste (d'après la mission en cours)">
-                                            <option value="tous">Minerai + Waste</option>
+                                        <select id="fltFlux" title="Sépare les DT chargés de minerai, chargés de waste, et les DT vides (sans mission en cours)">
+                                            <option value="tous">Tous les DT</option>
                                             <option value="minerai">Minerai (HG · MG · LG · MO)</option>
                                             <option value="waste">Waste</option>
+                                            <option value="vide">DT vide (sans chargement)</option>
                                         </select></label>
                                     <label class="lv-champ"><span class="lbl">Statut</span>
                                         <select id="fltStatut"><option value="tous">Tous</option></select></label>
@@ -595,8 +604,9 @@
                                 </div>
                                 <div class="lv-diff-cases">
                                     <label class="check-item"><input type="checkbox" id="cfgShowAlerts" checked /> Alertes</label>
-                                    <label class="check-item"><input type="checkbox" id="cfgDiffTrajets" checked /> Trajets</label>
+                                    <label class="check-item" title="Réseau de pistes et trajets des DT — même réglage que « Trajets » sur la carte"><input type="checkbox" id="cfgDiffTrajets" checked /> Trajets</label>
                                     <label class="check-item"><input type="checkbox" id="cfgDiffAnimations" checked /> Animations</label>
+                                    <label class="check-item" title="Décoché : un DT sans chargement (mission terminée, dumping validé) disparaît de la carte et de ses trajets, jusqu'à son prochain chargement."><input type="checkbox" id="cfgDiffDtVides" checked /> DT vides (sans chargement)</label>
                                 </div>
                                 <p class="lv-diff-etat" id="cfgDiffEtat">Appliqué en direct à la salle de contrôle.</p>
                             </section>

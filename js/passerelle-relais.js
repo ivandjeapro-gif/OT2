@@ -64,6 +64,18 @@
       $('#relaisSgUrl').value = d.sg_url || '';
       $('#relaisSgIntervalle').value = d.sg_intervalle_s || 60;
       $('#relaisAlerteRouge').value = d.alerte_rouge_min || 10;
+      $('#relaisMargeAffectation').value = d.marge_affectation_m === undefined ? 0 : d.marge_affectation_m;
+      $('#relaisMargeEtat').textContent = d.marge_affectation_sg ? 'Serveur_SG : ' + d.marge_affectation_sg : '';
+      // 24/11 : Z de la pelle dans le choix du flitch
+      const z = d.z_flitch || {};
+      $('#relaisZActif').value = z.actif === 0 ? '0' : '1';
+      $('#relaisZAntenne').value = z.hauteur_antenne_m === undefined ? 0 : z.hauteur_antenne_m;
+      $('#relaisZMarge').value = z.marge_m === undefined ? 1.5 : z.marge_m;
+      // 24/11 : precision des positions et distance de franchissement
+      const pg = d.precision_geo || {};
+      $('#relaisGeoPrecision').value = pg.mode || 'gnss';
+      $('#relaisGeoDistance').value = pg.distance_m === undefined ? 5 : pg.distance_m;
+      $('#relaisGeoVitesse').value = pg.vitesse_min_kmh === undefined ? 3 : pg.vitesse_min_kmh;
       $('#relaisMissionsSource').value = d.missions_source || 'cloud';
       aideMissions(d.sg_actif);
       $('#relaisRemonteesIntervalle').value = d.remontees_intervalle_s || 10;
@@ -77,6 +89,7 @@
           (r.derniere_ligne ? ' — ligne Remontees ' + r.derniere_ligne : '') +
           (r.derniere_ligne_trajet ? ' / trajet ' + r.derniere_ligne_trajet : '');
       $('#relaisChargementsIntervalle').value = d.chargements_intervalle_s || 5;
+      $('#relaisVideosJours').value = d.videos_jours !== undefined ? d.videos_jours : 30;
       const c = d.chargements || {};
       const libC = { ok: 'OK', lent: 'en retard', ko: 'EN ECHEC', attente: 'en attente de la 1re lecture',
                      non_configure: 'Serveur_SG non configure' };
@@ -110,9 +123,17 @@
       sg_url: $('#relaisSgUrl').value.trim(),
       sg_intervalle_s: $('#relaisSgIntervalle').value.trim(),
       alerte_rouge_min: $('#relaisAlerteRouge').value.trim(),
+      marge_affectation_m: $('#relaisMargeAffectation').value.trim() || '0',
       missions_source: $('#relaisMissionsSource').value,
       remontees_intervalle_s: $('#relaisRemonteesIntervalle').value.trim(),
       chargements_intervalle_s: $('#relaisChargementsIntervalle').value.trim(),
+      videos_jours: $('#relaisVideosJours').value.trim() || '30',
+      z_flitch_actif: $('#relaisZActif').value,
+      z_hauteur_antenne_m: $('#relaisZAntenne').value.trim() || '0',
+      z_marge_m: $('#relaisZMarge').value.trim() || '1.5',
+      geo_precision_mode: $('#relaisGeoPrecision').value,
+      geo_franchissement_m: $('#relaisGeoDistance').value.trim() || '5',
+      geo_vitesse_min_kmh: $('#relaisGeoVitesse').value.trim() || '3',
     };
     // URL : uniquement l'adresse /exec, jamais un jeton colle par erreur
     for (const [champ, v] of [['office_url', corps.office_url], ['sg_url', corps.sg_url]]) {

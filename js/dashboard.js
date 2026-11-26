@@ -82,9 +82,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===== OBJECTIFS (page Live) =====
+    // 25/11 (calibrage) : objectifs lus sur la passerelle (saisis dans Live, communs a tous les postes) ;
+    // la copie du navigateur ne sert que si la passerelle n'en a pas encore.
+    let objectifsServeur = null;
+    function lireObjectifsServeur() {
+        getJSON(PASSERELLE + '/api/kpi/objectifs').then((d) => {
+            const o = d && d.objectifs;
+            const nouveau = o && Object.keys(o).length ? JSON.stringify(o) : null;
+            if (nouveau === (objectifsServeur && JSON.stringify(objectifsServeur))) return;
+            objectifsServeur = nouveau ? o : null;
+            appliquerObjectifs();
+            renderKpis();
+        }).catch(() => {});
+    }
     function appliquerObjectifs() {
         let plan = {};
         try { plan = JSON.parse(localStorage.getItem('oreTrackingKpiPlan')) || {}; } catch (e) {}
+        if (objectifsServeur) plan = objectifsServeur;
         const lire = (k) => plan[k] || {};
         ['minerais', 'ore', 'waste'].forEach((k) => {
             const p = parseFloat(lire(k).planned);
@@ -206,8 +220,14 @@ document.addEventListener('DOMContentLoaded', () => {
         data.grades.medium.actuel = k.grades.medium.tonnes;
         data.grades.low.actuel = k.grades.low.tonnes;
         data.grades.marginal.actuel = k.grades.marginal.tonnes;
-        // chargements lus mais exclus des totaux (bloc ou tonnage manquant / bloc inconnu)
-        data.ignores = (Number(k.sans_bloc) || 0) + (Number(k.sans_tonnage) || 0) + (Number(k.blocs_inconnus) || 0);
+        // chargements lus mais exclus des totaux (bloc ou tonnage manquant) ; un bloc inconnu localement EST compte
+        data.ignores = (Number(k.sans_bloc) || 0) + (Number(k.sans_tonnage) || 0);
+        // 25/11 : comptes seulement au dumping valide : chargements encore en route / annules
+        data.attenteDumping = Number(k.attente_dumping) || 0;
+        data.annules = Number(k.annules) || 0;
+        // 25/11 (calibrage) : voyages comptes (dumping valide) et cycles restes ouverts depuis des heures
+        data.voyagesValides = k.chargements !== undefined ? (Number(k.voyages) || 0) : null;
+        data.nonClos = Number(k.non_clos) || 0;
         data.source = source;
         data.luLe = luLe || null;
         data.derniereMaj = new Date();
@@ -259,11 +279,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = { minerais_t: 0, waste_t: 0, onces: 0,
                       grades: { high: { tonnes: 0 }, medium: { tonnes: 0 }, low: { tonnes: 0 }, marginal: { tonnes: 0 } } };
         lignes.forEach((r) => {
+            // 25/11 : compte seulement au dumping valide (meme regle que la passerelle)
+            if ('mission_statut' in r && r.mission_statut !== 'termine') return;
             const nom = String(r.orebloc || '').trim();
             const t = parseFloat(r.tonnes);
+            if (!nom && !isNaN(t) && /hors de tout orebloc/i.test(String(r.remarque || ''))) { res.waste_t += t; return; }
             if (!nom || isNaN(t)) return;
             const b = blocs[nom];
-            const code = (nom.split('_')[3] || '').toUpperCase();
+            // 24/11 : flitch « 272_5_ » (calque DXF) normalise en « 272.5_ » : sinon le 4e segment est le n° de blast
+            const code = (nom.replace(/^(\d+)[_,](\d{1,2})_(?=[A-Za-z])/, '$1.$2_').split('_')[3] || '').toUpperCase();
             const dest = String(r.teneur || (b ? b[2] : '') || '').trim().toUpperCase();
             const minerai = b ? !!b[1] : (code !== 'WST' && dest !== 'W');
             if ((code === 'WST' || dest === 'W' || !minerai) && !KPI_GRADES[code]) { res.waste_t += t; return; }
@@ -477,7 +501,13 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => invite.remove(), 20000);
     }
 
-    const TYPES_INFO = { fin_mission: 1, arrivee: 1, retour_piste: 1, retour_trajet: 1, mission: 1 };
+    // 25/11 : « bonne direction » et « demi-tour en cours » (tablette) sont des retours a la normale, pas des alertes
+    // 25/11 (calibrage) : meme regle que toutes les pages (champ `info` de la passerelle ; liste identique en repli)
+    const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
+    demi_tour: 1, checkpoint_valide: 1, zone_approche: 1, blast_rejete: 1 };
+    const estInfo = (a) => !!(a && (a.info !== undefined ? Number(a.info) : TYPES_INFO[a.type]));
+    // 25/11 : une information (retour sur piste, fin de mission...) ne reste affichee que ce temps, avec son anciennete
+    const INFO_AFFICHEE_S = 30 * 60;
     let alertesReelles = [];
     let alertIndex = 0;
     let dernierIdAlerte = null;
@@ -590,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
         getJSON(PASSERELLE + '/api/alertes?' + paramsPeriode(p))
             .then((d) => {
                 const toutes = d.alertes || [];
-                const nonVues = toutes.filter((a) => !Number(a.acquittee) && !TYPES_INFO[a.type]);
+                const nonVues = toutes.filter((a) => !Number(a.acquittee) && !estInfo(a));
                 // d'abord les alertes non vues (avec leur anciennete), puis les dernieres infos
                 const liste = nonVues.slice(0, 8).map((a) => {
                     const age = duree(secondesDepuis(a.created_at, true));
@@ -602,10 +632,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     };
                 });
                 if (!liste.length) {
-                    const info = toutes.find((a) => TYPES_INFO[a.type]);
+                    // derniere information de la periode, seulement si elle est recente (avant : affichee tout le shift)
+                    const info = toutes.find((a) => estInfo(a) && a.type !== 'blast_rejete' && secondesDepuis(a.created_at, true) <= INFO_AFFICHEE_S);
+                    const ageInfo = info ? duree(secondesDepuis(info.created_at, true)) : '';
                     liste.push(info
-                        ? { text: (info.dt_code && info.dt_code !== '-' ? info.dt_code + ' · ' : '') + (info.message || info.type), type: 'success' }
-                        : { text: 'Aucune alerte sur cette période', type: 'success' });
+                        ? { text: (info.dt_code && info.dt_code !== '-' && String(info.message || '').indexOf(info.dt_code) < 0 ? info.dt_code + ' · ' : '')
+                                  + (info.message || info.type) + (ageInfo ? ' · il y a ' + ageInfo : ''), type: 'success' }
+                        : { text: toutes.length ? 'Aucune alerte non vue' : 'Aucune alerte sur cette période', type: 'success' });
                 }
                 alertesReelles = liste;
 
@@ -657,6 +690,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderPied() {
         const poser = (id, st, titre) => {
             const el = $(id);
+            if (!el) return;                       // 26/11 : pastilles retirees du pied
             el.className = 'lnk ' + (st || '');
             el.title = titre;
         };
@@ -672,6 +706,18 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (data.source === 'direct') maj.textContent = 'Production · secours direct (passerelle injoignable) · lue à ' + h(data.luLe);
         else if (data.source === 'ancienne') maj.textContent = 'Production · table locale (passerelle à mettre à jour) · ' + h(data.derniereMaj);
         else maj.textContent = 'Production · table locale (base en ligne non configurée) · ' + h(data.derniereMaj);
+        if (data.derniereMaj && data.voyagesValides !== null) {
+            maj.textContent += ' · ' + data.voyagesValides + ' voyage' + (data.voyagesValides > 1 ? 's' : '') + ' compté' + (data.voyagesValides > 1 ? 's' : '') + ' (dumping validé)';
+        }
+        if (data.derniereMaj && data.attenteDumping) {
+            maj.textContent += ' · ' + data.attenteDumping + ' chargement' + (data.attenteDumping > 1 ? 's' : '') + ' en attente du dumping';
+        }
+        if (data.derniereMaj && data.annules) {
+            maj.textContent += ' · ' + data.annules + ' annulé' + (data.annules > 1 ? 's' : '') + ' (sans dumping)';
+        }
+        if (data.derniereMaj && data.nonClos) {
+            maj.textContent += ' · ' + data.nonClos + ' cycle' + (data.nonClos > 1 ? 's' : '') + ' jamais clos (tablette non revenue)';
+        }
         if (data.derniereMaj && data.ignores) {
             maj.textContent += ' · ' + data.ignores + ' chargement' + (data.ignores > 1 ? 's' : '') + ' non compté' + (data.ignores > 1 ? 's' : '') + ' (bloc ou tonnage manquant)';
         }
@@ -746,7 +792,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try { config = JSON.parse(localStorage.getItem('oreTrackingConfig')); } catch (e) {}
         const cfg = config || {};
         const carte = await CarteSuivi.construire($('map'), cfg, {
-            zones: cfg.showZones !== false, pistes: cfg.showTrails !== false, labels: cfg.showLabels !== false,
+            zones: cfg.showZones !== false, pistes: CarteSuivi.lireDiffusion().trajets !== false, labels: cfg.showLabels !== false,
         });
         $('mapZones').textContent = CarteSuivi.resumeZones(carte.zones);
         $('basemapName').textContent = carte.fond;
@@ -766,7 +812,8 @@ document.addEventListener('DOMContentLoaded', () => {
             trajets: diffusion.trajets, animations: diffusion.animations,
             suivreDiffusion: true,
             onMaj: (r) => {
-                $('enginsSuivis').textContent = r.affiches === r.total ? r.total : r.affiches + ' / ' + r.total;
+                // 25/11 (calibrage) : « DT suivis » = DT en ligne / flotte (meme denominateur que Tablettes et Home)
+                $('enginsSuivis').textContent = r.affiches + ' / ' + (r.flotte || r.total);
                 const actifs = CarteSuivi.filtresActifs(r.filtres);
                 const el = $('filtreActif');
                 el.hidden = !actifs.length;
@@ -784,6 +831,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===== DEMARRAGE =====
     lirePeriode();
     appliquerObjectifs();
+    lireObjectifsServeur();
+    setInterval(lireObjectifsServeur, 30000);
     appliquerAffichageKpi();
     renderKpis();
     renderOffroad();

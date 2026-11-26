@@ -168,6 +168,17 @@ def empreinte_jeton(jeton):
     return hashlib.sha256(j.encode("utf-8")).hexdigest()[:6] if j else ""
 
 
+def sg_sync_ref_fond(motif=""):
+    """26/11 : synchro du referentiel de SG en arriere-plan apres un changement de blast (Dig Plan). Laisse 20 s a
+    Serveur_OT pour finir d'ecrire le blast, puis demande a SG de le recopier. Ne leve jamais."""
+    try:
+        time.sleep(20)
+        ok, d, err = sg_sync_ref()
+        print("SG: referentiel resynchronise (%s) : %s" % (motif, ("%s oreblocs" % d.get("oreblocs")) if ok else err))
+    except Exception as e:
+        print("SG: resynchronisation du referentiel impossible (%s) : %s" % (motif, e))
+
+
 def sg_sync_ref():
     """Lance ?action=sync_ref sur Serveur_SG : il recopie depuis Serveur_OT
     les oreblocs, zones de deversement, teneurs et pistes (onglets ref_*).
@@ -185,6 +196,39 @@ def sg_sync_ref():
         return False, {}, "%s: %s" % (type(e).__name__, str(e)[:160])
     if d.get("ok") is False:
         return False, d, str(d.get("erreur") or "refus de Serveur_SG")
+    # 26/11 : referentiel neuf -> les chargements recents sont reclasses avec lui (en arriere-plan)
+    threading.Thread(target=sg_recalculer_chargements, daemon=True).start()
+    return True, d, ""
+
+
+CHARGEMENTS_RECALCUL_H = 12
+
+
+def sg_recalculer_chargements(heures=CHARGEMENTS_RECALCUL_H):
+    """26/11 (essai DT-15) : ?action=chargements_recalculer chez Serveur_SG. Les cycles commences dans les `heures`
+    dernieres heures sont reclasses avec le referentiel actuel (un blast importe juste avant leur calcul les laissait
+    « hors de tout orebloc », comptes en waste). Puis relecture des chargements du jour : les voyages deja
+    enregistres prennent le bon bloc. Rend (ok, reponse ou {}, erreur) ; ne leve jamais."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return False, {}, "Serveur_SG non configure"
+    url = "%s?action=chargements_recalculer&heures=%d&token=%s" % (sg_url, int(heures), quote(sg_token))
+    try:
+        with urllib.request.urlopen(url, timeout=240) as rep_:
+            d = json.loads(rep_.read().decode("utf-8", "replace"))
+    except Exception as e:
+        print("SG: recalcul des chargements impossible (%s)" % e)
+        return False, {}, "%s: %s" % (type(e).__name__, str(e)[:160])
+    if d.get("ok") is False:
+        # Serveur_SG pas encore redeploye : « action inconnue »
+        print("SG: recalcul des chargements refuse (%s)" % (d.get("erreur") or "?"))
+        return False, d, str(d.get("erreur") or "refus de Serveur_SG")
+    print("SG: chargements recalcules (%s h) : %s cycle(s), %s ligne(s) mise(s) a jour"
+          % (d.get("heures"), d.get("chargements"), d.get("mis_a_jour")))
+    try:
+        chargements_un_passage()          # KPI et voyages relus tout de suite
+    except Exception as e:
+        print("SG: relecture des chargements impossible (%s)" % e)
     return True, d, ""
 
 
@@ -288,6 +332,7 @@ IMMOBILISATION_ODT_MIN = 3      # 3 min pour valider ODT
 IMMOBILISATION_SBDT_MIN = 3     # 3 min pour valider SBDT
 SEUIL_IMMOBILISATION_M = 2.0    # deplacement max tolere (bruit GPS) pour considerer un engin immobile
 MARGE_OREBLOC_M = 5.0           # tolerance "proche des limites d'un orebloc" (cahier des charges, statut ODT)
+MARGE_AFFECTATION_DEFAUT_M = 0.0   # tolerance de l'AFFECTATION (reglable dans la console, 0 = polygone strict)
 HMAC_TOLERANCE_S = 120          # tolerance d'horloge / anti-rejeu sur les trames XBee signees (secondes)
 
 # --------------------------------------------------------------- schema -------
@@ -365,8 +410,32 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     x1 REAL NOT NULL, y1 REAL NOT NULL,     -- premiere extremite (Est, Nord)
     x2 REAL NOT NULL, y2 REAL NOT NULL,     -- seconde extremite
     actif INTEGER DEFAULT 1,
+    interdit_waste INTEGER DEFAULT 1,       -- 23/11 : 1 = un DT charge de WASTE ne doit jamais le franchir
+    interdit_ore INTEGER DEFAULT 0,         -- 23/11 : 1 = un DT charge de ORE ne doit jamais le franchir
     created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- 23/11 : VISITES DE ZONES pendant une mission (geofencing ore / waste). Une ligne par entree dans une dumping area :
+-- role 'prevue' (zone de la mission), 'interdite' (RomPad pour du waste, Waste dump pour du ore) ou 'autre'.
+-- arret_max_s = plus longue immobilisation dans la zone (rayon ARRET_RAYON_M) : >= ARRET_DUMP_S = dumping.
+CREATE TABLE IF NOT EXISTS zone_visites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mission_id INTEGER NOT NULL,
+    dt_code TEXT NOT NULL,
+    matiere TEXT DEFAULT '',
+    zone_id INTEGER NOT NULL,
+    zone_nom TEXT DEFAULT '',
+    zone_type TEXT DEFAULT '',          -- rompad | waste | ''
+    role TEXT DEFAULT 'autre',
+    entree TEXT NOT NULL,
+    sortie TEXT DEFAULT '',
+    arret_max_s REAL DEFAULT 0,
+    arret_debut TEXT DEFAULT '',
+    arret_x REAL DEFAULT 0,
+    arret_y REAL DEFAULT 0,
+    alerte_dump INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_zone_visites_mission ON zone_visites(mission_id);
 
 -- 21/11 : TRAJECTOIRE = une source (pit) vers une dumping area ; porte la liste ORDONNEE des checkpoints
 -- que doit franchir un DT dont la mission relie ces deux points. Les checkpoints (lignes de passage)
@@ -1700,13 +1769,49 @@ def lignes_ore_dig_bloc(texte_geosum):
     return [[str(c).strip() for c in l] for l in lignes if any(str(c).strip() for c in l)]
 
 
+# 24/11 : FLITCH DEMI-ENTIER ECRIT AVEC UN UNDERSCORE. Un calque DXF n'accepte pas le point : le flitch 272.5 y
+# devient « 272_5_LMP2_119_HG_FR_035_OP », alors que le Geosum et les numeros de blast ecrivent « 272.5 ». Lu tel
+# quel, « 5 » passait pour le numero du blast : lot « 272_5 » au lieu de « 272.5_LMP2_119 », et la purge des
+# onglets dig_bloc / ore_dig_bloc de Serveur_OT visait TOUTES les lignes « 272_5_* » (autres pits, autres blasts).
+# Regle (aucun pas de flitch suppose) : un entier, puis 1 ou 2 chiffres, puis un segment qui commence par une
+# lettre (le pit) = flitch decimal. 272_5_LMP2 -> 272.5_LMP2 ; 280_LMP2 et 277.5_LMP2 inchanges.
+_FLITCH_SOULIGNE_RE = re.compile(r"^(\d+)[_,](\d{1,2})_(?=[A-Za-z])")
+
+
+def nom_flitch_canonique(nom):
+    """Nom de bloc / label avec le flitch ecrit avec un point (272_5_LMP2_... -> 272.5_LMP2_...)."""
+    return _FLITCH_SOULIGNE_RE.sub(r"\1.\2_", str(nom or "").strip(), count=1)
+
+
+_NOM_BLAST_RE = re.compile(r"^(\d+(?:[._]\d+)?)_[A-Za-z]+_([A-Za-z0-9]+)_\d+_\d+_(\d+)[A-Za-z0-9]*$")
+
+
+def prefixe_blast(numero):
+    """26/11 : prefixe des noms de blocs d'un blast (flitch_source_numero), tire de son NOM INTEGRAL
+    (255_OM_LMP2_260_250_106 -> 255_LMP2_106 ; 275_OM_LMP2_280_270_119v3 -> 275_LMP2_119). '' si le nom ne suit pas
+    la nomenclature. Les labels de blocs ne portent pas la profondeur : deux blasts actifs de meme prefixe (bancs
+    superposes, ou deux versions) auraient des blocs indiscernables."""
+    m = _NOM_BLAST_RE.match(str(numero or "").strip())
+    if not m:
+        return ""
+    return "%s_%s_%s" % (m.group(1).replace("_", "."), m.group(2).upper(), m.group(3))
+
+
+def proprietaire_nom_bloc(conn, nom):
+    """Nom integral du blast ACTIF qui porte deja un bloc de ce nom, '' sinon."""
+    r = conn.execute("SELECT b.numero FROM oreblocs o JOIN blasts b ON b.id = o.blast_id "
+                     "WHERE o.nom=? AND o.actif=1 AND b.actif=1 LIMIT 1", (nom,)).fetchone()
+    return r["numero"] if r else ""
+
+
 def prefixe_lot_label(label):
     """Prefixe `flitch_site_blast` d'un label, '' si introuvable.
 
     270_LMP2_119_WST_FR_044_OP -> '270_LMP2_119' : tout jusqu'au premier
     segment entier pur (1 a 4 chiffres) apres le flitch, regle du numero de
-    blast de Serveur_OT (`numeroBlastDepuisLabel`)."""
-    seg = str(label or "").strip().split("_")
+    blast de Serveur_OT (`numeroBlastDepuisLabel`).
+    24/11 : 272_5_LMP2_119_... -> '272.5_LMP2_119' (flitch normalise, voir nom_flitch_canonique)."""
+    seg = nom_flitch_canonique(label).split("_")
     for i in range(1, len(seg)):
         if seg[i].isdigit() and 1 <= len(seg[i]) <= 4:
             return "_".join(seg[:i + 1])
@@ -2421,6 +2526,9 @@ def traiter_trame_xbee(conn, ligne):
         instant = datetime.fromtimestamp(float(trame.get("ts"))).strftime("%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError, OSError):
         instant = None
+    instant = instant or now_iso()        # meme instant pour la position et sa vitesse
+    if trame.get("vk") is not None:
+        noter_vitesse_gnss(code, trame.get("vk"), instant)
     appliquer_position_engin(conn, code, typ, x, y, horodatage=instant, canal="radio", auth="hmac")
     statuts_engins(conn)
     verifier_affectations_auto(conn)
@@ -2483,25 +2591,29 @@ def _crc16_ccitt(texte):
 
 
 MODES_PELLE_TEST = ("signee", "non_signee", "mauvaise_cle", "inconnue")
+TYPES_TRAME_PELLE_TEST = ("prop", "load", "end")
 
 
-def trame_pelle_test(conn, pelle, mode, dt_code):
+def trame_pelle_test(conn, pelle, mode, dt_code, type_trame="prop", pos=None):
     """Proposition de chargement (k=prop) d'une pelle SIMULEE, adressee a `dt_code`, a la position de ce DT, pour tester le filtre
     de signature des DT avec une seule radio libre. Memes octets que l'app Excavatrice (serializeFrame + signerLigne)."""
     if mode not in MODES_PELLE_TEST:
         raise ValueError("mode inconnu : %s" % mode)
+    if type_trame not in TYPES_TRAME_PELLE_TEST:
+        raise ValueError("type de trame inconnu : %s" % type_trame)
     eng = conn.execute("SELECT x, y FROM engins WHERE code=?", (dt_code,)).fetchone()
     if not eng:
         raise ValueError("DT inconnu : %s" % dt_code)
     zone, hemi = repere_site(conn)
-    ll = _vers_latlng(eng["x"], eng["y"], zone, hemi or "N") if zone else None
+    px, py = (float(pos[0]), float(pos[1])) if pos else (eng["x"], eng["y"])    # position de la pelle : imposee, sinon celle du DT
+    ll = _vers_latlng(px, py, zone, hemi or "N") if zone else None
     ident = pelle if mode != "inconnue" else "EX-9999"
-    trame = {"v": 3, "k": "prop", "id": ident, "nom": "EX", "dt": dt_code,
+    trame = {"v": 3, "k": type_trame, "id": ident, "nom": "EX", "dt": dt_code,
              "heure": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")}
     if ll:
         trame["Long"], trame["Lat"] = round(ll[1], 7), round(ll[0], 7)
-    trame.update({"Ele": 359.0, "E": round(eng["x"], 1), "N": round(eng["y"], 1),
-                  "Zone": "%s%s" % (zone or 30, hemi or "N"), "Statut": "OL", "points": 0, "p": 30, "ld": 600})
+    trame.update({"Ele": 359.0, "E": round(px, 1), "N": round(py, 1),
+                  "Zone": "%s%s" % (zone or 30, hemi or "N"), "Statut": "NOM" if type_trame == "end" else "OL", "points": 0 if type_trame == "prop" else 5, "p": 30, "ld": 600})
     corps = json.dumps(trame, separators=(",", ":"), ensure_ascii=False)
     if mode != "non_signee":
         cle = cle_radio_courante(conn, pelle) if mode == "signee" else secrets.token_hex(32)
@@ -2695,14 +2807,24 @@ def generer_affectation(conn, dt_code):
                     (dt_code,)).fetchone():
         return None
 
-    oreblocs = [dict(r) for r in conn.execute("SELECT * FROM oreblocs WHERE actif=1")]
-    # trouver l'orebloc contenant (ou le plus proche, meme marge que le
-    # passage ODT) le DT
+    # 24/11 : blasts clos exclus, flitch le plus haut d'abord (oreblocs_par_flitch) ; un bloc qui CONTIENT le DT
+    # passe avant un bloc seulement proche (marge d'affectation, meme marge que le passage ODT).
+    oreblocs = oreblocs_par_flitch(conn)
     orebloc_id = 0
-    for ob in oreblocs:
-        poly = json.loads(ob["sommets"] or "[]")
-        if dans_ou_pres_polygone(dt["x"], dt["y"], poly, MARGE_OREBLOC_M):
-            orebloc_id = ob["id"]
+    marge = marge_affectation_m()
+    for avec_marge in (False, True):
+        for ob in oreblocs:
+            try:
+                poly = json.loads(ob["sommets"] or "[]")
+            except (TypeError, ValueError):
+                continue
+            if len(poly) < 3:
+                continue
+            if (dans_ou_pres_polygone(dt["x"], dt["y"], poly, marge) if avec_marge
+                    else point_in_polygon(dt["x"], dt["y"], poly)):
+                orebloc_id = ob["id"]
+                break
+        if orebloc_id:
             break
 
     # destination = centre de l'orebloc (ou dernier point connu)
@@ -2827,12 +2949,46 @@ MINAGE_DECLARATION_MIN = 30
 ORIGINES_MINAGE = ("dt", "spotter", "bureau")
 
 
+# 24/11 : FLITCHES. Un meme blast est exploite en plusieurs flitches (ex. 280, 277.5, 272.5, 270 pour le banc
+# 280 -> 270 ; le pas n'est jamais suppose), chacun importe comme un blast distinct, avec des polygones qui se
+# recouvrent. Regle (la meme que sur la tablette, dt-geo-core.ts) : les blocs des blasts CLOS ou inactifs ne
+# comptent plus ; parmi les polygones qui contiennent le point, le FLITCH LE PLUS HAUT l'emporte (on mine de haut
+# en bas), et a flitch egal le minerai passe avant le sterile. Avant : premier bloc par id, flitches clos compris.
+def flitch_blast(numero, flitch_colonne=None):
+    """Flitch d'un blast : nombre en tete du numero (280_OM_..., 272.5_OM_..., 272,5_...), sinon la colonne
+    blasts.flitch, sinon None (classe apres tous les flitches connus)."""
+    f = _geo_flitch(numero)
+    if f is None and flitch_colonne not in (None, ""):
+        f = _geo_flitch(flitch_colonne)
+    return f
+
+
+def oreblocs_par_flitch(conn, colonnes="o.*"):
+    """Oreblocs actifs des blasts non clos, tries : flitch decroissant, minerai avant sterile, id.
+    Lignes sqlite3.Row avec en plus blast_numero et blast_flitch (None si inconnu)."""
+    lignes = conn.execute(
+        "SELECT %s, b.numero AS blast_numero, b.flitch AS blast_flitch_col FROM oreblocs o "
+        "LEFT JOIN blasts b ON b.id = o.blast_id "
+        "WHERE o.actif = 1 AND (b.id IS NULL OR (COALESCE(b.actif, 1) = 1 AND COALESCE(b.clos_le, '') = ''))"
+        % colonnes).fetchall()
+    res = []
+    for o in lignes:
+        d = dict(o)
+        d["blast_flitch"] = flitch_blast(d.get("blast_numero"), d.get("blast_flitch_col"))
+        res.append(d)
+    res.sort(key=lambda d: (-(d["blast_flitch"]) if d["blast_flitch"] is not None else float("inf"),
+                            0 if (d.get("minerai") is None or bool(d.get("minerai"))) else 1,
+                            d["id"]))
+    return res
+
+
 def polygones_blocs(conn):
-    """Blocs actifs avec leur contour en UTM : [(id, nom, matiere, points)], blocs de MINERAI d'abord, puis les
-    blocs STERILES (waste, oreblocs.minerai = 0). Un contour en degres est PROJETE en UTM (fuseau de
-    Geographic System) avant tout test : comparer des degres a des metres ne trouverait jamais rien."""
-    ore, waste = [], []
-    for o in conn.execute("SELECT id, nom, sommets, minerai FROM oreblocs WHERE actif=1 ORDER BY id"):
+    """Blocs actifs (blasts non clos) avec leur contour en UTM : [(id, nom, matiere, points)], dans l'ordre de
+    priorite des flitches (oreblocs_par_flitch : flitch le plus haut, puis minerai avant sterile). Un contour en
+    degres est PROJETE en UTM (fuseau de Geographic System) avant tout test : comparer des degres a des metres
+    ne trouverait jamais rien."""
+    res = []
+    for o in oreblocs_par_flitch(conn, "o.id, o.nom, o.sommets, o.minerai"):
         try:
             pts = json.loads(o["sommets"] or "[]")
         except (TypeError, ValueError):
@@ -2841,14 +2997,15 @@ def polygones_blocs(conn):
             continue
         pts, _converti = points_en_utm(conn, pts)
         est_ore = o["minerai"] is None or bool(o["minerai"])
-        (ore if est_ore else waste).append((o["id"], o["nom"], "ore" if est_ore else "waste", pts))
-    return ore + waste
+        res.append((o["id"], o["nom"], "ore" if est_ore else "waste", pts))
+    return res
 
 
 def bloc_au_point(conn, x, y, blocs=None):
-    """Bloc qui CONTIENT le point (x, y en UTM) : {id, nom, matiere} ou None. Deduction en deux temps :
-    d'abord les blocs de minerai ; faute de bloc de minerai, les blocs steriles (waste). Dans les deux cas
-    la reponse est CONFIRMEE par un test de projection exact (point dans le polygone), jamais par proximite."""
+    """Bloc qui CONTIENT le point (x, y en UTM) : {id, nom, matiere} ou None. Le premier polygone contenant dans
+    l'ordre de polygones_blocs : flitch actif le plus haut, puis minerai avant sterile (24/11 ; avant : tout le
+    minerai avant tout le sterile, flitches confondus). Reponse CONFIRMEE par un test de projection exact (point
+    dans le polygone), jamais par proximite."""
     for oid, nom, matiere, pts in (blocs if blocs is not None else polygones_blocs(conn)):
         if point_in_polygon(x, y, pts):
             return {"id": oid, "nom": nom, "matiere": matiere}
@@ -2893,25 +3050,36 @@ def verifier_arrivee_da(conn, dt_code):
     dumping area de sa mission en cours, la mission est marquee "arrivee"
     (une seule fois) et une alerte "vous etes arrive" part au camion."""
     mission = mission_a_surveiller(conn, dt_code)
-    if not mission or mission["arrivee"] or not mission["dumping_area_id"]:
+    if not mission or mission["arrivee"]:
         return None
-    da = conn.execute(
-        "SELECT * FROM dumping_areas WHERE id=? AND actif=1",
-        (mission["dumping_area_id"],)).fetchone()
-    if not da:
+    # 24/11 : mission de waste (« WasteDump », dumping_area_id = 0, ou un waste dump precis) : toute zone
+    # waste vaut arrivee (decision utilisateur n° 4). Minerai : seulement la zone de la mission.
+    waste = mission_waste(conn, mission)
+    if not mission["dumping_area_id"] and not waste:
         return None
     dt = conn.execute("SELECT * FROM engins WHERE code=?", (dt_code,)).fetchone()
     if not dt:
         return None
-    poly = json.loads(da["sommets"] or "[]")
-    if not point_in_polygon(dt["x"], dt["y"], poly):
+    da = None
+    for z in conn.execute("SELECT * FROM dumping_areas WHERE actif=1 ORDER BY (id = ?) DESC, id",
+                          (mission["dumping_area_id"] or 0,)):
+        if not zone_prevue_mission(conn, mission, z["id"], type_zone(z["nom"]), waste):
+            continue
+        try:
+            poly = json.loads(z["sommets"] or "[]")
+        except ValueError:
+            continue
+        if len(poly) >= 3 and point_in_polygon(dt["x"], dt["y"], poly):
+            da = z
+            break
+    if not da:
         return None
     conn.execute("UPDATE missions SET arrivee=1 WHERE id=?", (mission["id"],))
     conn.commit()
     # 21/11 : fin de mission dans SA dumping area (pas une autre) -> les alertes encore ouvertes du DT sont closes
     closes = sum(clore_alertes_ouvertes(conn, dt_code, typ, cause="arrivee_da")
-                 for typ in ("offroad", "deviation", "checkpoint"))
-    if closes:
+                 for typ in ("offroad", "deviation", "checkpoint", "checkpoint_interdit", "zone_approche", "zone_interdite"))
+    if closes and serveur_controle_direction():     # 24/11 : la tablette leve elle-meme ses alertes
         # l'app DT leve ses bandeaux/voix en silence (type « cloture », sans retour_* parle)
         msg_cloture = "Mission terminee en dumping area : alertes closes."
         mqtt_publier("camions/%s/alerte" % dt_code, {
@@ -2969,6 +3137,24 @@ def deviation_reglages():
 # se CLOT cote DT au retour (colonnes retour_le + retour_duree_s) ; elle n'est « cloturee » que lorsque
 # l'Office l'a aussi marquee vue (acquittee). L'acquittement ne coupe PAS la voix du DT.
 _retour_candidat = {}      # code DT -> instant du premier releve revenu sur le trajet (confirmation)
+
+
+def fin_surveillance_dt(conn, dt_code, cause="fin_mission"):
+    """26/11 (regle utilisateur) : un DT n'est suivi que CHARGE, de la fin du chargement au dumping valide. Quand sa
+    mission se ferme (dumping valide, annulee, abandonnee), la surveillance s'arrete : etat hors piste efface et
+    alertes encore ouvertes (sortie de route, deviation) closes avec la cause `fin_mission`. Avant : une sortie de
+    route ouverte au moment de la fin restait « en cours » indefiniment (DT-15, 26/11, alerte 142).
+    Ne commit pas : l'appelant commit avec sa propre mise a jour."""
+    if not dt_code:
+        return
+    if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours' LIMIT 1", (dt_code,)).fetchone():
+        return                                   # une autre mission (nouveau chargement) est deja suivie
+    conn.execute("UPDATE engins SET offroad=0, offroad_depuis='', offroad_candidat_depuis='' WHERE code=?", (dt_code,))
+    for typ in ("offroad", "deviation"):
+        conn.execute(
+            "UPDATE alertes SET retour_le=datetime('now'), retour_cause=?, "
+            "retour_duree_s=MAX(0, CAST((julianday('now') - julianday(created_at)) * 86400 AS INTEGER)) "
+            "WHERE dt_code=? AND type=? AND retour_le=''", (cause, dt_code, typ))
 
 
 def clore_alertes_ouvertes(conn, dt_code, type_alerte, instant=None, cause="retour"):
@@ -3187,7 +3373,7 @@ def charger_checkpoints_missions():
             ob = conn.execute("SELECT nom FROM oreblocs WHERE id=?", (m["orebloc_id"],)).fetchone() if m["orebloc_id"] else None
             cps = checkpoints_trajectoire(conn, source_pour_nom(conn, ob["nom"] if ob else ""), m["dumping_area_id"])
             if cps:
-                conn.execute("UPDATE missions SET cp_json=?, cp_etat='{}' WHERE id=?", (json.dumps(cps), m["id"]))
+                conn.execute("UPDATE missions SET cp_json=? WHERE id=?", (json.dumps(cps), m["id"]))
                 n += 1
             else:
                 restantes.append(m)
@@ -3199,7 +3385,7 @@ def charger_checkpoints_missions():
         for m in sans:
             cps = par_dt.get(m["dt_code"])
             if cps:
-                conn.execute("UPDATE missions SET cp_json=?, cp_etat='{}' WHERE id=?",
+                conn.execute("UPDATE missions SET cp_json=? WHERE id=?",
                              (json.dumps(cps), m["id"]))
                 n += 1
         conn.commit()
@@ -3218,7 +3404,554 @@ def boucle_checkpoints():
         time.sleep(20)
 
 
+# ------------------------------------------ checkpoints INTERDITS au waste (23/11) ---
+# Un DT charge de WASTE (chargement hors Geosum, bloc sterile, ou dumping area « waste ») ne doit jamais
+# franchir un checkpoint marque `interdit_waste` (section « Trajectoire Waste » de Senor ; tous le sont par
+# defaut). Exception : un checkpoint que la mission demande elle-meme (sa trajectoire) n'est pas interdit.
+_cp_interdits_vus = {}      # id de mission -> noms deja signales (une alerte par checkpoint et par mission)
+
+
+# 24/11 : MEMOIRE DES ALERTES DEJA SIGNALEES, GARDEE EN BASE. Avant, « deja signale pour cette mission »
+# (checkpoints interdits, zones interdites approchees) n'existait qu'en memoire : a chaque relance de la
+# passerelle, les memes alertes repartaient vers le chauffeur et le bureau (DT-12 : 08:40 puis 09:58 le 24/11).
+# Colonne missions.alertes_vues (JSON {"cp_interdits": [...], "zones_approche": [...]}), A PART de cp_etat
+# (cp_etat est reecrit a partir de la ligne lue en debut de traitement, il aurait ecrase ces cles).
+# La memoire vive reste le cache ; elle est rechargee depuis la base la premiere fois qu'une mission est vue.
+def memoire_alertes(conn, cache, mission_id, cle):
+    """Ensemble des elements deja signales (`cle`) pour la mission ; charge depuis la base si absent du cache."""
+    if mission_id in cache:
+        return cache[mission_id]
+    vus = set()
+    try:
+        r = conn.execute("SELECT alertes_vues FROM missions WHERE id=?", (mission_id,)).fetchone()
+        d = json.loads((r["alertes_vues"] if r else "") or "{}")
+        vus = set(d.get(cle) or [])
+    except (sqlite3.Error, ValueError, TypeError, IndexError, KeyError):
+        pass
+    cache[mission_id] = vus
+    return vus
+
+
+def memoire_alertes_ajouter(conn, cache, mission_id, cle, valeur):
+    """Ajoute `valeur` aux elements signales de la mission (cache + base). La base est relue juste avant
+    l'ecriture : les autres cles de alertes_vues ne sont jamais ecrasees."""
+    memoire_alertes(conn, cache, mission_id, cle).add(valeur)
+    try:
+        r = conn.execute("SELECT alertes_vues FROM missions WHERE id=?", (mission_id,)).fetchone()
+        d = json.loads((r["alertes_vues"] if r else "") or "{}")
+        if not isinstance(d, dict):
+            d = {}
+    except (sqlite3.Error, ValueError, TypeError, IndexError, KeyError):
+        d = {}
+    liste = list(d.get(cle) or [])
+    if valeur not in liste:
+        liste.append(valeur)
+    d[cle] = liste
+    try:
+        conn.execute("UPDATE missions SET alertes_vues=? WHERE id=?", (json.dumps(d), mission_id))
+        conn.commit()
+    except sqlite3.Error as e:
+        print("ALERTES: memoire de la mission %s non enregistree (%s)" % (mission_id, e))
+
+
+def mission_waste(conn, mission):
+    """La mission transporte-t-elle du waste ? Hors Geosum (aucun bloc), bloc sterile, ou DA nommee « waste »."""
+    if not mission["orebloc_id"]:
+        return True
+    b = conn.execute("SELECT minerai FROM oreblocs WHERE id=?", (mission["orebloc_id"],)).fetchone()
+    if b is not None and b["minerai"] == 0:
+        return True
+    if mission["dumping_area_id"]:
+        da = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (mission["dumping_area_id"],)).fetchone()
+        if da and re.search(r"waste", da["nom"] or "", re.I):
+            return True
+    return False
+
+
+# 24/11 : ALERTE UNIQUE « MAUVAISE DIRECTION » emise par la passerelle quand la tablette du DT ne controle pas
+# elle-meme (pas de paquet geo recent : geo_tablette_active faux). Memes faits verifies que la tablette :
+# checkpoint interdit franchi, entree dans une zone qui n'est pas la sienne. Levee (« retour_direction ») quand le
+# demi-tour est verifie : re-franchissement du meme checkpoint, sortie de la mauvaise zone ; la fin de mission dans
+# sa zone leve tout (« cloture »). La tablette repete la voix tant que l'alerte est en cours.
+# Etat garde en base (missions.alertes_vues, cle « alarme ») : survit a une relance.
+def _alarme_lire(conn, mission_id):
+    try:
+        r = conn.execute("SELECT alertes_vues FROM missions WHERE id=?", (mission_id,)).fetchone()
+        d = json.loads((r["alertes_vues"] if r else "") or "{}")
+        return d.get("alarme") if isinstance(d, dict) else None
+    except (sqlite3.Error, ValueError, TypeError, IndexError, KeyError):
+        return None
+
+
+def _alarme_ecrire(conn, mission_id, alarme):
+    try:
+        r = conn.execute("SELECT alertes_vues FROM missions WHERE id=?", (mission_id,)).fetchone()
+        d = json.loads((r["alertes_vues"] if r else "") or "{}")
+        if not isinstance(d, dict):
+            d = {}
+    except (sqlite3.Error, ValueError, TypeError, IndexError, KeyError):
+        d = {}
+    d["alarme"] = alarme
+    conn.execute("UPDATE missions SET alertes_vues=? WHERE id=?", (json.dumps(d), mission_id))
+    conn.commit()
+
+
+def _cote_ligne(p, c):
+    """Cote d'un point par rapport a la ligne d'un checkpoint : 1, -1, 0."""
+    v = (c["x2"] - c["x1"]) * (p[1] - c["y1"]) - (c["y2"] - c["y1"]) * (p[0] - c["x1"])
+    return 0 if abs(v) < 1e-9 else (1 if v > 0 else -1)
+
+
+def alerte_direction(conn, dt_code, mission, pos, cause, raison, checkpoint="", zone="", prec=None, cp=None):
+    """Leve « mauvaise_direction » (chauffeur + bureau) et memorise le fait pour reconnaitre le demi-tour.
+    24/11 (essai terrain) : le BON COTE de la ligne (d'ou venait le camion) est garde : le retour = re-franchir
+    vers ce cote."""
+    destination = nom_zone_prevue(conn, mission) or "?"
+    message = 'MAUVAISE DIRECTION : %s - %s. Allez a "%s".' % (dt_code, raison, destination)
+    creer_alerte(conn, "mauvaise_direction", dt_code, message)
+    cote = 0
+    if cp is not None:
+        cote = _cote_ligne(prec, cp) if prec else 0
+        if not cote:
+            cote = -_cote_ligne(pos, cp)
+    _alarme_ecrire(conn, mission["id"], {"cause": cause, "checkpoint": checkpoint, "zone": zone,
+                                         "point": [pos[0], pos[1]], "cote": cote, "le": now_iso()})
+    evenement = {"type": "mauvaise_direction", "cause": cause, "dt_code": dt_code, "x": pos[0], "y": pos[1],
+                 "mission_id": mission["id"], "checkpoints": [checkpoint] if checkpoint else [], "zone": zone,
+                 "message": message, "origine": "passerelle"}
+    enregistrer_alerte_office(conn, evenement)
+    return evenement
+
+
+def retour_direction(conn, dt_code, mission, pos, motif):
+    """Demi-tour verifie : leve l'alerte (« retour_direction »), chauffeur + bureau."""
+    destination = nom_zone_prevue(conn, mission) or "?"
+    message = 'BONNE DIRECTION : %s - continuez vers "%s".' % (dt_code, destination)
+    creer_alerte(conn, "retour_direction", dt_code, message)
+    _alarme_ecrire(conn, mission["id"], None)
+    evenement = {"type": "retour_direction", "dt_code": dt_code, "x": pos[0], "y": pos[1], "mission_id": mission["id"],
+                 "motif": motif, "message": message, "origine": "passerelle"}
+    enregistrer_alerte_office(conn, evenement)
+    return evenement
+
+
+def verifier_retour_direction(conn, dt_code, mission, prec, pos):
+    """Alarme de la passerelle en cours (cause checkpoint) : re-franchissement STRICT du meme checkpoint, VERS LE BON
+    COTE (sens inverse du fait) = demi-tour verifie. Autant de fois que necessaire (24/11, essai terrain)."""
+    a = _alarme_lire(conn, mission["id"])
+    if not a or a.get("cause") == "mauvaise_zone" or not a.get("checkpoint") or not prec:
+        return None
+    c = conn.execute("SELECT nom, x1, y1, x2, y2 FROM checkpoints WHERE nom=? AND actif=1", (a["checkpoint"],)).fetchone()
+    if c and segments_se_coupent(prec, pos, (c["x1"], c["y1"]), (c["x2"], c["y2"])) \
+            and (not a.get("cote") or _cote_ligne(pos, c) == a["cote"]):
+        return retour_direction(conn, dt_code, mission, pos, "checkpoint %s re-franchi" % a["checkpoint"])
+    return None
+
+
+def verifier_checkpoints_interdits(conn, dt_code, mission, prec, pos):
+    """Franchissement d'un checkpoint interdit a la matiere de la mission (waste : interdit_waste, ore : interdit_ore) :
+    alerte `checkpoint_interdit` (une fois par checkpoint et par mission). Retourne l'evenement, sinon None."""
+    matiere = "waste" if mission_waste(conn, mission) else "ore"
+    colonne = "interdit_waste" if matiere == "waste" else "interdit_ore"
+    defaut = 1 if matiere == "waste" else 0
+    try:
+        propres = {c["nom"] for c in json.loads(mission["cp_json"] or "[]")}
+    except (ValueError, TypeError, KeyError):
+        propres = set()
+    vus = memoire_alertes(conn, _cp_interdits_vus, mission["id"], "cp_interdits")
+    alarme = _alarme_lire(conn, mission["id"]) or {}
+    for c in conn.execute("SELECT nom, x1, y1, x2, y2 FROM checkpoints WHERE actif=1 AND COALESCE(%s, %d)=1" % (colonne, defaut)):
+        if c["nom"] in propres or c["nom"] == alarme.get("checkpoint"):
+            continue                      # checkpoint de l'alarme en cours : c'est le retour (verifier_retour_direction)
+        # 24/11 (essai terrain) : AUTANT DE FOIS. Deja signale : nouvelle alerte a chaque franchissement STRICT.
+        if c["nom"] in vus:
+            franchi = bool(prec) and segments_se_coupent(prec, pos, (c["x1"], c["y1"]), (c["x2"], c["y2"]))
+        else:
+            franchi = checkpoint_franchi(dict(c), prec, pos)
+        if franchi:
+            if c["nom"] not in vus:
+                memoire_alertes_ajouter(conn, _cp_interdits_vus, mission["id"], "cp_interdits", c["nom"])
+            message = "CHECKPOINT INTERDIT : %s (%s) a franchi %s." % (dt_code, matiere, c["nom"])
+            creer_alerte(conn, "checkpoint_interdit", dt_code, message)
+            evenement = {"type": "checkpoint_interdit", "dt_code": dt_code, "x": pos[0], "y": pos[1],
+                         "mission_id": mission["id"], "checkpoints": [c["nom"]], "message": message}
+            enregistrer_alerte_office(conn, evenement)
+            # 24/11 : fait verifie -> alerte unique au chauffeur (cette fonction ne tourne que sans tablette active)
+            return alerte_direction(conn, dt_code, mission, pos, "checkpoint_interdit",
+                                    "checkpoint %s interdit au %s" % (c["nom"], "waste" if matiere == "waste" else "minerai"),
+                                    checkpoint=c["nom"], prec=prec, cp=dict(c))
+    return None
+
+
+# 23/11 : MODE GEOFENCING. Pendant le chargement, le DT est gare a cote de la pelle, parfois a quelques metres
+# d'un checkpoint : rien n'est controle. Le controle des checkpoints (valides / interdits / sautes) demarre quand
+# le DT a fini d'etre charge et S'ELOIGNE : a plus de GEOFENCE_DEPART_M de sa position au debut de la mission
+# (= lieu de chargement). L'etat est garde dans missions.cp_etat : "depart" [x, y], "geofencing" true.
+GEOFENCE_DEPART_M = 30.0
+
+
+def point_de_chargement(conn, dt_code, mission, pos):
+    """Position du DT au debut de la mission (derniere position connue a cet instant), sinon la position actuelle."""
+    debut = str(mission["debut"] or "")
+    if debut:
+        r = conn.execute("SELECT x, y FROM positions_dt WHERE code=? AND horodatage<=? ORDER BY horodatage DESC LIMIT 1",
+                         (dt_code, debut)).fetchone()
+        if r:
+            return [r["x"], r["y"]]
+    return [pos[0], pos[1]]
+
+
+def geofencing_actif(conn, dt_code, mission, pos):
+    """True des que le DT s'est eloigne de plus de GEOFENCE_DEPART_M de son point de chargement (definitif pour la mission)."""
+    try:
+        etat = json.loads(mission["cp_etat"] or "{}")
+    except (ValueError, TypeError):
+        etat = {}
+    if etat.get("geofencing"):
+        return True
+    change = False
+    if not etat.get("depart"):
+        etat["depart"] = point_de_chargement(conn, dt_code, mission, pos)
+        change = True
+    dep = etat["depart"]
+    # 23/11 : distance de depart reglable dans Senor (essais : checkpoints poses pres de la pelle)
+    if math.hypot(pos[0] - dep[0], pos[1] - dep[1]) > reglages_zones()["depart_m"]:
+        etat["geofencing"] = True
+        etat["geofencing_le"] = now_iso()
+        change = True
+        print("CHECKPOINT: %s s'eloigne du chargement : mode geofencing (mission %s)" % (dt_code, mission["id"]))
+    if change:
+        conn.execute("UPDATE missions SET cp_etat=? WHERE id=?", (json.dumps(etat), mission["id"]))
+        conn.commit()
+    return bool(etat.get("geofencing"))
+
+
+# ------------------------------------------ zones interdites + dumping a l'arret (23/11) ---
+# But : un DT charge de WASTE ne doit jamais decharger dans un RomPad, un DT charge de ORE jamais dans un Waste dump.
+# Le camion ne peut pas faire demi-tour sur la piste : il a le DROIT d'entrer dans une zone pour manoeuvrer.
+# Ce qui compte, c'est l'ARRET : immobile (positions dans un rayon ARRET_RAYON_M) pendant ARRET_DUMP_S = dumping.
+#   - approche d'une zone interdite (< ZONE_APPROCHE_M du polygone) : pre-alerte « zone_approche » ;
+#   - entree dans une zone interdite : « zone_interdite » (information : demi-tour autorise, ne pas decharger) ;
+#   - arret >= ARRET_DUMP_S dans une zone interdite : « dumping_hors_zone » (alerte rouge) ;
+#   - verdict de la mission (rapport) confirme a la fin du cycle (mission close ou chargement suivant).
+# Type de zone d'apres son nom : « waste » -> waste dump ; « rompad » / « rom pad » -> RomPad.
+ZONES_DEFAUTS = {"ZONE_APPROCHE_M": "50", "ARRET_DUMP_S": "45", "ARRET_RAYON_M": "10", "ARRET_VITESSE_KMH": "1",
+                 "GEOFENCE_DEPART_M": "30"}
+_zones_approches = {}      # id de mission -> zones deja signalees a l'approche
+
+# 23/11 : VITESSE GNSS. Le recepteur mesure sa vitesse par effet Doppler (independante de l'erreur de position) :
+# a l'arret elle vaut ~0 meme quand la position flotte de plusieurs metres. Elle arrive avec la position (MQTT
+# « vit_kmh » + « vit_src »: "gnss", radio « vk »). Gardee ici par DT avec l'instant de SA mesure : elle ne sert
+# que pour la position de ce meme instant. Sans vitesse GNSS (ancienne app, remontees via SG) : repli sur le rayon.
+_vitesse_gnss = {}         # code DT -> {"kmh", "instant", "t"}
+
+
+def noter_vitesse_gnss(code, kmh, instant):
+    try:
+        v = float(kmh)
+    except (TypeError, ValueError):
+        return
+    if v >= 0 and math.isfinite(v):
+        _vitesse_gnss[str(code)] = {"kmh": v, "instant": instant, "t": time.time()}
+
+
+def vitesse_gnss(code, instant=None, age_max_s=None):
+    """Vitesse GNSS (km/h) du DT pour la position de `instant`, ou la plus recente de moins de `age_max_s` s ; sinon None."""
+    v = _vitesse_gnss.get(str(code))
+    if not v:
+        return None
+    if instant is not None and v["instant"] == instant:
+        return v["kmh"]
+    if age_max_s is not None and time.time() - v["t"] <= age_max_s:
+        return v["kmh"]
+    return None
+
+
+def reglages_zones():
+    def num(cle):
+        try:
+            return float(param_lire(cle, ZONES_DEFAUTS[cle]) or ZONES_DEFAUTS[cle])
+        except ValueError:
+            return float(ZONES_DEFAUTS[cle])
+    return {"actif": str(param_lire("ZONES_ACTIF", "1")).strip().lower() not in ("0", "false", "non", "off"),
+            "approche_m": num("ZONE_APPROCHE_M"), "arret_s": num("ARRET_DUMP_S"), "rayon_m": num("ARRET_RAYON_M"),
+            "vitesse_kmh": num("ARRET_VITESSE_KMH"), "depart_m": num("GEOFENCE_DEPART_M")}
+
+
+def type_zone(nom):
+    n = str(nom or "")
+    if re.search(r"waste", n, re.I):
+        return "waste"
+    if re.search(r"rom\s*a?\s*pad", n, re.I):
+        return "rompad"
+    return ""
+
+
+def type_zone_id(conn, da_id):
+    """Type (waste | rompad | '') de la dumping area `da_id`, '' si inconnue."""
+    if not da_id:
+        return ""
+    r = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (da_id,)).fetchone()
+    return type_zone(r["nom"]) if r else ""
+
+
+def zone_prevue_mission(conn, mission, zone_id, zone_type=None, waste=None):
+    """La zone `zone_id` est-elle une destination correcte pour la mission ?
+
+    24/11 (decision utilisateur n° 4) : la dumping area du waste est « WasteDump », sans preciser laquelle :
+    pour une mission de WASTE, toute zone dont le nom contient « waste » convient. SG envoie alors
+    dumping_area = « WasteDump » (aucune zone de ce nom : dumping_area_id = 0) ou le nom d'un waste dump
+    precis. Pour le minerai : seulement la zone de la mission."""
+    if zone_id and zone_id == mission["dumping_area_id"]:
+        return True
+    if waste is None:
+        waste = mission_waste(conn, mission)
+    if not waste:
+        return False
+    if zone_type is None:
+        zone_type = type_zone_id(conn, zone_id)
+    return zone_type == "waste"
+
+
+def nom_zone_prevue(conn, mission, waste=None):
+    """Nom de la zone prevue pour l'affichage : celle de la mission, sinon « WasteDump » pour du waste."""
+    if mission["dumping_area_id"]:
+        r = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (mission["dumping_area_id"],)).fetchone()
+        if r:
+            return r["nom"]
+    if waste is None:
+        waste = mission_waste(conn, mission)
+    return "WasteDump" if waste else ""
+
+
+def zones_dumping(conn):
+    """Dumping areas actives avec polygone : [{id, nom, type, poly}]."""
+    res = []
+    for d in conn.execute("SELECT id, nom, sommets FROM dumping_areas WHERE actif=1"):
+        try:
+            poly = json.loads(d["sommets"] or "[]")
+        except ValueError:
+            continue
+        if len(poly) >= 3:
+            res.append({"id": d["id"], "nom": d["nom"], "type": type_zone(d["nom"]), "poly": poly})
+    return res
+
+
+def distance_polygone(x, y, poly):
+    """0 dans le polygone, sinon distance au bord le plus proche (m)."""
+    if point_in_polygon(x, y, poly):
+        return 0.0
+    n = len(poly)
+    return min(distance_point_segment(x, y, poly[i][0], poly[i][1], poly[(i + 1) % n][0], poly[(i + 1) % n][1])
+               for i in range(n))
+
+
+# 24/11 (decision utilisateur, apres l'essai terrain) : TOUT SE DECIDE SUR LA TABLETTE. Les checkpoints, les zones
+# et l'alerte « mauvaise direction » sont controles par la tablette du DT avec le paquet geo ; la passerelle ne
+# controle plus rien et n'envoie AUCUNE alerte au chauffeur. Elle enregistre seulement, pour le bureau, ce que la
+# tablette publie (camions/<code>/evenement) et garde les visites de zones (rapport de dumping).
+# Le repli d'avant (la passerelle reprenait la main quand la tablette ne s'annoncait pas en MQTT) a fait sonner des
+# alertes calculees sur des positions HTTP figees, que la tablette ignorait : interdit par defaut.
+# SERVEUR_CONTROLE_DIRECTION = 1 le rallume (depannage seulement).
+def serveur_controle_direction():
+    return str(param_lire("SERVEUR_CONTROLE_DIRECTION", "0")).strip().lower() in ("1", "oui", "true", "on")
+
+
+def _alerte_zone(conn, typ, dt_code, mission, pos, zone, message):
+    creer_alerte(conn, typ, dt_code, message)
+    evenement = {"type": typ, "dt_code": dt_code, "x": pos[0], "y": pos[1], "mission_id": mission["id"],
+                 "zone": zone["nom"], "message": message}
+    enregistrer_alerte_office(conn, evenement)
+    return evenement
+
+
+def verifier_zones(conn, dt_code, mission, pos, instant=None):
+    """Visites de zones, arrets et alertes ore / waste pour une position (mode geofencing). Rend le dernier evenement."""
+    r = reglages_zones()
+    if not r["actif"]:
+        return None
+    t = instant or now_iso()
+    waste = mission_waste(conn, mission)
+    matiere = "waste" if waste else "ore"
+    type_interdit = "rompad" if waste else "waste"
+    zones = zones_dumping(conn)
+    for z in zones:
+        z["prevue"] = zone_prevue_mission(conn, mission, z["id"], z["type"], waste)
+    # la zone de la mission d'abord (zones qui se chevauchent)
+    zones.sort(key=lambda z: 0 if z["id"] == mission["dumping_area_id"] else 1 if z["prevue"] else 2)
+    dedans = next((z for z in zones if point_in_polygon(pos[0], pos[1], z["poly"])), None)
+    evt = None
+    ouverte = conn.execute("SELECT * FROM zone_visites WHERE mission_id=? AND sortie='' ORDER BY id DESC LIMIT 1",
+                           (mission["id"],)).fetchone()
+    tablette = geo_tablette_active(dt_code)     # 24/11 : la tablette leve elle-meme l'alerte unique (zones comprises)
+    alertes_serveur = serveur_controle_direction()   # 24/11 : par defaut, AUCUNE alerte de zone par la passerelle
+    if ouverte and (not dedans or dedans["id"] != ouverte["zone_id"]):
+        conn.execute("UPDATE zone_visites SET sortie=? WHERE id=?", (t, ouverte["id"]))
+        # 24/11 : sortie de la zone qui avait declenche l'alarme de la passerelle = demi-tour verifie
+        a = _alarme_lire(conn, mission["id"])
+        if a and a.get("cause") == "mauvaise_zone" and a.get("zone") == ouverte["zone_nom"] and not tablette and alertes_serveur:
+            evt = retour_direction(conn, dt_code, mission, pos, 'sortie de "%s"' % ouverte["zone_nom"])
+        ouverte = None
+    if dedans and not ouverte:
+        role = ("prevue" if dedans["prevue"]
+                else "interdite" if dedans["type"] == type_interdit else "autre")
+        conn.execute("INSERT INTO zone_visites (mission_id, dt_code, matiere, zone_id, zone_nom, zone_type, role, entree, "
+                     "arret_debut, arret_x, arret_y) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (mission["id"], dt_code, matiere, dedans["id"], dedans["nom"], dedans["type"], role, t, t, pos[0], pos[1]))
+        if role == "interdite" and alertes_serveur:
+            # plus de pre-alerte en ressortant (memoire gardee en base : survit a une relance)
+            memoire_alertes_ajouter(conn, _zones_approches, mission["id"], "zones_approche", dedans["id"])
+            evt = _alerte_zone(conn, "zone_interdite", dt_code, mission, pos, dedans,
+                               'ZONE INTERDITE : %s (%s) entre dans "%s". Demi-tour autorise, ne pas decharger.'
+                               % (dt_code, matiere, dedans["nom"]))
+        # 24/11 : toute zone qui n'est pas la sienne (interdite OU autre RomPad) = fait verifie -> alerte unique
+        if role != "prevue" and not tablette and alertes_serveur:
+            evt = alerte_direction(conn, dt_code, mission, pos, "mauvaise_zone", 'entree dans "%s"' % dedans["nom"],
+                                   zone=dedans["nom"])
+    elif ouverte:
+        kmh = vitesse_gnss(dt_code, instant=t)
+        immobile = (kmh <= r["vitesse_kmh"]) if kmh is not None else \
+            math.hypot(pos[0] - ouverte["arret_x"], pos[1] - ouverte["arret_y"]) <= r["rayon_m"]
+        if immobile:
+            duree = _secondes_depuis(ouverte["arret_debut"], t)
+            conn.execute("UPDATE zone_visites SET arret_max_s=MAX(arret_max_s, ?) WHERE id=?", (duree, ouverte["id"]))
+            if ouverte["role"] == "interdite" and duree >= r["arret_s"] and not ouverte["alerte_dump"] and alertes_serveur:
+                conn.execute("UPDATE zone_visites SET alerte_dump=1 WHERE id=?", (ouverte["id"],))
+                evt = _alerte_zone(conn, "dumping_hors_zone", dt_code, mission, pos, {"nom": ouverte["zone_nom"]},
+                                   'DUMPING HORS ZONE PROBABLE : %s (%s) arrete %d s dans "%s".'
+                                   % (dt_code, matiere, int(duree), ouverte["zone_nom"]))
+        else:
+            conn.execute("UPDATE zone_visites SET arret_debut=?, arret_x=?, arret_y=? WHERE id=?",
+                         (t, pos[0], pos[1], ouverte["id"]))
+    # pre-alerte : approche d'une zone interdite (une fois par zone et par mission)
+    if alertes_serveur and (not dedans or dedans["type"] != type_interdit or dedans["id"] == mission["dumping_area_id"]):
+        vus = memoire_alertes(conn, _zones_approches, mission["id"], "zones_approche")
+        for z in zones:
+            if z["type"] != type_interdit or z["id"] == mission["dumping_area_id"] or z["id"] in vus:
+                continue
+            d = distance_polygone(pos[0], pos[1], z["poly"])
+            if 0 < d <= r["approche_m"]:
+                memoire_alertes_ajouter(conn, _zones_approches, mission["id"], "zones_approche", z["id"])
+                evt = _alerte_zone(conn, "zone_approche", dt_code, mission, pos, z,
+                                   'ZONE INTERDITE PROCHE : %s (%s) a %d m de "%s".' % (dt_code, matiere, int(d), z["nom"]))
+    conn.commit()
+    return evt
+
+
+def verdict_mission(visites, cycle_clos, arret_s):
+    """Verdict du dumping d'une mission d'apres ses visites de zones : (verdict, zone).
+    correct | mauvais_area (confirme : cycle clos) | hors_zone_probable (cycle en cours) | a_verifier | en_cours."""
+    ok = [v for v in visites if v["role"] == "prevue" and v["arret_max_s"] >= arret_s]
+    faux = [v for v in visites if v["role"] != "prevue" and v["arret_max_s"] >= arret_s]
+    if ok:
+        return "correct", ok[0]["zone_nom"]
+    if faux:
+        return ("mauvais_area" if cycle_clos else "hors_zone_probable"), faux[-1]["zone_nom"]
+    return ("a_verifier" if cycle_clos else "en_cours"), ""
+
+
+def rapport_dumping(conn, depuis, jusqua, dt=""):
+    """Une ligne par mission commencee dans [depuis, jusqua[ (heure locale AAAA-MM-JJ HH:MM:SS)."""
+    r = reglages_zones()
+    sql = ("SELECT m.id, m.id_sg, m.dt_code, m.statut, m.debut, m.fin, m.orebloc_id, m.dumping_area_id, "
+           "COALESCE(d.nom, '') AS zone_prevue FROM missions m LEFT JOIN dumping_areas d ON d.id = m.dumping_area_id "
+           "WHERE m.debut >= ? AND m.debut < ?")
+    args = [depuis, jusqua]
+    if dt:
+        sql += " AND m.dt_code = ?"
+        args.append(dt)
+    lignes = []
+    for m in conn.execute(sql + " ORDER BY m.debut DESC", args).fetchall():
+        visites = [dict(v) for v in conn.execute(
+            "SELECT zone_nom, zone_type, role, entree, sortie, ROUND(arret_max_s) AS arret_max_s, matiere "
+            "FROM zone_visites WHERE mission_id=? ORDER BY id", (m["id"],))]
+        suivante = conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND id>? LIMIT 1", (m["dt_code"], m["id"])).fetchone()
+        clos = m["statut"] != "en_cours" or bool(suivante)
+        verdict, zone = verdict_mission(visites, clos, r["arret_s"])
+        matiere = visites[0]["matiere"] if visites else ("waste" if mission_waste(conn, m) else "ore")
+        zone_prevue = m["zone_prevue"] or ("WasteDump" if matiere == "waste" else "")
+        lignes.append({
+            "mission": m["id"], "mission_sg": m["id_sg"], "dt_code": m["dt_code"], "debut": m["debut"], "fin": m["fin"],
+            "statut": m["statut"], "matiere": matiere, "zone_prevue": zone_prevue, "verdict": verdict,
+            "zone_dumping": zone,
+            "demi_tours": [v["zone_nom"] for v in visites if v["role"] == "interdite" and v["arret_max_s"] < r["arret_s"]],
+            "visites": visites})
+    return {"reglages": r, "missions": lignes}
+
+
+def rapport_offroad(conn, depuis_utc, jusqua_utc, dt=""):
+    """Sorties de route (alertes offroad) dans [depuis, jusqua[ (UTC, comme created_at)."""
+    sql = ("SELECT id, dt_code, message, created_at, retour_le, retour_duree_s, retour_cause, acquittee "
+           "FROM alertes WHERE type='offroad' AND created_at >= ? AND created_at < ?")
+    args = [depuis_utc, jusqua_utc]
+    if dt:
+        sql += " AND dt_code = ?"
+        args.append(dt)
+    lignes = []
+    for a in conn.execute(sql + " ORDER BY created_at DESC", args):
+        d = dict(a)
+        mm = re.search(r"(\d+(?:[.,]\d+)?)\s*m\b", d["message"] or "")
+        d["distance_m"] = float(mm.group(1).replace(",", ".")) if mm else None
+        lignes.append(d)
+    return {"offroad": lignes}
+
+
+def _csv(lignes, colonnes):
+    tampon = io.StringIO()
+    w = csv.writer(tampon, delimiter=";")
+    w.writerow(colonnes)
+    for l in lignes:
+        w.writerow([" | ".join(map(str, l.get(c))) if isinstance(l.get(c), list)
+                    else ("" if l.get(c) is None else l.get(c)) for c in colonnes])
+    return "\ufeff" + tampon.getvalue()
+
+
 def verifier_checkpoints(conn, dt_code, instant=None):
+    """A chaque position, en MODE GEOFENCING seulement (DT charge qui s'eloigne de la pelle) :
+    checkpoints interdits (waste), puis franchissements dans l'ordre + checkpoint saute.
+    Retourne le dernier evenement cree, sinon None.
+    24/11 : desactive par defaut (serveur_controle_direction) : la tablette controle tout. Seules les visites de
+    zones restent enregistrees (rapport de dumping), sans aucune alerte."""
+    prec = _cp_derniere_pos.get(dt_code)
+    if not serveur_controle_direction():
+        mission = mission_a_surveiller(conn, dt_code)
+        dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (dt_code,)).fetchone()
+        if mission and dt:
+            pos = (dt["x"], dt["y"])
+            _cp_derniere_pos[dt_code] = pos
+            try:
+                verifier_zones(conn, dt_code, mission, pos, instant)     # visites seulement (alertes coupees)
+            except Exception as e:
+                print("ZONES: verification impossible pour %s: %s" % (dt_code, e))
+        return None
+    if not checkpoints_actif():
+        return _verifier_checkpoints_sautes(conn, dt_code, instant)
+    mission = mission_a_surveiller(conn, dt_code)
+    dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (dt_code,)).fetchone()
+    if not mission or not dt:
+        return _verifier_checkpoints_sautes(conn, dt_code, instant)
+    pos = (dt["x"], dt["y"])
+    if not geofencing_actif(conn, dt_code, mission, pos):
+        _cp_derniere_pos[dt_code] = pos     # encore au chargement : la trace repart d'ici, rien n'est controle
+        return None
+    if geo_tablette_active(dt_code):
+        # 24/11 (phase 3) : la tablette controle elle-meme les checkpoints (interdits, sautes) et les publie sur
+        # camions/<code>/evenement. Les refaire ici doublerait les alertes. Les zones restent controlees ici.
+        _cp_derniere_pos[dt_code] = pos
+        saute = interdit = None
+    else:
+        saute = _verifier_checkpoints_sautes(conn, dt_code, instant)
+        interdit = verifier_retour_direction(conn, dt_code, mission, prec, pos) or \
+            verifier_checkpoints_interdits(conn, dt_code, mission, prec, pos)
+    zone = None
+    try:
+        zone = verifier_zones(conn, dt_code, mission, pos, instant)
+    except Exception as e:
+        print("ZONES: verification impossible pour %s: %s" % (dt_code, e))
+    return zone or interdit or saute
+
+
+def _verifier_checkpoints_sautes(conn, dt_code, instant=None):
     """A chaque position : franchissements + checkpoint saute. Retourne
     l'evenement `checkpoint` s'il y en a un nouveau, sinon None."""
     dt = conn.execute("SELECT x, y FROM engins WHERE code=?", (dt_code,)).fetchone()
@@ -3481,11 +4214,25 @@ def alertes_liste(conn, depuis="", jusqua=""):
     """Alertes (200 dernieres) ; depuis / jusqua (heure locale AAAA-MM-JJ HH:MM:SS) bornent UNE journee
     ou UN shift ; sans borne, tout l'historique (page Alertes). created_at est en UTC."""
     if depuis:
-        return [dict(r) for r in conn.execute(
+        lignes = [dict(r) for r in conn.execute(
             "SELECT * FROM alertes WHERE datetime(created_at, 'localtime') >= ? "
             "AND (? = '' OR datetime(created_at, 'localtime') < ?) ORDER BY id DESC LIMIT 200",
             (depuis, jusqua, jusqua))]
-    return [dict(r) for r in conn.execute("SELECT * FROM alertes ORDER BY id DESC LIMIT 200")]
+    else:
+        lignes = [dict(r) for r in conn.execute("SELECT * FROM alertes ORDER BY id DESC LIMIT 200")]
+    for l in lignes:
+        l["statut"] = statut_alerte(l.get("type"))      # 24/11 : Off-route / Wrong Dumping (page Alertes)
+        # 25/11 (calibrage) : UNE seule regle « info / a traiter » pour toutes les pages (dashboard, Home, barre
+        # de navigation, Alertes) ; avant, chaque page avait sa propre liste et comptait autre chose.
+        l["info"] = 1 if l.get("type") in ALERTES_INFO else 0
+    return lignes
+
+
+# Alertes qui ne demandent aucune action au bureau : fins et arrivees, retours a la normale (piste, trajet,
+# bonne direction, demi-tour fait), checkpoint franchi dans le bon sens, approche d'une zone (pre-alerte de la
+# tablette ; l'alerte a traiter est zone_interdite), rejet d'import Dig Plan (erreur de donnees, pas de terrain).
+ALERTES_INFO = frozenset(("fin_mission", "arrivee", "mission", "retour_piste", "retour_trajet", "retour_direction",
+                          "demi_tour", "checkpoint_valide", "zone_approche", "blast_rejete"))
 
 
 def etat_offroad(conn):
@@ -3606,8 +4353,9 @@ def classer_voyage(nom, destination, minerai):
 
 
 def code_teneur_bloc(nom):
-    """Code du 4e segment du nom (260_LMP2_113_MG_FR_021_OP -> MG), '' sinon."""
-    parties = str(nom or "").split("_")
+    """Code du 4e segment du nom (260_LMP2_113_MG_FR_021_OP -> MG), '' sinon.
+    24/11 : flitch normalise d'abord (272_5_LMP2_119_HG_... -> HG, et non 119)."""
+    parties = nom_flitch_canonique(nom).split("_")
     return parties[3].upper() if len(parties) >= 4 else ""
 
 
@@ -3648,29 +4396,68 @@ _MQTT_CLIENT = None
 _MQTT_LOCK = threading.Lock()
 
 
+_MQTT_ECHEC_T = 0.0
+_MQTT_REESSAI_S = 30
+_mqtt_desc_etat = {"compte": "", "hote": "", "connecte_le": "", "erreur": "", "publies": 0, "echecs": 0,
+                   "dernier": ""}
+
+
+def mqtt_identifiants_publication():
+    """(hote, port, identifiant, mdp, origine) du compte qui publie vers les DT.
+
+    24/11 (E1) : avant, seule la variable d'environnement MQTT_HOST (jamais definie sur le poste)
+    ouvrait la descente : aucune alerte ni mission ne partait par MQTT. Le compte « passerelle »
+    du broker (mqtt.json, celui de l'abonnement aux positions) a les droits de publication sur
+    camions/+/alerte et camions/+/mission : c'est lui qu'on utilise. MQTT_HOST reste un repli."""
+    conf = mqtt_conf() or {}
+    p = conf.get("passerelle") or {}
+    if p.get("identifiant") and p.get("mdp"):
+        return (conf.get("hote", "127.0.0.1"), int(conf.get("port", 1883)), p["identifiant"], p["mdp"], "mqtt.json")
+    if MQTT_HOST:
+        return (MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, "env")
+    return None
+
+
 def _mqtt_client():
-    """Cree et connecte (une seule fois, paresseusement) le client MQTT vers
-    MQTT_HOST/MQTT_PORT. Retourne None si paho-mqtt n'est pas installe, si
-    MQTT_HOST n'est pas configure, ou si la connexion echoue (meme logique
-    de degradation propre que serial pour l'ecouteur XBee) : le reste du
-    serveur continue de fonctionner sans la descente MQTT."""
-    global _MQTT_CLIENT
-    if mqtt is None or not MQTT_HOST:
+    """Cree et connecte (une seule fois, paresseusement) le client MQTT de
+    publication. Retourne None si paho-mqtt n'est pas installe, si aucun
+    compte n'est configure, ou si la connexion echoue (nouvel essai au plus
+    toutes les 30 s) : le reste du serveur continue sans la descente MQTT."""
+    global _MQTT_CLIENT, _MQTT_ECHEC_T
+    if mqtt is None:
         return None
+    if _MQTT_CLIENT is not None:
+        return _MQTT_CLIENT
     with _MQTT_LOCK:
         if _MQTT_CLIENT is not None:
             return _MQTT_CLIENT
-        client = mqtt.Client(client_id="senor-geology-%d" % os.getpid())
-        if MQTT_USER:
-            client.username_pw_set(MQTT_USER, MQTT_PASS)
-        client.reconnect_delay_set(min_delay=1, max_delay=30)
+        if time.time() - _MQTT_ECHEC_T < _MQTT_REESSAI_S:
+            return None
+        ident = mqtt_identifiants_publication()
+        if not ident:
+            _mqtt_desc_etat["erreur"] = "aucun compte MQTT (mqtt.json absent, MQTT_HOST vide)"
+            _MQTT_ECHEC_T = time.time()
+            return None
+        hote, port, user, mdp, origine = ident
         try:
-            client.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
+            if hasattr(mqtt, "CallbackAPIVersion"):          # paho-mqtt 2.x
+                client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
+                                     client_id="passerelle-pub-%d" % os.getpid(), protocol=mqtt.MQTTv311)
+            else:
+                client = mqtt.Client(client_id="passerelle-pub-%d" % os.getpid())
+            if user:
+                client.username_pw_set(user, mdp)
+            client.reconnect_delay_set(min_delay=1, max_delay=30)
+            client.connect(hote, port, keepalive=30)
             client.loop_start()
             _MQTT_CLIENT = client
-            print("MQTT: connecte a %s:%d" % (MQTT_HOST, MQTT_PORT))
+            _mqtt_desc_etat.update(compte=user or "", hote="%s:%d" % (hote, port), connecte_le=now_iso(),
+                                   erreur="")
+            print("MQTT: publication vers les DT par %s:%d (compte %s, %s)" % (hote, port, user or "-", origine))
         except Exception as e:
-            print("MQTT: connexion impossible (%s), publication desactivee" % e)
+            _MQTT_ECHEC_T = time.time()
+            _mqtt_desc_etat["erreur"] = str(e)
+            print("MQTT: connexion de publication impossible (%s), nouvel essai dans %d s" % (e, _MQTT_REESSAI_S))
             return None
     return _MQTT_CLIENT
 
@@ -3686,24 +4473,33 @@ def mqtt_publier(topic, payload_dict):
     try:
         corps = json.dumps(payload_dict, ensure_ascii=True)
         info = client.publish(topic, corps, qos=1)
-        return info.rc == mqtt.MQTT_ERR_SUCCESS
+        ok = info.rc == mqtt.MQTT_ERR_SUCCESS
     except Exception as e:
         print("MQTT: erreur publication sur %s: %s" % (topic, e))
-        return False
+        ok = False
+    _mqtt_desc_etat["publies" if ok else "echecs"] += 1
+    _mqtt_desc_etat["dernier"] = "%s %s %s" % (now_iso(), topic, "ok" if ok else "echec")
+    return ok
 
 
 def creer_alerte(conn, type_alerte, dt_code, message, voix_off=1, dest_office=1):
-    """Enregistre une alerte en base ET la publie en temps reel sur le canal
-    MQTT dedie du camion (camions/<dt_code>/alerte), pour declenchement
-    effectif de la voix off cote tablette (deviation, fin de mission...)."""
+    """Enregistre une alerte en base ET, si c'est une alerte pour le chauffeur,
+    la publie en temps reel sur le canal MQTT du camion (camions/<dt_code>/alerte).
+
+    24/11 (E1) : meme filtre que la notification par Serveur_OT (message_chauffeur :
+    TYPES_ALERTE_CHAUFFEUR + interrupteur ALERTES_CHAUFFEUR) et meme texte « [type] texte
+    ascii » : la tablette reconnait le doublon quand les deux voies arrivent. Les alertes du
+    bureau (non_conforme, mission, arrivee, blast_rejete...) ne partent plus au chauffeur."""
     conn.execute(
         "INSERT INTO alertes (type, dt_code, message, voix_off, dest_office) "
         "VALUES (?, ?, ?, ?, ?)",
         (type_alerte, dt_code, message, voix_off, dest_office))
     conn.commit()
-    mqtt_publier("camions/%s/alerte" % dt_code, {
-        "type": type_alerte, "dt_code": dt_code, "message": message,
-        "voix_off": bool(voix_off), "horodatage": now_iso()})
+    if message_chauffeur({"type": type_alerte, "dt_code": dt_code, "message": message}) \
+            and alertes_chauffeur_actives():
+        mqtt_publier("camions/%s/alerte" % dt_code, {
+            "type": type_alerte, "dt_code": dt_code, "message": texte_ascii(message),
+            "voix_off": bool(voix_off), "horodatage": now_iso()})
 
 
 # --------------------------------------------- relais vers Serveur_SG ------
@@ -3860,7 +4656,11 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_co
         return r["nom"] if r else ("DA #%d" % i if i else "")
 
     attendue, teneur = 0, None
-    if mission["orebloc_id"]:
+    # 25/11 (calibrage) : tous les blocs importes ont la teneur de coupure par defaut (10.0) ; la table `teneurs`
+    # donnait donc la meme zone pour tout bloc (« devait decharger en RomPad 3 ») alors que la mission, et le rapport
+    # de dumping, disaient RomPad4. La zone affectee a la mission par Serveur_SG fait foi ; la regle teneur n'est
+    # plus qu'un repli quand la mission n'a pas de zone.
+    if mission["orebloc_id"] and not mission["dumping_area_id"]:
         ob = conn.execute("SELECT * FROM oreblocs WHERE id=?", (mission["orebloc_id"],)).fetchone()
         if ob:
             teneur = float(ob["grade_cutoff"]) if ob["grade_cutoff"] is not None else DEFAULT_CUTOFF_GRADE
@@ -3905,15 +4705,28 @@ def verifier_conformite_dumping(conn, mission, position=None, strict=False, a_co
         elif strict:
             detail["raison"] = "hors_da"
             return ""
-    if not attendue or not reelle:
+    # 24/11 : waste -> toute zone « waste » est conforme (decision n° 4), y compris sans zone affectee (« WasteDump »)
+    waste = mission_waste(conn, mission)
+    if waste and reelle and (position is not None or attendue):
+        if type_zone_id(conn, reelle) == "waste":
+            detail.update(attendue=detail.get("attendue") or "WasteDump", reelle=nom_da(reelle), raison="zone_waste")
+            return "conforme"
+        if not attendue:
+            detail["attendue"] = "WasteDump"
+    if not attendue and not (waste and reelle and position is not None):
+        detail["raison"] = "aucune_zone_attendue"
+        return ""
+    if not reelle:
         detail["raison"] = "aucune_zone_attendue"
         return ""
     detail["reelle"] = nom_da(reelle)
-    if attendue == reelle:
+    if attendue and attendue == reelle:
         detail["raison"] = "zone_attendue"
         return "conforme"
     detail["raison"] = "autre_zone"
     def nom(i):
+        if not i and waste:
+            return "WasteDump"
         r = conn.execute("SELECT nom FROM dumping_areas WHERE id=?", (i,)).fetchone()
         return r["nom"] if r else "DA #%d" % i
     creer_alerte(
@@ -3952,6 +4765,28 @@ def sg_lire_missions_en_cours():
     return d["missions"]
 
 
+def sg_ids_missions_statut(statut):
+    """26/11 : ids SG des missions d'un statut donne (?action=missions&statut=...) ; None si SG illisible."""
+    sg_url, sg_token, _ = sg_conf()
+    if not sg_url or not sg_token:
+        return None
+    url = "%s?action=missions&statut=%s&token=%s" % (sg_url, quote(statut), quote(sg_token))
+    try:
+        with urllib.request.urlopen(url, timeout=30) as rep_:
+            d = json.loads(rep_.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+    if d.get("ok") is False or not isinstance(d.get("missions"), list):
+        return None
+    ids = set()
+    for m in d["missions"]:
+        try:
+            ids.add(int(m.get("id")))
+        except (TypeError, ValueError):
+            pass
+    return ids
+
+
 def reconcilier_missions(conn, missions_sg):
     """Aligne les missions locales sur la liste « en_cours » de SG.
     Retourne {"fermees": n, "abandonnees": n, "importees": n}."""
@@ -3972,10 +4807,31 @@ def reconcilier_missions(conn, missions_sg):
             par_dt[code] = m                       # la plus recente gagne
     local = missions_source() == "local"
     maintenant = now_iso()
-    for l in [dict(r) for r in conn.execute(
-            "SELECT id, dt_code, id_sg FROM missions WHERE statut='en_cours'")]:
+    ouvertes = [dict(r) for r in conn.execute(
+        "SELECT id, dt_code, id_sg FROM missions WHERE statut='en_cours'")]
+    # 26/11 : une mission close chez SG n'est pas forcement « terminee » : SG la marque « annulee » (tablette remise a
+    # zero, cycle perime) ou « abandonnee » (nouveau chargement). On garde CE statut ici (avant : tout devenait
+    # « termine », controle de dumping compris). SG illisible : on attend le passage suivant pour fermer.
+    a_fermer = [l for l in ouvertes if l["id_sg"] and l["id_sg"] not in ids_sg]
+    statut_sg = {}
+    if a_fermer:
+        for st_sg, st_local in (("annulee", "annulee"), ("abandonnee", "abandonnee")):
+            ids = sg_ids_missions_statut(st_sg)
+            if ids is None:
+                a_fermer = None
+                break
+            for i in ids:
+                statut_sg[i] = st_local
+    for l in ouvertes:
         if l["id_sg"]:
             if l["id_sg"] in ids_sg:
+                continue
+            if a_fermer is None:
+                continue                           # statut reel inconnu (SG illisible) : pas de fermeture a l'aveugle
+            if l["id_sg"] in statut_sg:
+                conn.execute("UPDATE missions SET statut=?, fin=? WHERE id=?", (statut_sg[l["id_sg"]], maintenant, l["id"]))
+                fin_surveillance_dt(conn, l["dt_code"])
+                res["abandonnees"] += 1
                 continue
             # le DT a decharge : la dumping area ATTEINTE (position) est-elle celle que
             # la teneur impose ? (avant : ce controle n'existait que dans /api/mission_fin,
@@ -3995,11 +4851,13 @@ def reconcilier_missions(conn, missions_sg):
             except Exception as e:
                 print("MISSIONS: controle de conformite impossible (%s)" % e)
             conn.execute("UPDATE missions SET statut='termine', fin=? WHERE id=?", (maintenant, l["id"]))
+            fin_surveillance_dt(conn, l["dt_code"])
             res["fermees"] += 1
         else:
             if local and l["dt_code"] not in par_dt:
                 continue                           # decision d'ici, SG ne la connait pas encore
             conn.execute("UPDATE missions SET statut='abandonnee', fin=? WHERE id=?", (maintenant, l["id"]))
+            fin_surveillance_dt(conn, l["dt_code"])
             res["abandonnees"] += 1
     conn.commit()
     a_importer = [m for m in par_dt.values()
@@ -4560,9 +5418,18 @@ def office_appel(action, payload_dict):
         url, data=corps, method="POST", headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(requete, timeout=10) as rep:
-            reponse = json.loads(rep.read().decode("utf-8"))
-            return bool(reponse.get("ok"))
+            brut = rep.read().decode("utf-8")
+        try:
+            reponse = json.loads(brut)
+        except ValueError:
+            # Apps Script rend une page HTML (connexion Google, deploiement supprime, quota) : on garde le debut
+            raise ValueError("reponse non JSON : %s" % re.sub(r"\s+", " ", brut)[:160])
+        if reponse.get("ok"):
+            _office_derniere_erreur["ok_le"] = now_iso()
+            return True
+        raise ValueError("refus de OT : %s" % str(reponse.get("erreur") or reponse)[:200])
     except Exception as e:
+        _office_derniere_erreur.update(erreur=str(e)[:300], le=now_iso(), action=action)
         print("OFFICE: appel '%s' echoue: %s" % (action, e))
         return False
 
@@ -4590,9 +5457,24 @@ def office_message(payload):
 # Ils partent en ?action=evenement, dans l'onglet `evenements` : exploitable
 # par le bureau (KPI, historique, carte), au lieu d'une phrase en
 # `notification`. Le reste (minage declare...) garde la notification texte.
-OFFICE_TENTATIVES_MAX = 10       # au-dela, l'entree reste en echec (visible)
-OFFICE_REESSAI_S = 30            # delai minimal entre deux essais d'une entree
+# 24/11 : le 23/11, 11 envois ont ete perdus (10:02 -> 15:11) : OT a refuse tous les appels pendant des heures et
+# les 10 essais d'une entree etaient epuises en 6 a 27 min (30 s entre deux essais). Maintenant : delai DOUBLE a
+# chaque echec (30 s, 1 min, 2 min... plafonne a 30 min), 20 essais (environ 7 h de couverture), raison de l'echec
+# gardee sur l'entree (colonne `erreur`) et dans l'etat de la liaison ; une alerte au CHAUFFEUR plus vieille que
+# OFFICE_CHAUFFEUR_MAX_S n'est plus envoyee (statut 'perime') : la voix d'une sortie de route deux heures apres
+# n'aurait aucun sens (l'evenement du bureau, lui, est toujours rejoue).
+OFFICE_TENTATIVES_MAX = 20       # au-dela, l'entree reste en echec (visible)
+OFFICE_REESSAI_S = 30            # delai apres le 1er echec ; double ensuite
+OFFICE_REESSAI_MAX_S = 1800      # plafond du delai entre deux essais
+OFFICE_CHAUFFEUR_MAX_S = 900     # au-dela, une notification au chauffeur est perimee
 OFFICE_FENETRE_REESSAI_H = 24    # on ne rejoue pas d'evenements plus vieux
+_office_derniere_erreur = {"erreur": "", "le": "", "action": "", "ok_le": ""}
+
+
+def office_delai_reessai(tentatives):
+    """Delai minimal (s) avant le prochain essai d'une entree deja tentee `tentatives` fois."""
+    n = max(1, int(tentatives or 0))
+    return min(OFFICE_REESSAI_MAX_S, OFFICE_REESSAI_S * (2 ** min(n - 1, 12)))
 OFFICE_LOT_MAX = 20              # entrees traitees par passage
 
 _TYPES_TERRAIN_OT = {
@@ -4661,6 +5543,10 @@ def boucle_office():
             try:
                 vider_file_office(conn)
                 rattraper_blasts_ot(conn)
+                try:
+                    pousser_geo_dt(conn)              # 24/11 : paquet geo des DT (si change)
+                except Exception as e:
+                    print("OFFICE: paquet geo DT : %s" % e)
             finally:
                 conn.close()
         except Exception as e:
@@ -4698,8 +5584,374 @@ def rattraper_blasts_ot(conn):
     for c in conn.execute(
             "SELECT id, numero FROM blasts WHERE clos_le<>'' "
             "AND (clos_ot IS NULL OR clos_ot=0) ORDER BY id").fetchall():
+        # 26/11 : un blast SUPPRIME dont un homonyme actif existe (reimporte) : sa cloture clorait le blast vivant
+        if conn.execute("SELECT 1 FROM blasts WHERE numero=? AND actif=1 AND id<>? AND (clos_le IS NULL OR clos_le='')",
+                        (c["numero"], c["id"])).fetchone():
+            conn.execute("UPDATE blasts SET clos_ot=1, ot_erreur=? WHERE id=?",
+                         ("cloture non envoyee : blast actif du meme nom (reimporte)", c["id"]))
+            conn.commit()
+            print("OT: cloture de %s non renvoyee (un blast actif porte ce nom)" % c["numero"])
+            continue
         ok, err = ot_clore_blast(conn, c["id"])
         print("OT: rattrapage cloture %s -> %s" % (c["numero"], "ok" if ok else err))
+
+
+# ------------------------------------------------------- paquet geo des DT (24/11) ---
+# Decision utilisateur du 24/11 : l'AFFECTATION et le CONTROLE DES CHECKPOINTS se font sur la tablette du DT.
+# La passerelle prepare ici le « paquet geo » (tout ce dont la tablette a besoin, rien d'autre) et le depose
+# sur Serveur_OT (POST ?action=geo_dt_ecrire), ou la tablette le lit (GET ?action=geo_dt, jeton tablette) :
+#   - blasts actifs NON CLOS : tous les polygones du DXF (minerai et sterile), drapeau minerai (Geosum),
+#     destination Geosum, source (pit), altitude du flitch (flitches superposes : le plus haut l'emporte) ;
+#   - consignes teneur -> dumping area (par source) ; dumping areas (polygone, type rompad / waste) ;
+#   - checkpoints actifs + interdictions par matiere (interdit_waste / interdit_ore, Senor > Trails) ;
+#   - trajectoires source -> dumping area (checkpoints OBLIGATOIRES dans l'ordre, minerai : phase 2) ;
+#   - reglages : tolerance d'affectation (Parametres > Liaisons), distance de depart du controle (Senor).
+# `version` = empreinte du contenu : la tablette ne retelecharge que si elle change.
+# `anomalies` = controles a la construction (un blast ne doit jamais etre oublie) : visibles par le bureau.
+GEO_DT_FORMAT = 1
+GEO_DT_INTERVALLE_S = 60
+_geo_dt_etat = {"version_ot": "", "envoye_le": "", "erreur": "", "dernier": 0.0}
+
+
+def reglage_precision_geo():
+    """24/11 (essai terrain) : precision exigee des positions de la tablette et distance de franchissement.
+    Le GPS du telephone (+-5 a 15 m) et une detection au rayon faisaient partir les alertes dans tous les sens.
+    - GEO_PRECISION_MODE : « gnss » (defaut : module GNSS USB, avec ou sans RTK : plus fiable que le GPS du telephone,
+      meme sans base), « rtk » (RTK seulement), « differentiel », « tous » (GPS du telephone aussi, essais) ;
+    - GEO_FRANCHISSEMENT_M (5) : distance perpendiculaire a la ligne d'un checkpoint (ou au bord d'une zone) pour
+      confirmer le cote ; un franchissement = un changement de cote confirme, dans le sens du deplacement ;
+    - GEO_VITESSE_MIN_KMH (3) : au-dessous, le cap GNSS n'est pas pris en compte."""
+    mode = str(param_lire("GEO_PRECISION_MODE", "gnss") or "gnss").strip().lower()
+    if mode not in ("gnss", "rtk", "differentiel", "tous"):
+        mode = "gnss"
+
+    def nombre(cle, defaut, bas, haut):
+        try:
+            v = float(str(param_lire(cle, "") or defaut).replace(",", "."))
+        except ValueError:
+            return defaut
+        return v if bas <= v <= haut else defaut
+    return {"mode": mode, "distance_m": nombre("GEO_FRANCHISSEMENT_M", 5.0, 0.5, 50),
+            "vitesse_min_kmh": nombre("GEO_VITESSE_MIN_KMH", 3.0, 0, 30)}
+
+
+def reglage_z_flitch():
+    """24/11 : Z de la pelle dans le choix du flitch (tablette ; meme regle chez Serveur_SG).
+    Le flitch le plus haut reste la regle ; le Z ecarte seulement un flitch AU-DESSUS de la pelle (deja mine,
+    pas clos) : niveau = mediane robuste des Z du cycle - hauteur d'antenne ; flitch ecarte si niveau < cote - marge.
+    Parametres (table params, Parametres > Liaisons) : Z_FLITCH_ACTIF (1), Z_HAUTEUR_ANTENNE_M (0 : prudent, le niveau
+    est alors surestime et rien n'est ecarte a tort), Z_MARGE_M (1.5)."""
+    def nombre(cle, defaut, bas, haut):
+        try:
+            v = float(str(param_lire(cle, "") or defaut).replace(",", "."))
+        except ValueError:
+            return defaut
+        return v if bas <= v <= haut else defaut
+    actif = str(param_lire("Z_FLITCH_ACTIF", "1")).strip().lower() not in ("0", "non", "false", "off")
+    return {"actif": 1 if actif else 0, "hauteur_antenne_m": nombre("Z_HAUTEUR_ANTENNE_M", 0.0, 0, 20),
+            "marge_m": nombre("Z_MARGE_M", 1.5, 0, 20)}
+
+
+def _geo_flitch(numero):
+    m = re.match(r"^\s*(\d+(?:[.,]\d+)?)", str(numero or ""))
+    return float(m.group(1).replace(",", ".")) if m else None
+
+
+def _geo_poly(brut):
+    """JSON de sommets -> [[x, y], ...] propre (sans doublon consecutif ni fermeture), ou None si inexploitable."""
+    try:
+        pts = json.loads(brut or "[]")
+    except (TypeError, ValueError):
+        return None
+    res = []
+    for p in pts if isinstance(pts, list) else []:
+        if not isinstance(p, (list, tuple)) or len(p) < 2:
+            return None
+        try:
+            x, y = float(p[0]), float(p[1])
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return None
+        q = [round(x, 3), round(y, 3)]
+        if not res or res[-1] != q:
+            res.append(q)
+    if len(res) >= 2 and res[0] == res[-1]:
+        res.pop()
+    return res if len(res) >= 3 else None
+
+
+def _geo_orient(a, b, c):
+    v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    return 0 if abs(v) < 1e-9 else (1 if v > 0 else -1)
+
+
+def _geo_coupe(a, b, c, d):
+    o = (_geo_orient(a, b, c), _geo_orient(a, b, d), _geo_orient(c, d, a), _geo_orient(c, d, b))
+    return 0 not in o and o[0] != o[1] and o[2] != o[3]
+
+
+def _geo_auto_intersecte(poly):
+    n = len(poly)
+    for i in range(n):
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            if _geo_coupe(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n]):
+                return True
+    return False
+
+
+def _geo_recouvre(p, q):
+    """Deux polygones se recouvrent-ils (surface commune) ? Boites d'abord, puis sommet dedans ou aretes croisees."""
+    if (max(a[0] for a in p) <= min(a[0] for a in q) or max(a[0] for a in q) <= min(a[0] for a in p) or
+            max(a[1] for a in p) <= min(a[1] for a in q) or max(a[1] for a in q) <= min(a[1] for a in p)):
+        return False
+    if any(point_in_polygon(a[0], a[1], q) for a in p) or any(point_in_polygon(a[0], a[1], p) for a in q):
+        return True
+    return any(_geo_coupe(p[i], p[(i + 1) % len(p)], q[j], q[(j + 1) % len(q)])
+               for i in range(len(p)) for j in range(len(q)))
+
+
+def geo_dt_construire(conn):
+    """Paquet geo des DT (dict) + anomalies de construction."""
+    anomalies = []
+    sources = {r["id"]: r["nom"] for r in conn.execute("SELECT id, nom FROM sources WHERE actif=1")}
+    src_par_nom = {str(v).strip().lower(): v for v in sources.values()}
+    blasts = []
+    for b in conn.execute("SELECT * FROM blasts WHERE actif=1 ORDER BY numero, id"):
+        if str(b["clos_le"] or "").strip():
+            continue                                    # blast termine : plus aucun chargement possible
+        brut_src = str(b["source_nom"] or "").strip()
+        src = src_par_nom.get(brut_src.lower(), brut_src)
+        if not src:
+            anomalies.append({"code": "blast_sans_source", "blast": b["numero"]})
+        blocs = []
+        for o in conn.execute("SELECT nom, sommets, minerai, destination FROM oreblocs "
+                              "WHERE blast_id=? AND actif=1 ORDER BY nom", (b["id"],)):
+            poly = _geo_poly(o["sommets"])
+            if not poly:
+                anomalies.append({"code": "bloc_polygone_invalide", "blast": b["numero"], "bloc": o["nom"]})
+                continue
+            if _geo_auto_intersecte(poly):
+                anomalies.append({"code": "bloc_auto_intersecte", "blast": b["numero"], "bloc": o["nom"]})
+            minerai = 1 if o["minerai"] == 1 else 0
+            dest = str(o["destination"] or "").strip()
+            if minerai and not dest:
+                anomalies.append({"code": "bloc_minerai_sans_destination", "blast": b["numero"], "bloc": o["nom"]})
+            blocs.append({"nom": o["nom"], "minerai": minerai, "destination": dest, "poly": poly})
+        if not blocs:
+            anomalies.append({"code": "blast_sans_polygone", "blast": b["numero"]})
+        elif not any(x["minerai"] for x in blocs):
+            anomalies.append({"code": "blast_sans_minerai", "blast": b["numero"],
+                              "detail": "Geosum absent ou non applique : tout le blast serait du waste"})
+        blasts.append({"numero": b["numero"], "flitch": flitch_blast(b["numero"], b["flitch"] if "flitch" in b.keys() else None), "source": src, "blocs": blocs})
+    # Blasts actifs qui se recouvrent (flitches superposes ou blast en double) : la tablette retient le flitch
+    # le plus haut ; le bureau doit clore les flitches termines.
+    for i in range(len(blasts)):
+        for j in range(i + 1, len(blasts)):
+            a, b = blasts[i], blasts[j]
+            if any(_geo_recouvre(p["poly"], q["poly"]) for p in a["blocs"] for q in b["blocs"]):
+                anomalies.append({"code": "blasts_superposes", "blast": a["numero"], "avec": b["numero"],
+                                  "detail": "le flitch le plus haut est retenu ; clore le flitch termine"})
+    zones = []
+    for d in conn.execute("SELECT nom, sommets FROM dumping_areas WHERE actif=1 ORDER BY nom"):
+        poly = _geo_poly(d["sommets"])
+        if not poly:
+            anomalies.append({"code": "zone_sans_polygone", "zone": d["nom"]})
+        zones.append({"nom": d["nom"], "type": type_zone(d["nom"]), "poly": poly or []})
+    if not any(z["type"] == "waste" for z in zones):
+        anomalies.append({"code": "aucune_zone_waste"})
+    consignes = []
+    for t in conn.execute("SELECT t.nom AS teneur, t.source_id, d.nom AS zone FROM teneurs t "
+                          "LEFT JOIN dumping_areas d ON d.id = t.dumping_area_id AND d.actif=1 "
+                          "WHERE t.actif=1 ORDER BY t.source_id, t.nom"):
+        src = sources.get(t["source_id"])
+        if not src:
+            continue
+        if not t["zone"]:
+            anomalies.append({"code": "teneur_sans_zone", "source": src, "teneur": t["teneur"]})
+            continue
+        consignes.append({"source": src, "teneur": str(t["teneur"]).strip(), "zone": t["zone"]})
+    exactes = {(c["source"].lower(), c["teneur"].upper()) for c in consignes}
+    par_teneur = {}
+    for c in consignes:
+        par_teneur.setdefault(c["teneur"].upper(), set()).add(c["zone"])
+    for bl in blasts:
+        for o in bl["blocs"]:
+            t = o["destination"].upper()
+            if not o["minerai"] or not t or (str(bl["source"]).lower(), t) in exactes:
+                continue
+            code = "consigne_autre_source" if len(par_teneur.get(t, ())) == 1 else "destination_sans_consigne"
+            anomalies.append({"code": code, "blast": bl["numero"], "bloc": o["nom"], "destination": o["destination"]})
+    checkpoints = []
+    for c in conn.execute("SELECT nom, x1, y1, x2, y2, COALESCE(interdit_waste, 1) AS iw, "
+                          "COALESCE(interdit_ore, 0) AS io FROM checkpoints WHERE actif=1 ORDER BY id"):
+        try:
+            a = [round(float(c["x1"]), 3), round(float(c["y1"]), 3)]
+            b = [round(float(c["x2"]), 3), round(float(c["y2"]), 3)]
+        except (TypeError, ValueError):
+            anomalies.append({"code": "checkpoint_invalide", "checkpoint": c["nom"]})
+            continue
+        if a == b:
+            anomalies.append({"code": "checkpoint_invalide", "checkpoint": c["nom"]})
+            continue
+        checkpoints.append({"nom": c["nom"], "a": a, "b": b,
+                            "interdit_waste": 1 if c["iw"] else 0, "interdit_ore": 1 if c["io"] else 0})
+    # Phase 2 : trajectoires (Senor > Trails > Trajectoires), checkpoints par NOM dans l'ordre.
+    noms_cp = {c["nom"] for c in checkpoints}
+    trajectoires = []
+    for t in conn.execute("SELECT s.nom AS source, d.nom AS zone, t.checkpoints FROM trajectoires t "
+                          "JOIN sources s ON s.id = t.source_id AND s.actif=1 "
+                          "JOIN dumping_areas d ON d.id = t.dumping_area_id AND d.actif=1 ORDER BY s.nom, d.nom"):
+        try:
+            ids = [int(i) for i in json.loads(t["checkpoints"] or "[]")]
+        except (TypeError, ValueError):
+            ids = []
+        noms = []
+        for i in ids:
+            c = conn.execute("SELECT nom FROM checkpoints WHERE id=? AND actif=1", (i,)).fetchone()
+            if c and c["nom"] in noms_cp:
+                noms.append(c["nom"])
+        if not noms:
+            anomalies.append({"code": "trajectoire_vide", "source": t["source"], "zone": t["zone"],
+                              "detail": "aucun checkpoint : le passage n'est pas controle"})
+            continue
+        trajectoires.append({"source": t["source"], "zone": t["zone"], "checkpoints": noms})
+    # Flux de minerai sans trajectoire : (source du blast, zone de la consigne) qu'aucune trajectoire ne couvre.
+    couvertes = {(x["source"].lower(), x["zone"].lower()) for x in trajectoires}
+    zone_de = {(c["source"].lower(), c["teneur"].upper()): c["zone"] for c in consignes}
+    flux = set()
+    for bl in blasts:
+        for o in bl["blocs"]:
+            z = zone_de.get((str(bl["source"]).lower(), o["destination"].upper())) if o["minerai"] else None
+            if z and (str(bl["source"]).lower(), z.lower()) not in couvertes:
+                flux.add((bl["source"], z))
+    for s_, z in sorted(flux):
+        anomalies.append({"code": "trajectoire_manquante", "source": s_, "zone": z,
+                          "detail": "minerai de ce pit vers cette zone : checkpoints de passage non controles"})
+    corps = {"v": GEO_DT_FORMAT, "tolerance_m": marge_affectation_m(), "depart_m": reglages_zones()["depart_m"],
+             "z": reglage_z_flitch(),
+             "precision": reglage_precision_geo(),
+             "blasts": blasts, "zones": zones, "consignes": consignes, "checkpoints": checkpoints,
+             "trajectoires": trajectoires}
+    corps["version"] = hashlib.sha256(
+        json.dumps(corps, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:12]
+    corps["genere_le"] = now_iso()
+    corps["anomalies"] = anomalies
+    return corps
+
+
+def pousser_geo_dt(conn, force=False):
+    """Depose le paquet geo sur Serveur_OT quand il a change (au plus une fois par minute). Rend (ok, erreur)."""
+    maintenant = time.time()
+    if not force and maintenant - _geo_dt_etat["dernier"] < GEO_DT_INTERVALLE_S:
+        return True, ""
+    _geo_dt_etat["dernier"] = maintenant
+    office_url, office_token = office_conf()
+    if not office_url or not office_token:
+        return False, "liaison Serveur_OT non configuree"
+    paquet = geo_dt_construire(conn)
+    deja = param_lire_base("GEO_DT_VERSION_OT", "")
+    if not force and paquet["version"] == deja:
+        _geo_dt_etat["version_ot"] = deja
+        return True, ""
+    ok, rep, err = ot_appel("geo_dt_ecrire", paquet)
+    if ok:
+        param_ecrire(conn, "GEO_DT_VERSION_OT", paquet["version"])
+        _geo_dt_etat.update(version_ot=paquet["version"], envoye_le=now_iso(), erreur="")
+        print("OT: paquet geo DT %s depose (%d blasts, %d checkpoints, %d anomalie(s))" % (
+            paquet["version"], len(paquet["blasts"]), len(paquet["checkpoints"]), len(paquet["anomalies"])))
+        return True, ""
+    _geo_dt_etat["erreur"] = err or "refus de Serveur_OT (action geo_dt_ecrire deployee ?)"
+    print("OT: paquet geo DT non depose : %s" % _geo_dt_etat["erreur"])
+    return False, _geo_dt_etat["erreur"]
+
+
+# ------------------------------------------- evenements decides par la tablette (24/11, phase 3) ---
+# Une tablette qui a le paquet geo publie la version dans ses positions MQTT (champ `geo`) et ses decisions sur
+# camions/<code>/evenement : checkpoint_interdit, checkpoint_saute, checkpoint_valide. Le chauffeur a deja eu le
+# bandeau et la voix sur la tablette : ici, l'alerte est seulement enregistree pour le BUREAU (Live, Alerts,
+# Serveur_OT), sans notification au chauffeur. Tant que la tablette est vue avec un paquet geo (GEO_TABLETTE_S),
+# la passerelle ne refait pas son propre controle des checkpoints pour ce DT.
+GEO_TABLETTE_S = 120
+_geo_tablettes = {}            # code DT -> {"version", "t"}
+_evt_tablette_vus = {}         # cle d'evenement -> epoch (QoS 1 : un message peut arriver deux fois)
+_evt_tablette_etat = {"recus": 0, "dernier": "", "validations": []}
+
+
+def geo_tablette_active(code):
+    g = _geo_tablettes.get(str(code))
+    return bool(g) and time.time() - g["t"] <= GEO_TABLETTE_S
+
+
+def clore_mission_tablette(code, d):
+    """25/11 : la tablette a efface son cycle (reinitialisation, cycle perime) : la mission en cours de ce cycle est
+    close ici tout de suite (statut « abandonnee », pas un dumping fait). Serveur_SG recoit aussi la fin par la file
+    de la tablette ; sa synchronisation n'aura plus rien a fermer."""
+    cle = str(d.get("cle") or "").strip()
+    conn = get_conn()
+    try:
+        LOCK.route("mqtt mission_close %s" % code)
+        with LOCK:
+            if cle:
+                lignes = conn.execute("SELECT id FROM missions WHERE dt_code=? AND statut='en_cours' AND cle_sg=?",
+                                      (code, cle)).fetchall()
+            else:
+                lignes = conn.execute("SELECT id FROM missions WHERE dt_code=? AND statut='en_cours'", (code,)).fetchall()
+            for r in lignes:
+                conn.execute("UPDATE missions SET statut='abandonnee', fin=? WHERE id=?", (now_iso(), r["id"]))
+            fin_surveillance_dt(conn, code)
+            conn.commit()
+        print("MISSIONS: %s a efface son cycle (%s) : %d mission(s) close(s)" % (code, d.get("motif") or "?", len(lignes)))
+    finally:
+        conn.close()
+
+
+def traiter_evenement_tablette(code, d):
+    typ = str(d.get("type") or "").strip()
+    if typ == "mission_close":                      # 25/11 : cycle efface sur la tablette
+        clore_mission_tablette(code, d)
+        return
+    if typ not in ("checkpoint_interdit", "checkpoint_saute", "checkpoint_valide",
+                   "mauvaise_direction", "demi_tour", "retour_direction"):     # 24/11 : alerte unique (bureau)
+        return
+    if d.get("geo_version"):
+        _geo_tablettes[code] = {"version": str(d["geo_version"]), "t": time.time()}
+    cle_evt = "%s|%s|%s|%s" % (code, d.get("cle") or "", typ, d.get("checkpoint") or "")
+    if typ in ("mauvaise_direction", "demi_tour", "retour_direction"):
+        cle_evt += "|%s" % (d.get("at") or "")      # l'alarme peut reprendre : chaque fait compte (QoS 1 : meme « at »)
+    maintenant = time.time()
+    for k in [k for k, t in _evt_tablette_vus.items() if maintenant - t > 6 * 3600]:
+        del _evt_tablette_vus[k]
+    if cle_evt in _evt_tablette_vus:
+        return
+    _evt_tablette_vus[cle_evt] = maintenant
+    _evt_tablette_etat["recus"] += 1
+    _evt_tablette_etat["dernier"] = "%s %s %s" % (code, typ, d.get("checkpoint") or "")
+    if typ == "checkpoint_valide":
+        _evt_tablette_etat["validations"] = (_evt_tablette_etat["validations"] + [{
+            "dt_code": code, "checkpoint": d.get("checkpoint"), "rang": d.get("rang"), "total": d.get("total"),
+            "le": now_iso()}])[-50:]
+        return
+    type_alerte = "checkpoint" if typ == "checkpoint_saute" else typ
+    message = texte_ascii(str(d.get("message") or "")) or "%s : %s (%s)" % (type_alerte, d.get("checkpoint") or "?", code)
+    conn = get_conn()
+    try:
+        LOCK.route("mqtt evenement %s" % code)
+        with LOCK:
+            conn.execute("INSERT INTO alertes (type, dt_code, message, voix_off, dest_office) VALUES (?, ?, ?, 0, 1)",
+                         (type_alerte, code, message))
+            evenement = {"type": type_alerte, "dt_code": code, "x": d.get("x"), "y": d.get("y"),
+                         "checkpoints": [d.get("checkpoint")], "message": message, "origine": "tablette",
+                         "cle": d.get("cle"), "geo_version": d.get("geo_version"),
+                         "cause": d.get("cause"), "zone": d.get("zone")}
+            enregistrer_pour_office(conn, {"alerte": evenement, "action": type_alerte})
+            conn.commit()
+    finally:
+        conn.close()
+    if _office_thread_actif["oui"]:
+        _office_reveil.set()
 
 
 # ------------------------------------------------ enregistrement du tracking ---
@@ -4719,6 +5971,36 @@ _tracking_verrou = threading.Lock()
 _tracking_repere = {"zone": None, "hemi": None, "at": 0.0}
 _tracking_purge = {"jour": ""}
 _jobs_video = {}                          # nom de fichier -> processus / thread
+
+
+def videos_jours():
+    """26/11 : duree de conservation des videos (Parametres > Passerelle), en jours ; 0 = jamais supprimees."""
+    try:
+        return max(0, min(int(float(param_lire("VIDEOS_JOURS", "30"))), 3650))
+    except (TypeError, ValueError):
+        return 30
+
+
+def purger_videos():
+    """Supprime les videos plus anciennes que videos_jours() (jamais l'enregistrement en cours). Rend leur nombre."""
+    jours = videos_jours()
+    if jours <= 0 or not os.path.isdir(ENREGISTREMENTS_DIR):
+        return 0
+    limite = datetime.now() - timedelta(days=jours)
+    n = 0
+    for f in os.listdir(ENREGISTREMENTS_DIR):
+        chemin = os.path.join(ENREGISTREMENTS_DIR, f)
+        if not f.endswith((".mp4", ".webm")) or os.path.abspath(chemin) == os.path.abspath(RECORD_PARTIE):
+            continue
+        try:
+            if datetime.fromtimestamp(os.path.getmtime(chemin)) < limite:
+                os.remove(chemin)
+                n += 1
+        except OSError:
+            pass
+    if n:
+        print("VIDEO: %d video(s) de plus de %d jour(s) supprimee(s)" % (n, jours))
+    return n
 
 
 def _entier_param(cle, defaut, mini=1, maxi=3650):
@@ -5287,6 +6569,10 @@ class _WebSocketCDP:
 
 # qualite choisie dans l'interface : (definition des captures, debit VP8 en kbit/s, qualite JPEG)
 RECORD_QUALITES = {"standard": (1.0, 3000, 90), "haute": (1.5, 6000, 95), "maximale": (2.0, 14000, 98)}
+# 26/11 : images ENCODEES par seconde reelle que le PC tient a chaque qualite (VP8 ~0,27 s/image en « haute »). Avant,
+# la video etait toujours a 10 images/s : en « haute » l'encodeur prenait du retard, une capture toutes les 4-5 s,
+# « moins de 3 images » sur un essai de 30 s et aucune video creee.
+RECORD_IMAGES_PAR_S = {"standard": 5, "haute": 2, "maximale": 1}
 
 
 def _filmer_carte(arret, etat_page, sortie_partie, vitesse=1.0, qualite="haute"):
@@ -5308,6 +6594,8 @@ def _filmer_carte(arret, etat_page, sortie_partie, vitesse=1.0, qualite="haute")
     intervalle = max(0.0, float(param_lire("REC_INTERVALLE_S", "0.2") or 0.2))     # pause entre deux captures
     fps = max(1, int(float(param_lire("REC_FPS", "10") or 10)))
     echelle, kbps, jpeg = RECORD_QUALITES.get(qualite, RECORD_QUALITES["haute"])    # definition / debit / jpeg
+    # images/s de la video limitees a ce que l'encodeur tient (x1 haute : 2 img/s ; x10 : 10 img/s conserves)
+    fps = max(1, min(fps, int(round(vitesse * RECORD_IMAGES_PAR_S.get(qualite, 2)))))
     debit = kbps * 1000
     # encodeur VP8 : debit eleve (le defaut d'OpenCV, ~200 kbit/s, donnait une image baveuse) et qualite maximale
     os.environ["OPENCV_FFMPEG_WRITER_OPTIONS"] = "b;%d|crf;6|quality;good|cpu-used;3" % debit
@@ -5348,7 +6636,7 @@ def _filmer_carte(arret, etat_page, sortie_partie, vitesse=1.0, qualite="haute")
                             for k, v in (etat_page or {}).items())
         # elements de l'interface exclus du film : le panneau titre « La flotte en mouvement »
         injection += ("document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');"
-                      "s.textContent='.map-title{display:none!important}';document.head.appendChild(s)});")
+                      "s.textContent='.map-title,#inviteSon{display:none!important}';document.head.appendChild(s)});")
         ws.appel("Page.addScriptToEvaluateOnNewDocument", {"source": injection})
         ws.appel("Page.navigate", {"url": saas + "/html/dashboard.html"})
         zone_js = ("(function(){var e=document.getElementById('map');if(!e)return null;var r=e.getBoundingClientRect();"
@@ -5407,7 +6695,11 @@ def _filmer_carte(arret, etat_page, sortie_partie, vitesse=1.0, qualite="haute")
             # duree de video = duree reelle / vitesse : l'image precedente reste affichee jusqu'a celle-ci
             cible = int((time.time() - debut_mono) / vitesse * fps)
             if precedente is not None:
-                for _ in range(max(0, cible - ecrites - 1)):
+                manque = max(0, cible - ecrites - 1)
+                if manque > fps * 5:                   # 26/11 : jamais de rattrapage sans fin (PC surcharge)
+                    ecrites += manque - fps * 5
+                    manque = fps * 5
+                for _ in range(manque):
                     ecr.write(precedente)
                     ecrites += 1
             ecr.write(img)
@@ -5536,12 +6828,7 @@ def boucle_video_auto():
                     ok, nom, msg = lancer_video(debut, fin, 120)
                     if ok and msg == "generation lancee":
                         print("VIDEO: %s -> %s" % (nom, msg))
-            limite = datetime.now() - timedelta(days=_entier_param("VIDEOS_JOURS", 30))
-            if os.path.isdir(ENREGISTREMENTS_DIR):
-                for f in os.listdir(ENREGISTREMENTS_DIR):
-                    chemin = os.path.join(ENREGISTREMENTS_DIR, f)
-                    if f.endswith((".mp4", ".webm")) and datetime.fromtimestamp(os.path.getmtime(chemin)) < limite:
-                        os.remove(chemin)
+            purger_videos()       # 26/11 : duree reglable dans Parametres (0 = jamais), enregistrement en cours epargne
         except Exception as e:
             print("VIDEO: boucle automatique en erreur (%s)" % e)
         time.sleep(120)
@@ -5739,17 +7026,103 @@ def chargements_un_passage():
                                      lu_le=now_iso(), lu_ts=time.time(), derniere_erreur="")
         else:
             _chargements_etat["derniere_erreur"] = err
+    if ok:
+        try:
+            voyages_depuis_chargements(d.get("lignes") or [])
+        except Exception as e:
+            print("VOYAGES: enregistrement depuis SG impossible (%s)" % e)
     return ok, err
+
+
+def voyages_depuis_chargements(lignes):
+    """25/11 (calibrage) : la table locale `voyages` (Inbox, Senor, Digplan, cumuls des blocs) n'etait plus alimentee
+    depuis que les missions se closent chez Serveur_SG (seul /api/mission_fin, que personne n'appelle, y ecrivait).
+    Chaque chargement de SG dont la mission est « termine » (dumping valide sur la tablette) devient ici un voyage,
+    une seule fois (cle du cycle) : toutes les pages comptent alors les memes voyages que les KPI du dashboard."""
+    a_creer = [r for r in lignes if str(r.get("mission_statut") or "").strip() == "termine" and str(r.get("cle") or "").strip()]
+    if not a_creer:
+        return 0
+    conn = get_conn()
+    n = 0
+    try:
+        for r in a_creer:
+            cle = str(r["cle"]).strip()
+            nom = str(r.get("orebloc") or "").strip()
+            ob = conn.execute("SELECT id, grade_cutoff FROM oreblocs WHERE nom=? ORDER BY actif DESC, id DESC LIMIT 1",
+                              (nom,)).fetchone() if nom else None
+            if nom and ob is None:
+                # 26/11 : meme bloc ecrit 257.5_ (Serveur_SG) ou 257_5_ (DXF)
+                canon = nom_flitch_canonique(nom)
+                for o in conn.execute("SELECT id, grade_cutoff, nom FROM oreblocs ORDER BY actif DESC, id DESC"):
+                    if nom_flitch_canonique(o["nom"]) == canon:
+                        ob = o
+                        break
+            da_nom = str(r.get("dumping_area") or "").strip()
+            da = conn.execute("SELECT id FROM dumping_areas WHERE nom=? LIMIT 1", (da_nom,)).fetchone() if da_nom else None
+            deja = conn.execute("SELECT id, orebloc_id, dumping_area_id FROM voyages WHERE cle_sg=?", (cle,)).fetchone()
+            if deja:
+                # 26/11 : ligne reclassee chez SG (chargements_recalculer) : le voyage suit son bloc et sa zone
+                nouv = (ob["id"] if ob else 0, da["id"] if da else 0)
+                if (deja["orebloc_id"] or 0, deja["dumping_area_id"] or 0) != nouv:
+                    conn.execute("UPDATE voyages SET orebloc_id=?, dumping_area_id=? WHERE id=?", nouv + (deja["id"],))
+                    n += 1
+                continue
+            dt = str(r.get("dt") or "").strip()
+            debut = str(r.get("debut") or "").replace("T", " ")[:19]
+            mi = conn.execute("SELECT id FROM missions WHERE dt_code=? AND debut=? ORDER BY id DESC LIMIT 1",
+                              (dt, debut)).fetchone()
+            try:
+                tonnes = float(r.get("tonnes"))
+            except (TypeError, ValueError):
+                tonnes = 0.0
+            detail = {"regle": "dumping_valide", "source": "Serveur_SG", "zone_attendue": da_nom,
+                      "raison": "dumping valide par la tablette (arret dans la zone de la mission)",
+                      "remarque": str(r.get("remarque") or "")}
+            conn.execute(
+                "INSERT INTO voyages (mission_id, dt_code, orebloc_id, dumping_area_id, teneur, volume_t, truck_factor, "
+                "conformite, conformite_detail, created_at, cle_sg) VALUES (?, ?, ?, ?, ?, ?, 1, 'conforme', ?, ?, ?)",
+                (mi["id"] if mi else 0, dt, ob["id"] if ob else 0, da["id"] if da else 0,
+                 float(ob["grade_cutoff"]) if ob and ob["grade_cutoff"] is not None else DEFAULT_CUTOFF_GRADE,
+                 tonnes, json.dumps(detail, ensure_ascii=True), debut or now_iso(), cle))
+            n += 1
+        if n:
+            conn.commit()
+            print("VOYAGES: %d voyage(s) enregistre(s) ou reclasse(s) depuis les chargements de Serveur_SG (dumping valide)" % n)
+    finally:
+        conn.close()
+    return n
+
+
+VOYAGES_RATTRAPAGE_JOURS = 3      # au demarrage : voyages des jours precedents (passerelle arretee la nuit, PC redemarre)
+
+
+def rattraper_voyages():
+    """26/11 : la passerelle ne lit en boucle que le jour en cours ; un PC redemarre apres minuit ne voyait jamais les
+    dumpings valides de la veille (Inbox, Senor sans les voyages d'hier). Une fois au demarrage : J-1 a J-3."""
+    for k in range(1, VOYAGES_RATTRAPAGE_JOURS + 1):
+        jour = (datetime.now() - timedelta(days=k)).strftime("%Y-%m-%d")
+        ok, d, err = sg_lire_chargements(jour)
+        if ok:
+            voyages_depuis_chargements(d.get("lignes") or [])
+        else:
+            print("VOYAGES: rattrapage du %s impossible (%s)" % (jour, err))
 
 
 def boucle_chargements():
     _chargements_etat["actif"] = True
+    rattrape = False
     while True:
         try:
             chargements_un_passage()
         except Exception as e:
             _chargements_etat["derniere_erreur"] = "%s: %s" % (type(e).__name__, e)
             print("CHARGEMENTS: erreur %s" % e)
+        if not rattrape:
+            rattrape = True
+            try:
+                rattraper_voyages()
+            except Exception as e:
+                print("VOYAGES: rattrapage impossible (%s)" % e)
         sg_url, sg_token, _ = sg_conf()
         time.sleep(chargements_intervalle() if (sg_url and sg_token) else 30)
 
@@ -5807,12 +7180,14 @@ def _grade_bloc(nom, destination):
 SUIVI_ARRET_MIN = 2     # DT immobile (< SEUIL_IMMOBILISATION_M) depuis 2 min : « A l'arret » et non plus « Roulage »
 
 
-def etat_suivi_dt(statut, offroad, age_s, mission, immo_min=0):
+def etat_suivi_dt(statut, offroad, age_s, mission, immo_min=0, en_ligne=False):
     """Etat lisible, par priorite : signal_perdu > hors_piste > chargement >
     mission > attente_loin > arret > roulage. « Roulage » n'est plus le fourre-tout : un DT
-    immobile depuis SUIVI_ARRET_MIN minutes (sans chargement ni mission) est « arret »."""
+    immobile depuis SUIVI_ARRET_MIN minutes (sans chargement ni mission) est « arret ».
+    25/11 : position perimee MAIS tablette connectee en MQTT (presence « en_ligne » recente) :
+    « sans_position » (GNSS sans fix, module debranche), plus « signal_perdu »."""
     if age_s is None or age_s > SUIVI_SIGNAL_PERDU_S:
-        return "signal_perdu"
+        return "sans_position" if en_ligne else "signal_perdu"
     if offroad:
         return "hors_piste"
     if statut == "ODT":
@@ -5876,11 +7251,18 @@ def suivi_engins(conn, depuis=None, jusqua=None):
                     vitesse = d / dt_s * 3.6
                     cap = (math.degrees(math.atan2(pts[0]["x"] - prec["x"], pts[0]["y"] - prec["y"])) + 360) % 360
                     break
+            vg = vitesse_gnss(e["code"], age_max_s=30)
+            fiche["vitesse_source"] = "gnss" if vg is not None else "positions"
+            if vg is not None:
+                vitesse = vg
             fiche["vitesse_kmh"] = round(min(vitesse, 120), 1)
             fiche["cap_deg"] = None if cap is None else round(cap)
             immo = _secondes_depuis(e["immobilise_depuis"]) / 60.0 if e["immobilise_depuis"] else 0
             fiche["immobile_min"] = round(immo, 1)
-            fiche["etat"] = etat_suivi_dt(e["statut"], fiche["offroad"], age, m, immo)
+            pres = _mqtt_etat["presence"].get(e["code"]) or {}
+            en_ligne = pres.get("etat") == "en_ligne" and time.time() - pres.get("t", 0) < MQTT_EN_LIGNE_S
+            fiche["mqtt_en_ligne"] = en_ligne
+            fiche["etat"] = etat_suivi_dt(e["statut"], fiche["offroad"], age, m, immo, en_ligne)
             compte[fiche["etat"]] = compte.get(fiche["etat"], 0) + 1
         else:
             fiche["etat"] = "minage" if e["statut"] == "OMEX" else "attente"
@@ -5905,27 +7287,67 @@ def suivi_engins(conn, depuis=None, jusqua=None):
             "periode": {"depuis": depuis or "", "jusqua": jusqua or ""}, "trajets": trajets}
 
 
+CYCLE_OUVERT_MAX_H = 3          # un cycle « en cours » plus vieux n'est plus « en attente du dumping » mais « non clos »
+
+
 def kpi_chargements(conn, lignes, jour):
     """Memes KPI que kpi_voyages, calcules sur les lignes « Chargements » de SG.
     Teneur Au (onces) et nature minerai/sterile : table locale oreblocs, par nom
     (le referentiel est pousse depuis Dig Plan). Un orebloc inconnu localement
     est classe par son code de teneur et sa destination, sans onces."""
-    blocs = {r["nom"]: r for r in conn.execute(
-        "SELECT nom, au_teneur, minerai, destination FROM oreblocs")}
+    # 26/11 : Serveur_SG ecrit le flitch avec un point (257.5_LMP2_...), le DXF avec un souligne (257_5_LMP2_...) :
+    # les deux ecritures designent le meme bloc (sinon « bloc inconnu », onces a 0)
+    blocs = {}
+    for r in conn.execute("SELECT nom, au_teneur, minerai, destination FROM oreblocs ORDER BY actif"):
+        blocs[r["nom"]] = r
+        blocs[nom_flitch_canonique(r["nom"])] = r
     res = {"jour": jour, "voyages": len(lignes), "minerais_t": 0.0, "waste_t": 0.0, "onces": 0.0,
            "grades": {g: {"tonnes": 0.0, "onces": 0.0} for g in ("high", "medium", "low", "marginal")},
-           "sans_bloc": 0, "sans_tonnage": 0, "blocs_inconnus": 0}
+           "sans_bloc": 0, "sans_tonnage": 0, "blocs_inconnus": 0, "attente_dumping": 0, "annules": 0,
+           "non_clos": 0, "chargements": len(lignes)}
+    # 25/11 (calibrage du dashboard) : « voyages » = dumpings VALIDES (ce qui est compte en production) ;
+    # « chargements » garde le total brut.
+    res["voyages"] = 0
+    limite_ouvert = (datetime.now() - timedelta(hours=CYCLE_OUVERT_MAX_H)).strftime("%Y-%m-%d %H:%M:%S")
     for r in lignes:
+        # 25/11 (decision utilisateur) : un chargement n'est compte qu'une fois son DUMPING VALIDE (mission « termine »).
+        # Serveur_SG joint le statut de la mission du cycle (mission_statut) ; sans ce champ (SG pas encore redeploye),
+        # ancien comportement : compte des le chargement.
+        if "mission_statut" in r:
+            st = str(r.get("mission_statut") or "").strip()
+            if st in ("annulee", "abandonnee"):
+                # annulee : cycle efface sur la tablette (reinitialisation, cycle perime) ; abandonnee : mission close
+                # sans dumping valide (nouveau chargement, decision du bureau). Aucun des deux ne compte.
+                res["annules"] += 1
+                continue
+            if st != "termine":
+                if str(r.get("debut") or "").replace("T", " ")[:19] < limite_ouvert:
+                    res["non_clos"] += 1         # cycle reste ouvert depuis des heures : tablette jamais revenue
+                else:
+                    res["attente_dumping"] += 1  # mission en cours : pas encore de dumping valide
+                continue
+        res["voyages"] += 1
         nom = str(r.get("orebloc") or "").strip()
         if not nom:
-            res["sans_bloc"] += 1          # chargement hors de tout orebloc : non classe
+            # 25/11 : chargement hors de tout bloc du Geosum = WASTE (affectation de la tablette : « hors blast ») ;
+            # compte en waste s'il a un tonnage, au lieu de rester « non classe »
+            # SG ecrit la teneur vide et la remarque « hors de tout orebloc » : regle du projet (23/11) = sterile
+            teneur_txt = str(r.get("teneur") or "").strip().upper()
+            hors_geosum = "hors de tout orebloc" in str(r.get("remarque") or "").lower()
+            if teneur_txt in ("W", "WASTE", "STERILE", "WST") or hors_geosum:
+                try:
+                    res["waste_t"] += float(r.get("tonnes"))
+                except (TypeError, ValueError):
+                    res["sans_tonnage"] += 1
+                continue
+            res["sans_bloc"] += 1          # chargement hors de tout orebloc, sans teneur : non classe
             continue
         try:
             t = float(r.get("tonnes"))
         except (TypeError, ValueError):
             res["sans_tonnage"] += 1       # pas de truck_factor_t : compte, sans tonnage
             continue
-        b = blocs.get(nom)
+        b = blocs.get(nom) or blocs.get(nom_flitch_canonique(nom))
         if b is None:
             res["blocs_inconnus"] += 1
         dest = r.get("teneur") or (b["destination"] if b is not None else "")
@@ -5987,6 +7409,10 @@ def lignes_chargements_calendaire(jour):
         return None
     lignes = d.get("lignes") or []
     _cache_jours_sg[jour] = (time.time(), lignes)
+    try:
+        voyages_depuis_chargements(lignes)      # 26/11 : un jour passe relu (filtre « shift d'hier ») complete aussi les voyages
+    except Exception as e:
+        print("VOYAGES: enregistrement depuis SG impossible (%s)" % e)
     return lignes
 
 
@@ -6303,7 +7729,8 @@ def comptes_mqtt_etat():
     return {"configure": bool(conf), "public": conf.get("public") or {},
             "dernier_rapprochement": _mqtt_etat["dernier_rapprochement"], "erreur": _mqtt_etat["erreur"],
             "ot_envoye_le": _mqtt_etat["ot_envoye_le"], "ot_erreur": _mqtt_etat["ot_erreur"],
-            "abonne": _mqtt_etat["abonne"], "messages": _mqtt_etat["messages"], "comptes": lignes}
+            "abonne": _mqtt_etat["abonne"], "messages": _mqtt_etat["messages"],
+            "publication": dict(_mqtt_desc_etat, active=_MQTT_CLIENT is not None), "comptes": lignes}
 
 
 def boucle_comptes_mqtt():
@@ -6319,6 +7746,10 @@ def boucle_comptes_mqtt():
             jetons_diffuser()
         except Exception as e:
             print("Jetons des tablettes : erreur %s" % e)
+        try:
+            reglages_diffuser()
+        except Exception as e:
+            print("Reglages SG : erreur %s" % e)
         try:
             connexion_diffuser()
         except Exception as e:
@@ -6356,8 +7787,13 @@ def appliquer_message_mqtt(sujet, charge):
     if nature == "connexion":
         _mqtt_etat["presence"][code] = {"etat": str(d.get("etat") or ""), "le": now_iso(), "t": time.time()}
         return
+    if nature == "evenement":
+        traiter_evenement_tablette(code, d)
+        return
     if nature != "position":
         return
+    if d.get("geo"):
+        _geo_tablettes[code] = {"version": str(d.get("geo")), "t": time.time()}
     try:
         x, y = float(d["x"]), float(d["y"])
     except (KeyError, TypeError, ValueError):
@@ -6375,6 +7811,8 @@ def appliquer_message_mqtt(sujet, charge):
                                              horodatage=instant, relayer=False, canal="mqtt-relais", auth="aucune")
                 except (TypeError, ValueError):
                     pass
+            if d.get("vit_src") == "gnss" and d.get("vit_kmh") is not None:
+                noter_vitesse_gnss(code, d.get("vit_kmh"), instant)
             appliquer_position_engin(conn, code, "DT", x, y, horodatage=instant, relayer=False, canal="mqtt", auth="broker")
     finally:
         conn.close()
@@ -6408,7 +7846,7 @@ def boucle_suivi_mqtt():
             def connecte(cl, u, f, rc, p=None):
                 _mqtt_etat["abonne"] = not rc.is_failure
                 if not rc.is_failure:
-                    cl.subscribe([("camions/+/position", 0), ("camions/+/connexion", 1)])
+                    cl.subscribe([("camions/+/position", 0), ("camions/+/connexion", 1), ("camions/+/evenement", 1)])
 
             def deconnecte(cl, u, f, rc, p=None):
                 _mqtt_etat["abonne"] = False
@@ -6458,12 +7896,18 @@ def vider_file_office(conn):
                 ecoule = (maintenant - datetime.strptime(
                     e["derniere_tentative"], "%Y-%m-%d %H:%M:%S")).total_seconds()
             except ValueError:
-                ecoule = OFFICE_REESSAI_S
-            if ecoule < OFFICE_REESSAI_S:
+                ecoule = OFFICE_REESSAI_MAX_S
+            if ecoule < office_delai_reessai(e.get("tentatives")):
                 continue
         ok = False
         try:
             payload = json.loads(e["payload"])
+            if isinstance(payload.get("chauffeur"), dict) and office_age_s(e) > OFFICE_CHAUFFEUR_MAX_S:
+                conn.execute("UPDATE office_sync SET statut='perime', erreur=? WHERE id=?",
+                             ("notification au chauffeur perimee (non envoyee apres %d s)" % OFFICE_CHAUFFEUR_MAX_S,
+                              e["id"]))
+                conn.commit()
+                continue
             typage = office_evenement(payload)
             if typage:
                 event_id = e.get("event_id") or office_event_id(e)
@@ -6481,20 +7925,41 @@ def vider_file_office(conn):
             elif isinstance(payload.get("chauffeur"), dict):
                 c = payload["chauffeur"]
                 ok = office_appel("notification",
-                                  {"profil": c.get("profil", ""), "message": c.get("message", "")})
+                                  {"profil": c.get("profil", ""), "message": c.get("message", ""),
+                                   "uid": office_notification_uid(e)})
             else:
                 ok = office_appel("notification",
-                                  {"profil": "", "message": office_message(payload)})
+                                  {"profil": "", "message": office_message(payload),
+                                   "uid": office_notification_uid(e)})
         except Exception as ex:
+            _office_derniere_erreur.update(erreur="traitement : %s" % ex, le=now_iso(), action="")
             print("OFFICE: erreur traitement office_sync#%s: %s" % (e["id"], ex))
         conn.execute(
             "UPDATE office_sync SET statut=?, envoie_le=?, derniere_tentative=?, "
-            "tentatives=COALESCE(tentatives, 0) + 1 WHERE id=?",
-            ("envoye" if ok else "echec", now_iso() if ok else "", now_iso(), e["id"]))
+            "tentatives=COALESCE(tentatives, 0) + 1, erreur=? WHERE id=?",
+            ("envoye" if ok else "echec", now_iso() if ok else "", now_iso(),
+             "" if ok else _office_derniere_erreur["erreur"], e["id"]))
         conn.commit()
         if not ok:
             break       # OT injoignable ou refus : on reessaiera au prochain passage
     conn.commit()
+
+
+def office_age_s(entree):
+    """Age (s) d'une entree office_sync (created_at est en UTC : datetime('now') de SQLite)."""
+    try:
+        cree = datetime.strptime(str(entree.get("created_at") or ""), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return 0.0
+    return max(0.0, (datetime.utcnow() - cree).total_seconds())
+
+
+def office_notification_uid(entree):
+    """24/11 (E3) : cle d'idempotence d'une notification, stable d'un essai a l'autre (meme ligne office_sync).
+    Serveur_OT (version du 24/11 (2)) ne recree pas une notification deja ecrite avec ce uid ; une version
+    plus ancienne ignore le champ."""
+    base = "%s|%s|%s" % (entree.get("id"), entree.get("created_at") or "", entree.get("payload") or "")
+    return "PSG-%s-%s" % (entree.get("id"), hashlib.sha256(base.encode("utf-8")).hexdigest()[:12])
 
 
 def enregistrer_pour_office(conn, payload_dict):
@@ -6512,7 +7977,23 @@ def enregistrer_pour_office(conn, payload_dict):
 # Serveur_OT, `profil` = code du DT, `message` = "[type] TEXTE ASCII". L'app
 # DT lit ?action=notifications, garde les lignes de son code et les dit a
 # voix haute. Pas d'accuse de lecture. Desactivable : ALERTES_CHAUFFEUR=0.
-TYPES_ALERTE_CHAUFFEUR = ("offroad", "deviation", "retour_piste", "retour_trajet", "checkpoint")
+# 24/11 (decision utilisateur) : UN SEUL BUT, eviter un dumping au mauvais endroit ; UNE SEULE ALERTE au chauffeur,
+# « mauvaise_direction » (+ demi_tour, retour_direction). Sortie de route, deviation, checkpoint saute / interdit,
+# zones : enregistrees pour le BUREAU seulement (page Alertes : statuts Off-route / Wrong Dumping).
+TYPES_ALERTE_CHAUFFEUR = ("mauvaise_direction", "demi_tour", "retour_direction")
+# Classement du bureau (page Alertes) : chaque type d'alerte -> statut.
+STATUT_ALERTE = {
+    "offroad": "off_route", "retour_piste": "off_route", "deviation": "off_route", "retour_trajet": "off_route",
+    "checkpoint": "off_route",
+    "mauvaise_direction": "wrong_dumping", "demi_tour": "wrong_dumping", "retour_direction": "wrong_dumping",
+    "checkpoint_interdit": "wrong_dumping", "zone_approche": "wrong_dumping", "zone_interdite": "wrong_dumping",
+    "dumping_hors_zone": "wrong_dumping", "non_conforme": "wrong_dumping",
+}
+
+
+def statut_alerte(type_alerte):
+    """Statut du bureau d'une alerte : 'off_route', 'wrong_dumping' ou '' (autres : mission, arrivee...)."""
+    return STATUT_ALERTE.get(str(type_alerte or ""), "")
 
 
 def alertes_chauffeur_actives():
@@ -6527,7 +8008,10 @@ def texte_ascii(texte):
 
 
 def message_chauffeur(evenement):
-    """[type] message, ou None si ce n'est pas une alerte pour le chauffeur."""
+    """[type] message, ou None si ce n'est pas une alerte pour le chauffeur.
+    24/11 : la passerelle n'alerte plus le chauffeur (la tablette decide) sauf SERVEUR_CONTROLE_DIRECTION = 1."""
+    if not serveur_controle_direction():
+        return None
     typ = (evenement or {}).get("type")
     if typ not in TYPES_ALERTE_CHAUFFEUR or not evenement.get("dt_code"):
         return None
@@ -7129,6 +8613,44 @@ def appel_gas(url, jeton, action, corps_dict, delai=15):
         return False
 
 
+def marge_affectation_m():
+    """Tolerance (m) autour d'un bloc de minerai pour l'AFFECTATION : reglage de la console, 0 par defaut (polygone strict).
+    Distincte de MARGE_OREBLOC_M, qui ne sert qu'au statut des engins."""
+    try:
+        v = float(str(param_lire("MARGE_AFFECTATION_M", "")).replace(",", "."))
+    except ValueError:
+        return MARGE_AFFECTATION_DEFAUT_M
+    return v if 0 <= v <= 50 else MARGE_AFFECTATION_DEFAUT_M
+
+
+_reglages_etat = {"sg": "", "dernier_essai": 0.0}
+
+
+def reglages_diffuser(forcer=False):
+    """Envoie la marge d'affectation a Serveur_SG quand elle change (empreinte : valeur + adresse), echec retente toutes les 10 min."""
+    url, jeton, _ = sg_conf()
+    if not url or not jeton:
+        _reglages_etat["sg"] = "serveur non configure"
+        return
+    valeur = marge_affectation_m()
+    rz = reglage_z_flitch()                    # 24/11 : Z de la pelle (choix du flitch), meme regle chez SG
+    empreinte = _empreinte("marge|%s|%s|%s" % (valeur, json.dumps(rz, sort_keys=True), url))
+    if not forcer and param_lire_base("REGLAGES_EMPREINTE_SG", "") == empreinte:
+        return
+    if not forcer and _reglages_etat["sg"] and time.time() - _reglages_etat["dernier_essai"] < CONNEXION_REESSAI_S:
+        return
+    _reglages_etat["dernier_essai"] = time.time()
+    if appel_gas(url, jeton, "reglages_ecrire", {"marge_affectation_m": valeur, "z": rz}):
+        conn = get_conn()
+        try:
+            param_ecrire(conn, "REGLAGES_EMPREINTE_SG", empreinte)
+        finally:
+            conn.close()
+        _reglages_etat["sg"] = ""
+    else:
+        _reglages_etat["sg"] = "refuse ou sans reponse (action reglages_ecrire deployee ?)"
+
+
 def jetons_diffuser(forcer=False):
     """Envoie secret + generations a Serveur_OT et Serveur_SG quand elles changent (empreinte), echec retente toutes les 10 min."""
     conn = get_conn()
@@ -7426,7 +8948,7 @@ ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/jetons", 
                    "/api/oreblocs_nettoyer", "/api/orebloc_maj", "/api/affecter", "/api/verifier_deviation",
                    "/api/missions/", "/api/engins", "/api/mission_fin")
 ECRITURES_SENOR = ("/api/oreblocs", "/api/dumping_area", "/api/teneur", "/api/sources", "/api/checkpoints", "/api/trajectoire",
-                   "/api/travels_roads", "/api/geographic_system")
+                   "/api/travels_roads", "/api/geographic_system", "/api/geofencing")
 # 21/11 : /api/minage_declare = le SPOTTER declare depuis son app (tout profil connecte) ; le formulaire du bureau l'utilise aussi
 ECRITURES_TOUS = ("/api/alertes", "/api/blasts", "/api/ot_blasts", "/api/enregistrements", "/api/minage_declare")
 _roles_cache = {}                       # jeton -> (role | None, expire)
@@ -7562,6 +9084,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, tablette_connecter(body.get("adresse")))
             if not _RE_SERIE.match(serie):
                 return self._send_json(400, {"error": "numero de serie invalide"})
+            if sous == "supprimer":
+                # 23/11 : oublie une tablette deja detectee (ligne de la base). Refuse si elle est connectee
+                # (elle serait redetectee aussitot). Une adresse Wi-Fi perimee est aussi deconnectee d'adb.
+                t = next((x for x in tablettes_lister(conn)["tablettes"] if x["serie"] == serie), None)
+                if t and t["connectee"]:
+                    return self._send_json(409, {"error": "tablette connectee : debranchez-la d'abord"})
+                conn.execute("DELETE FROM tablettes WHERE serial=?", (serie,))
+                conn.commit()
+                for adr in {serie, (t or {}).get("adresse_adb") or ""}:
+                    if _RE_ADRESSE.match(adr) and ":" in adr:
+                        adb_lancer(["disconnect", adr], timeout=10)
+                return self._send_json(200, {"ok": True, "serie": serie})
             if sous == "wifi":
                 return self._send_json(200, tablette_ouvrir_wifi(str(body.get("adresse_adb") or serie)))
             if sous == "affecter":
@@ -7741,6 +9275,38 @@ class Handler(BaseHTTPRequestHandler):
             codes = [c for c in (qs.get("codes") or [""])[0].split(",") if c] or None
             return self._send_fichier(200, tracking_csv(depuis, jusqua, codes).encode("utf-8"), "text/csv; charset=utf-8",
                                       "tracking-%s_%s.csv" % (depuis[:10], depuis[11:16].replace(":", "h")))
+        # 23/11 : rapports de dumping (verdict par mission) et de sorties de route. depuis / jusqua = ms epoch.
+        if path in ("/api/rapports/dumping", "/api/rapports/offroad") and method == "GET":
+            qs = self._qs()
+            try:
+                d_ms = float((qs.get("depuis") or ["0"])[0] or 0)
+                j_ms = float((qs.get("jusqua") or ["0"])[0] or 0) or time.time() * 1000 + 86400000
+            except ValueError:
+                return self._send_json(400, {"error": "depuis / jusqua : millisecondes"})
+            dt = (qs.get("dt") or [""])[0].strip().upper()
+            fmt = (qs.get("format") or [""])[0]
+            conn = get_conn()
+            try:
+                if path.endswith("dumping"):
+                    loc = lambda ms: datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+                    rep_ = rapport_dumping(conn, loc(d_ms), loc(j_ms), dt)
+                    if fmt == "csv":
+                        cols = ["mission", "mission_sg", "dt_code", "debut", "fin", "matiere", "zone_prevue", "verdict",
+                                "zone_dumping", "demi_tours"]
+                        return self._send_fichier(200, _csv(rep_["missions"], cols).encode("utf-8"),
+                                                  "text/csv; charset=utf-8", "dumping-report.csv")
+                else:
+                    utc = lambda ms: datetime.utcfromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+                    rep_ = rapport_offroad(conn, utc(d_ms), utc(j_ms), dt)
+                    if fmt == "csv":
+                        cols = ["dt_code", "created_at", "distance_m", "retour_le", "retour_duree_s", "retour_cause", "message"]
+                        return self._send_fichier(200, _csv(rep_["offroad"], cols).encode("utf-8"),
+                                                  "text/csv; charset=utf-8", "offroad-report.csv")
+                return self._send_json(200, rep_)
+            finally:
+                conn.close()
+        if path == "/api/geofencing/reglages" and method == "GET":
+            return self._send_json(200, reglages_zones())
         if path == "/api/enregistrements" and method == "GET":
             return self._send_json(200, enregistrements_liste())
         if path == "/api/enregistrements/fichier" and method == "GET":
@@ -7866,6 +9432,42 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
         # KPI du jour : depuis le releve des Chargements de SG (19/11). HORS
         # verrou : un autre jour declenche un appel au cloud (quelques s).
+        # 25/11 (calibrage) : objectifs « Planned » des KPI, gardes sur la passerelle (et plus seulement dans le
+        # navigateur de la page Live) : le dashboard de tout poste lit les memes objectifs.
+        if path == "/api/kpi/objectifs":
+            if method == "GET":
+                try:
+                    obj = json.loads(param_lire_base("KPI_OBJECTIFS", "") or "{}")
+                except ValueError:
+                    obj = {}
+                return self._send_json(200, {"objectifs": obj if isinstance(obj, dict) else {}})
+            if method == "POST":
+                try:
+                    body = json.loads(self._read_body() or b"{}")
+                except ValueError:
+                    return self._send_json(400, {"error": "JSON attendu"})
+                obj = body.get("objectifs") if isinstance(body, dict) else None
+                if not isinstance(obj, dict):
+                    return self._send_json(400, {"error": "objectifs attendus : {cle: {planned, alerte}}"})
+                propre = {}
+                for k, v in obj.items():
+                    if not re.match(r"^[a-z]{2,10}$", str(k)) or not isinstance(v, dict):
+                        continue
+                    e = {}
+                    for prop in ("planned", "alerte"):
+                        try:
+                            if v.get(prop) not in (None, ""):
+                                e[prop] = float(v.get(prop))
+                        except (TypeError, ValueError):
+                            pass
+                    propre[k] = e
+                conn = get_conn()
+                try:
+                    param_ecrire(conn, "KPI_OBJECTIFS", json.dumps(propre))
+                finally:
+                    conn.close()
+                return self._send_json(200, {"ok": True, "objectifs": propre})
+            return self._send_json(405, {"error": "methode non supportee"})
         if path == "/api/kpi" and method == "GET":
             jour = (self._qs().get("jour") or [None])[0]
             depuis = (self._qs().get("depuis") or [""])[0]
@@ -7887,7 +9489,8 @@ class Handler(BaseHTTPRequestHandler):
             conn = get_conn()
             try:
                 body = json.loads(self._read_body() or b"{}")
-                ligne = trame_pelle_test(conn, str(body.get("pelle") or ""), str(body.get("mode") or ""), str(body.get("dt") or "DT-01"))
+                ligne = trame_pelle_test(conn, str(body.get("pelle") or ""), str(body.get("mode") or ""), str(body.get("dt") or "DT-01"), str(body.get("type") or "prop"),
+                                         ((body.get("E"), body.get("N")) if body.get("E") not in (None, "") and body.get("N") not in (None, "") else None))
                 ok, motif = xbee_emettre(ligne)
             except (ValueError, TypeError) as e:
                 return self._send_json(400, {"error": str(e)})
@@ -8074,6 +9677,30 @@ class Handler(BaseHTTPRequestHandler):
                     if not extraits:
                         return self._send_json(422, {
                             "error": "aucun polygone exploitable (>= 3 points) dans ce fichier"})
+                    # 26/11 (decision utilisateur) : BANCS SUPERPOSES / DOUBLONS. Un blast est identifie par son nom
+                    # integral, mais les noms de ses blocs ne portent pas la profondeur. Un autre blast actif de meme
+                    # flitch / source / numero, ou des blocs dont le nom est deja pris, se melangeraient : on alerte et
+                    # on ne valide pas (avant : blocs renommes « (2) », que le fichier de base et le Geosum ne
+                    # reconnaissaient plus).
+                    pref = prefixe_blast(numero)
+                    if pref:
+                        for autre in conn.execute("SELECT id, numero FROM blasts WHERE actif=1 AND id>0"):
+                            if autre["numero"] != numero and prefixe_blast(autre["numero"]) == pref:
+                                return self._send_json(409, {
+                                    "error": "Import refuse (superposition) : le blast %s est encore actif et ses blocs "
+                                             "portent les memes noms (%s_...). Verifier, puis supprimer l'ancien blast "
+                                             "avant d'importer %s." % (autre["numero"], pref, numero),
+                                    "blast_id": autre["id"]})
+                    pris = []
+                    for nom, _ in extraits:
+                        prop = proprietaire_nom_bloc(conn, nom)
+                        if prop:
+                            pris.append("%s (blast %s)" % (nom, prop))
+                    if pris:
+                        return self._send_json(409, {
+                            "error": "Import refuse : %d bloc(s) de ce fichier existent deja dans un blast actif : %s%s. "
+                                     "Verifier le fichier, ou supprimer l'ancien blast avant de reimporter."
+                                     % (len(pris), ", ".join(pris[:3]), " ..." if len(pris) > 3 else "")})
                     # carte : le contenu part sur disque, seule l'URL est stockee
                     if body.get("map_contenu"):
                         body["map_url"] = deposer_carte(
@@ -8089,13 +9716,8 @@ class Handler(BaseHTTPRequestHandler):
                     blast_id = cur.lastrowid
                     blocs_crees = []
                     for nom, sommets in extraits:
-                        # unicite du nom d'orebloc dans la base
+                        # 26/11 : noms deja pris refuses plus haut : le nom du fichier est garde tel quel
                         nom_final = nom
-                        if nom_bloc_pris(conn, nom_final):
-                            n = 2
-                            while nom_bloc_pris(conn, "%s (%d)" % (nom, n)):
-                                n += 1
-                            nom_final = "%s (%d)" % (nom, n)
                         # teneur de coupure heritee d'un eventuel champ grade_cutoff
                         grade = _num(body.get("grade_cutoff")) or DEFAULT_CUTOFF_GRADE
                         c2 = conn.execute(
@@ -8141,6 +9763,9 @@ class Handler(BaseHTTPRequestHandler):
                         if not ok_onglets:
                             print("OT: onglets blocs #%s non synchronises (%s)" % (
                                 blast_id, onglets_err))
+                    # 26/11 (essai DT-15) : Serveur_SG doit recopier le referentiel tout de suite ; sinon il classe les
+                    # chargements avec ses anciens blocs (« hors de tout orebloc » -> compte en waste au lieu du minerai)
+                    threading.Thread(target=sg_sync_ref_fond, args=("blast %s cree" % numero,), daemon=True).start()
                     return self._send_json(201, {
                         "ok": True, "id": blast_id, "numero": numero,
                         "nb_blocs": len(blocs_crees), "oreblocs": blocs_crees,
@@ -8263,6 +9888,13 @@ class Handler(BaseHTTPRequestHandler):
                         cle_bloc(o["nom"]): o["id"] for o in conn.execute(
                             "SELECT id, nom FROM oreblocs WHERE blast_id=? AND actif=1",
                             (bid,))}
+                    # 26/11 : un bloc NOUVEAU dont le nom appartient deja a un autre blast actif : refus (plus de « (2) »)
+                    pris = ["%s (blast %s)" % (nom, proprietaire_nom_bloc(conn, nom)) for nom, _ in extraits
+                            if not existants.get(cle_bloc(nom)) and proprietaire_nom_bloc(conn, nom)]
+                    if pris:
+                        return self._send_json(409, {
+                            "error": "Modification refusee : %d bloc(s) existent deja dans un autre blast actif : %s%s. "
+                                     "Verifier le fichier." % (len(pris), ", ".join(pris[:3]), " ..." if len(pris) > 3 else "")})
                     for nom, sommets in extraits:
                         oid = existants.get(cle_bloc(nom))
                         if oid:
@@ -8323,8 +9955,13 @@ class Handler(BaseHTTPRequestHandler):
                     # Supprimer = clore puis retirer (18/11) : sans la
                     # cloture, la tablette ne verrait qu'une ABSENCE et
                     # garderait le blast 24 h.
-                    clore_blast_local(conn, bid)
-                    ot_clore_blast(conn, bid)
+                    # 26/11 : la cloture vise le NOM INTEGRAL ; si un autre blast actif porte ce nom (doublon), elle le
+                    # clorait aussi : on ne l'envoie pas (le blast est seulement retire)
+                    homonyme = conn.execute("SELECT id FROM blasts WHERE numero=? AND actif=1 AND id<>?",
+                                            (numero, bid)).fetchone() if numero else None
+                    if not homonyme:
+                        clore_blast_local(conn, bid)
+                        ot_clore_blast(conn, bid)
                     conn.execute("UPDATE blasts SET actif=0 WHERE id=?", (bid,))
                     conn.execute("UPDATE oreblocs SET actif=0 WHERE blast_id=?", (bid,))
                     conn.commit()
@@ -8334,8 +9971,17 @@ class Handler(BaseHTTPRequestHandler):
                     # Les lignes du blast disparaissent aussi des onglets
                     # dig_bloc / ore_dig_bloc, en INTEGRALITE : c'est la seule
                     # voie pour que la tablette n'affiche plus ses polygones.
-                    ok_onglets, onglets_err = ot_supprimer_blast_onglets(
-                        numero_lot_onglets(conn, bid, numero))
+                    # 26/11 : la purge des onglets se fait par prefixe de bloc ; un autre blast actif de meme prefixe
+                    # (superposition anterieure aux refus) perdrait ses lignes : on ne purge pas dans ce cas
+                    pref = prefixe_blast(numero)
+                    voisin = pref and any(prefixe_blast(r["numero"]) == pref for r in conn.execute(
+                        "SELECT numero FROM blasts WHERE actif=1 AND id<>?", (bid,)))
+                    if voisin:
+                        ok_onglets, onglets_err = False, "purge des onglets evitee : un autre blast actif a les memes noms de blocs"
+                    else:
+                        ok_onglets, onglets_err = ot_supprimer_blast_onglets(
+                            numero_lot_onglets(conn, bid, numero))
+                    threading.Thread(target=sg_sync_ref_fond, args=("blast %s supprime" % numero,), daemon=True).start()
                     return self._send_json(200, {"ok": True, "id": bid,
                                                  "ot_sync": ot_ok, "ot_erreur": ot_err,
                                                  "onglets_sync": ok_onglets,
@@ -8447,13 +10093,78 @@ class Handler(BaseHTTPRequestHandler):
                 # "Y, X, id, Nom" (deux lignes par checkpoint). Le nom est
                 # l'identifiant : un nom deja present est MIS A JOUR (on
                 # recharge le fichier corrige sans tout supprimer).
+                # 24/11 : paquet geo des DT (affectation + checkpoints sur la tablette) : contenu, anomalies, depot OT.
+                if path == "/api/geo_dt" and method == "GET":
+                    paquet = geo_dt_construire(conn)
+                    if self._qs().get("resume", ["0"])[0] == "1":
+                        paquet = dict({k: paquet[k] for k in ("version", "genere_le", "tolerance_m", "depart_m", "anomalies")}, **{
+                            "blasts": [{"numero": b["numero"], "flitch": b["flitch"], "source": b["source"],
+                                        "blocs": len(b["blocs"]), "minerai": sum(o["minerai"] for o in b["blocs"])}
+                                       for b in paquet["blasts"]],
+                            "zones": len(paquet["zones"]), "consignes": len(paquet["consignes"]),
+                            "checkpoints": len(paquet["checkpoints"]),
+                            "trajectoires": [{"source": t["source"], "zone": t["zone"], "checkpoints": t["checkpoints"]}
+                                             for t in paquet["trajectoires"]]})
+                    paquet["depot_ot"] = dict(_geo_dt_etat, version_ot=param_lire_base("GEO_DT_VERSION_OT", ""))
+                    paquet["tablettes"] = {c: {"version": g["version"], "vu_il_y_a_s": int(time.time() - g["t"]),
+                                               "controle_checkpoints": geo_tablette_active(c)}
+                                           for c, g in _geo_tablettes.items()}
+                    paquet["evenements_tablettes"] = _evt_tablette_etat
+                    return self._send_json(200, paquet)
+
+                if path == "/api/geo_dt/pousser" and method == "POST":
+                    ok, err = pousser_geo_dt(conn, force=True)
+                    return self._send_json(200 if ok else 502, {"ok": ok, "erreur": err,
+                                                                "version": param_lire_base("GEO_DT_VERSION_OT", "")})
+
                 if path == "/api/checkpoints" and method == "GET":
                     rows = [dict(r) for r in conn.execute(
-                        "SELECT id, nom, x1, y1, x2, y2, created_at FROM checkpoints "
-                        "WHERE actif=1 ORDER BY id")]
+                        "SELECT id, nom, x1, y1, x2, y2, created_at, COALESCE(interdit_waste, 1) AS interdit_waste, "
+                        "COALESCE(interdit_ore, 0) AS interdit_ore FROM checkpoints WHERE actif=1 ORDER BY id")]
                     for r in rows:
                         r["longueur_m"] = round(distance(r["x1"], r["y1"], r["x2"], r["y2"]), 1)
                     return self._send_json(200, {"checkpoints": rows})
+
+                # 23/11 : reglages du geofencing ore / waste {"actif", "approche_m", "arret_s", "rayon_m"}.
+                if path == "/api/geofencing/reglages" and method == "POST":
+                    body = json.loads(self._read_body() or b"{}")
+                    if "actif" in body:
+                        param_ecrire(conn, "ZONES_ACTIF", "1" if body["actif"] else "0")
+                    for champ, cle, bornes in (("approche_m", "ZONE_APPROCHE_M", (0, 1000)), ("arret_s", "ARRET_DUMP_S", (5, 1800)),
+                                               ("rayon_m", "ARRET_RAYON_M", (2, 100)), ("vitesse_kmh", "ARRET_VITESSE_KMH", (0.1, 10)),
+                                               ("depart_m", "GEOFENCE_DEPART_M", (0, 500))):
+                        if champ in body:
+                            try:
+                                v = float(body[champ])
+                            except (TypeError, ValueError):
+                                return self._send_json(400, {"error": "%s : nombre attendu" % champ})
+                            if not bornes[0] <= v <= bornes[1]:
+                                return self._send_json(400, {"error": "%s : entre %g et %g" % (champ, bornes[0], bornes[1])})
+                            param_ecrire(conn, cle, "%g" % v)
+                    return self._send_json(200, reglages_zones())
+
+                # 23/11 : trajectoire WASTE = les checkpoints INTERDITS a un DT charge de waste.
+                # {"interdits": [ids]} : ces checkpoints passent a 1, tous les autres checkpoints actifs a 0.
+                # 23/11 : idem pour le ORE (/api/checkpoints_ore) : checkpoints interdits a un DT charge de minerai.
+                if path in ("/api/checkpoints_waste", "/api/checkpoints_ore") and method == "POST":
+                    colonne = "interdit_ore" if path.endswith("_ore") else "interdit_waste"
+                    body = json.loads(self._read_body() or b"{}")
+                    liste = body.get("interdits")
+                    if not isinstance(liste, list):
+                        return self._send_json(400, {"error": "interdits (liste d'ids) requis"})
+                    try:
+                        ids = sorted({int(i) for i in liste})
+                    except (TypeError, ValueError):
+                        return self._send_json(400, {"error": "ids invalides"})
+                    actifs = {r["id"] for r in conn.execute("SELECT id FROM checkpoints WHERE actif=1")}
+                    inconnus = [i for i in ids if i not in actifs]
+                    if inconnus:
+                        return self._send_json(404, {"error": "checkpoint(s) introuvable(s) : %s" % inconnus})
+                    conn.execute("UPDATE checkpoints SET %s=0 WHERE actif=1" % colonne)
+                    for i in ids:
+                        conn.execute("UPDATE checkpoints SET %s=1 WHERE id=?" % colonne, (i,))
+                    conn.commit()
+                    return self._send_json(200, {"ok": True, "interdits": ids, "autorises": sorted(actifs - set(ids))})
 
                 if path == "/api/checkpoints_import" and method == "POST":
                     body = json.loads(self._read_body() or b"{}")
@@ -8882,7 +10593,12 @@ class Handler(BaseHTTPRequestHandler):
                                           derniere_ligne=param_lire("REMONTEES_DERNIERE_LIGNE", ""),
                                           derniere_ligne_trajet=param_lire("TRAJET_DERNIERE_LIGNE", "")),
                         "alerte_rouge_min": alerte_rouge_minutes(),
+                        "marge_affectation_m": marge_affectation_m(),
+                        "z_flitch": reglage_z_flitch(),
+                        "precision_geo": reglage_precision_geo(),
+                        "marge_affectation_sg": _reglages_etat["sg"],
                         "missions_source": missions_source(),
+                        "videos_jours": videos_jours(),
                         "surcharge_env": [c for c in _PARAMS_RELAIS
                                           if os.environ.get(c, "")],
                     })
@@ -8895,9 +10611,20 @@ class Handler(BaseHTTPRequestHandler):
                               "sg_token": "SG_TOKEN",
                               "sg_intervalle_s": "SG_INTERVALLE_S",
                               "alerte_rouge_min": "ALERTE_ROUGE_MIN",
+                              "marge_affectation_m": "MARGE_AFFECTATION_M",
                               "missions_source": "MISSIONS_SOURCE",
                               "remontees_intervalle_s": "REMONTEES_INTERVALLE_S",
-                              "chargements_intervalle_s": "CHARGEMENTS_INTERVALLE_S"}
+                              "chargements_intervalle_s": "CHARGEMENTS_INTERVALLE_S",
+                              # 24/11 : Z de la pelle dans le choix du flitch (reglage_z_flitch)
+                              "z_flitch_actif": "Z_FLITCH_ACTIF",
+                              "z_hauteur_antenne_m": "Z_HAUTEUR_ANTENNE_M",
+                              "z_marge_m": "Z_MARGE_M",
+                              # 24/11 : precision des positions et distance de franchissement (reglage_precision_geo)
+                              "geo_precision_mode": "GEO_PRECISION_MODE",
+                              "geo_franchissement_m": "GEO_FRANCHISSEMENT_M",
+                              "geo_vitesse_min_kmh": "GEO_VITESSE_MIN_KMH",
+                              # 26/11 : conservation des videos du tracking (jours, 0 = jamais supprimees)
+                              "videos_jours": "VIDEOS_JOURS"}
                     ecrits = []
                     for champ, cle in connus.items():
                         if champ not in body:
@@ -8909,8 +10636,51 @@ class Handler(BaseHTTPRequestHandler):
                                 return self._send_json(400, {"error": "missions_source : cloud ou local"})
                         if cle.endswith("_URL"):
                             valeur = valeur.rstrip("/")
+                        if cle == "MARGE_AFFECTATION_M":
+                            try:
+                                m = float(valeur.replace(",", "."))
+                            except ValueError:
+                                m = -1
+                            if not (0 <= m <= 50):
+                                return self._send_json(400, {"error": "marge d'affectation : un nombre de 0 a 50 metres"})
+                            valeur = "%g" % m
+                        if cle in ("Z_HAUTEUR_ANTENNE_M", "Z_MARGE_M") and valeur != "":
+                            try:
+                                m = float(valeur.replace(",", "."))
+                            except ValueError:
+                                m = -1
+                            if not (0 <= m <= 20):
+                                return self._send_json(400, {"error": "%s : un nombre de 0 a 20 metres" % champ})
+                            valeur = "%g" % m
+                        if cle == "GEO_PRECISION_MODE" and valeur != "":
+                            valeur = valeur.lower()
+                            if valeur not in ("gnss", "rtk", "differentiel", "tous"):
+                                return self._send_json(400, {"error": "geo_precision_mode : gnss, rtk, differentiel ou tous"})
+                        if cle in ("GEO_FRANCHISSEMENT_M", "GEO_VITESSE_MIN_KMH") and valeur != "":
+                            try:
+                                m = float(valeur.replace(",", "."))
+                            except ValueError:
+                                m = -1
+                            bornes = (0.5, 50) if cle == "GEO_FRANCHISSEMENT_M" else (0, 30)
+                            if not (bornes[0] <= m <= bornes[1]):
+                                return self._send_json(400, {"error": "%s : un nombre de %g a %g" % (champ, bornes[0], bornes[1])})
+                            valeur = "%g" % m
+                        if cle == "VIDEOS_JOURS":
+                            try:
+                                j = int(float(valeur.replace(",", ".") or "30"))
+                            except ValueError:
+                                j = -1
+                            if not (0 <= j <= 3650):
+                                return self._send_json(400, {"error": "conservation des videos : 0 (jamais) a 3650 jours"})
+                            valeur = str(j)
+                        if cle == "Z_FLITCH_ACTIF" and valeur != "":
+                            valeur = "0" if valeur.lower() in ("0", "non", "false", "off") else "1"
                         param_ecrire(conn, cle, valeur)
                         ecrits.append(champ)
+                    if "videos_jours" in ecrits:
+                        threading.Thread(target=purger_videos, daemon=True).start()     # applique tout de suite
+                    if "marge_affectation_m" in ecrits or any(c.startswith("z_") for c in ecrits):
+                        threading.Thread(target=reglages_diffuser, kwargs={"forcer": True}, daemon=True).start()
                     gene = [c for c in _PARAMS_RELAIS if os.environ.get(c, "")]
                     return self._send_json(200, {
                         "ok": True, "enregistres": ecrits,
@@ -9312,6 +11082,7 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute(
                         "UPDATE missions SET statut='termine', fin=? WHERE id=?",
                         (now_iso(), mission_id))
+                    fin_surveillance_dt(conn, mission["dt_code"])
                     cur = conn.execute(
                         "INSERT INTO voyages (mission_id, dt_code, orebloc_id, dumping_area_id, "
                         "teneur, volume_t, truck_factor, conformite, conformite_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -9605,7 +11376,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 if path == "/api/office/sync" and method == "GET":
                     rows = [dict(r) for r in conn.execute("SELECT * FROM office_sync ORDER BY id DESC")]
-                    return self._send_json(200, {"office_sync": rows})
+                    return self._send_json(200, {"office_sync": rows, "liaison": dict(_office_derniere_erreur)})
 
                 if path == "/" and method == "GET":
                     return self.serve_static("/index.html")
@@ -9682,7 +11453,12 @@ def main():
     if "conformite_detail" not in cols:
         conn.execute("ALTER TABLE voyages ADD COLUMN conformite_detail TEXT DEFAULT ''")
         conn.commit()
+    if "cle_sg" not in cols:
+        # 25/11 : cle du cycle Serveur_SG (un chargement au dumping valide = un voyage, une seule fois)
+        conn.execute("ALTER TABLE voyages ADD COLUMN cle_sg TEXT DEFAULT ''")
         conn.commit()
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_voyages_cle_sg ON voyages(cle_sg)")
+    conn.commit()
     # sources : codes admis dans le nom des blasts (garde-fou LMP2/LWP2)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(sources)")]
     if "codes" not in cols:
@@ -9737,7 +11513,8 @@ def main():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(office_sync)")]
     for nom, decl in (("tentatives", "INTEGER DEFAULT 0"),
                       ("derniere_tentative", "TEXT DEFAULT ''"),
-                      ("event_id", "TEXT DEFAULT ''")):
+                      ("event_id", "TEXT DEFAULT ''"),
+                      ("erreur", "TEXT DEFAULT ''")):          # 24/11 : raison du dernier echec
         if nom not in cols:
             conn.execute("ALTER TABLE office_sync ADD COLUMN %s %s" % (nom, decl))
     conn.commit()
@@ -9781,9 +11558,19 @@ def main():
             conn.execute("ALTER TABLE missions ADD COLUMN %s %s" % (nom, decl))
     # missions : checkpoints de l'itineraire (lus chez Serveur_SG) et leur suivi
     for nom, decl in (("cp_json", "TEXT DEFAULT '[]'"),
-                      ("cp_etat", "TEXT DEFAULT '{}'")):
+                      ("cp_etat", "TEXT DEFAULT '{}'"),
+                      ("alertes_vues", "TEXT DEFAULT '{}'")):     # 24/11 : alertes deja signalees (survit a une relance)
         if nom not in cols:
             conn.execute("ALTER TABLE missions ADD COLUMN %s %s" % (nom, decl))
+    # checkpoints : interdiction pour le WASTE (23/11). Tout checkpoint est interdit par defaut (1) ;
+    # la section « Trajectoire Waste » de Senor en retire ceux que le waste peut franchir.
+    cols_cp = [r[1] for r in conn.execute("PRAGMA table_info(checkpoints)")]
+    if "interdit_waste" not in cols_cp:
+        conn.execute("ALTER TABLE checkpoints ADD COLUMN interdit_waste INTEGER DEFAULT 1")
+        conn.commit()
+    if "interdit_ore" not in cols_cp:
+        conn.execute("ALTER TABLE checkpoints ADD COLUMN interdit_ore INTEGER DEFAULT 0")
+        conn.commit()
     # Les missions 'devoie' de l'ancienne detection restent telles quelles
     # (historique) : les reactiver pourrait bloquer l'affectation d'un DT.
     conn.commit()
@@ -9868,6 +11655,9 @@ def main():
     # MQTT (19/11) : comptes des DT d'apres la flotte + positions en direct
     threading.Thread(target=boucle_comptes_mqtt, daemon=True).start()
     threading.Thread(target=boucle_suivi_mqtt, daemon=True).start()
+    # 26/11 : client de PUBLICATION vers les DT (alertes, missions, reglages) connecte des le demarrage, et plus
+    # seulement au premier envoi : la console montre tout de suite si la descente MQTT fonctionne.
+    threading.Thread(target=_mqtt_client, daemon=True).start()
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Server_Senor_Geology demarre sur http://%s:%d" % (HOST, PORT))

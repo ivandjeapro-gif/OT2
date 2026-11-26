@@ -220,6 +220,33 @@
                                 <div class="sg2-status" id="sgTrajStatus"></div>
 
                                 <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Checkpoints interdits par matière <small id="sgWasteCompte"></small></h2>
+                                    <div class="sg-actions">
+                                        <button type="button" class="sg-btn" id="sgWasteTout" title="Interdire tous les checkpoints au waste">Waste : tout interdire</button>
+                                        <button type="button" class="sg-btn" id="sgWasteRien" title="Autoriser tous les checkpoints au waste">Waste : tout autoriser</button>
+                                        <button type="button" class="sg-btn sg-btn-ok" id="sgWasteSave" disabled>Enregistrer</button>
+                                    </div>
+                                </div>
+                                <div class="sg-vide" style="text-align:left">Un DT chargé ne doit jamais franchir un checkpoint coché pour sa matière : <b>Waste</b> (hors Geosum, bloc stérile ou dumping area Waste) ou <b>Ore</b> (minerai). L'alerte « Checkpoint interdit » est levée, une fois le DT éloigné de la pelle. Préconfiguration : entrées des RomPads interdites au waste, accès aux Waste dumps interdits au ore, pistes des pits autorisées à tous. Un checkpoint de la trajectoire propre à la mission n'est jamais interdit.</div>
+                                <div class="sg-liste" id="sgWasteList"></div>
+                                <div class="sg2-status" id="sgWasteStatus"></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
+                                    <h2 class="sg-pane-titre">Zones interdites &amp; dumping</h2>
+                                </div>
+                                <div class="sg-vide" style="text-align:left">Waste : tous les RomPads sont interdits. Ore : tous les Waste dumps (nom contenant « waste ») sont interdits. Entrer pour faire demi-tour est permis ; un arrêt prolongé dans la zone compte comme un dumping. Contrôle une fois le DT chargé et éloigné de la pelle.</div>
+                                <form class="sg-form" id="sgZonesForm">
+                                    <label><input type="checkbox" id="sgZonesActif" /> Actif</label>
+                                    <label title="Le contrôle (checkpoints, zones) démarre quand le DT chargé s'est éloigné de cette distance de son point de chargement">Contrôle à <input type="number" id="sgZonesDepart" class="sg-input" min="0" max="500" step="5" style="width:4.5em" /> m de la pelle</label>
+                                    <label>Pré-alerte à <input type="number" id="sgZonesApproche" class="sg-input" min="0" max="1000" step="5" style="width:5.5em" /> m</label>
+                                    <label>Dumping = arrêt de <input type="number" id="sgZonesArret" class="sg-input" min="5" max="1800" step="5" style="width:5em" /> s</label>
+                                    <label>vitesse GNSS &le; <input type="number" id="sgZonesVitesse" class="sg-input" min="0.1" max="10" step="0.1" style="width:4.5em" /> km/h</label>
+                                    <label>(sinon rayon de <input type="number" id="sgZonesRayon" class="sg-input" min="2" max="100" step="1" style="width:4.5em" /> m)</label>
+                                    <button type="submit" class="sg-btn sg-btn-ok">Enregistrer</button>
+                                </form>
+                                <div class="sg2-status" id="sgZonesStatus"></div>
+
+                                <div class="sg-pane-head sg-pane-head-2">
                                     <h2 class="sg-pane-titre">Points de passage <small id="sgChkCompte"></small></h2>
                                     <div class="sg-actions">
                                         <button type="button" class="sg-btn" id="btnSgImportChk" title="CSV : colonnes Y, X, id, Nom, avec deux lignes par nom (les deux extrémités). Degrés convertis en UTM ; un nom déjà présent est mis à jour."><i class="fas fa-file-import"></i> Importer CSV</button>

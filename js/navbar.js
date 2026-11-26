@@ -215,7 +215,7 @@
             if (a.acquittee) return false;
             if (window.MSUI && typeof MSUI.aTraiter === 'function') return MSUI.aTraiter(a);
             // pages sans MSUI : meme regle (ni info, ni rejet de blast, shift en cours)
-            if (/^(fin_mission|arrivee|mission|retour_piste|retour_trajet|blast_rejete)$/.test(a.type)) return false;
+            if (a.info !== undefined ? Number(a.info) : /^(fin_mission|arrivee|mission|retour_piste|retour_trajet|retour_direction|demi_tour|checkpoint_valide|zone_approche|blast_rejete)$/.test(a.type)) return false;
             var d = new Date(), h = d.getHours();
             d.setMinutes(0, 0, 0);
             if (h >= 6 && h < 18) d.setHours(6); else if (h >= 18) d.setHours(18); else { d.setDate(d.getDate() - 1); d.setHours(18); }

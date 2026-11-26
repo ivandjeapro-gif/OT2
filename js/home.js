@@ -82,7 +82,8 @@
 
   function rendreStats(etat) {
     const alertes = (etat.alertes || []).filter(MSUI.aTraiter);
-    const missions = (etat.missions || []).filter((m) => m.statut === 'en_cours');
+    const missions = (etat.missions || []).filter(MSUI.missionActive);
+    const nonCloses = (etat.missions || []).filter(MSUI.missionNonClose).length;
 
     const set = (id, val) => {
       const el = document.getElementById(id);
@@ -90,7 +91,7 @@
     };
 
     // Parc total : referentiel SaaS (sync_flotte, camions seulement : les excavatrices ne roulent pas de missions).
-    const parc = (typeof window.PARC_ENGINS === 'number' && window.PARC_ENGINS > 0) ? window.PARC_ENGINS : null;
+    const parc = COMPTEURS.flotte || ((typeof window.PARC_ENGINS === 'number' && window.PARC_ENGINS > 0) ? window.PARC_ENGINS : null);
     if (COMPTEURS.suivi) {
       const enDirect = COMPTEURS.suivi.filter((e) => e.type === 'DT' && e.etat !== 'signal_perdu').length;
       set('statEngins', parc ? (enDirect + ' / ' + parc) : String(enDirect));
@@ -99,6 +100,7 @@
     }
     set('statAlertes', String(alertes.length).padStart(2, '0'));
     set('statMissions', String(missions.length).padStart(2, '0'));
+    set('statMissionsNote', nonCloses ? nonCloses + ' cycle' + (nonCloses > 1 ? 's' : '') + ' jamais clos' : '');
     const k = COMPTEURS.kpi;
     set('statTonnage', k ? formaterTonnage(Math.round((Number(k.minerais_t) || 0) + (Number(k.waste_t) || 0))) : '—');
   }
@@ -106,9 +108,18 @@
   function lireCompteurs() {
     const base = basePasserelleHome();
     fetch(base + '/api/suivi_dt', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { COMPTEURS.suivi = Array.isArray(d) ? d : (d && (d.engins || null)); if (TERRAIN.etat) rendreStats(TERRAIN.etat); })
+      .then((d) => {
+        COMPTEURS.suivi = Array.isArray(d) ? d : (d && (d.engins || null));
+        COMPTEURS.flotte = d && Number(d.flotte_dt) > 0 ? Number(d.flotte_dt) : null;   // meme flotte que le dashboard
+        if (TERRAIN.etat) rendreStats(TERRAIN.etat);
+      })
       .catch(() => { COMPTEURS.suivi = null; });
-    fetch(base + '/api/kpi', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+    // 25/11 (calibrage) : tonnage du SHIFT en cours, comme le dashboard par defaut
+    const deux = (n) => String(n).padStart(2, '0');
+    const loc = (t) => { const x = new Date(t); return x.getFullYear() + '-' + deux(x.getMonth() + 1) + '-' + deux(x.getDate()) + ' ' + deux(x.getHours()) + ':' + deux(x.getMinutes()) + ':00'; };
+    const deb = MSUI.debutShiftMs ? MSUI.debutShiftMs() : null;
+    const q = deb ? '?depuis=' + encodeURIComponent(loc(deb)) + '&jusqua=' + encodeURIComponent(loc(deb + 12 * 3600000)) : '';
+    fetch(base + '/api/kpi' + q, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { COMPTEURS.kpi = d && typeof d.minerais_t !== 'undefined' ? d : null; if (TERRAIN.etat) rendreStats(TERRAIN.etat); })
       .catch(() => { COMPTEURS.kpi = null; });
   }
@@ -459,6 +470,24 @@
     setInterval(lireTerrain, 60000);
     setInterval(lireMinages, 10000);
     lireCompteurs();
+    // 26/11 (calibrage) : meteo du site, meme source et meme point que le dashboard (Open-Meteo)
+    const lireMeteo = () => {
+      let cfg = {};
+      try { cfg = JSON.parse(localStorage.getItem('oreTrackingConfig')) || {}; } catch (e) {}
+      const lat = (cfg.center && cfg.center.lat) || 8.2626, lng = (cfg.center && cfg.center.lng) || -4.6301;
+      fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+            '&current=temperature_2m,relative_humidity_2m&daily=precipitation_sum&timezone=auto&forecast_days=1')
+        .then((r) => r.json()).then((d) => {
+          const c = d.current || {}, num = (v) => (typeof v === 'number' && isFinite(v));
+          const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+          if (num(c.temperature_2m)) set('homeTemp', Math.round(c.temperature_2m) + ' °C');
+          if (num(c.relative_humidity_2m)) set('homeHumid', Math.round(c.relative_humidity_2m) + ' %');
+          const p = d.daily && d.daily.precipitation_sum && d.daily.precipitation_sum[0];
+          if (num(p)) set('homePluie', p.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' mm');
+        }).catch(() => { /* hors ligne : tirets */ });
+    };
+    lireMeteo();
+    setInterval(lireMeteo, 600000);
     setInterval(lireCompteurs, 10000);
     MSUI.demarrer(5000);
     brancherMarquerVu();

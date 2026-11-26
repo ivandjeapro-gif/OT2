@@ -79,12 +79,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const el = $('liveTrackingMap');
         el.innerHTML = '';
         carte = await CS.construire(el, cfg, {
-            zones: $('trkZones').checked, pistes: cfg.showTrails !== false, labels: $('trkLabels').checked,
+            zones: $('trkZones').checked, pistes: CS.lireDiffusion().trajets !== false, labels: $('trkLabels').checked,
         });
         texte($('trkFond'), carte.fond);
         remplirZones(carte.zones);
         suivi = CS.suivre(carte, {
-            labels: $('trkLabels').checked, trajets: $('trkTrajets').checked,
+            labels: $('trkLabels').checked, trajets: CS.lireDiffusion().trajets !== false,
             animations: CS.lireDiffusion().animations,
             onMaj: majResume, onChoix: afficherFiche,
             onErreur: () => texte($('liveTrackingCompteur'), 'Passerelle :8101 injoignable'),
@@ -103,12 +103,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (carte) carte.afficher({ labels: $('trkLabels').checked });
         if (suivi) suivi.reglages({ labels: $('trkLabels').checked });
     });
-    $('trkTrajets').addEventListener('change', () => suivi && suivi.reglages({ trajets: $('trkTrajets').checked }));
+    // 26/11 : « Trajets » de la barre de carte = « Trajets » de Diffusion (un seul reglage : pistes + trajets DT),
+    // enregistre et applique en direct a la salle de controle
+    $('trkTrajets').checked = CS.lireDiffusion().trajets !== false;
+    $('trkTrajets').addEventListener('change', () => {
+        const on = $('trkTrajets').checked;
+        CS.ecrireDiffusion(Object.assign(CS.lireDiffusion(), { trajets: on }));
+        if ($('cfgDiffTrajets')) $('cfgDiffTrajets').checked = on;
+        if (suivi) suivi.reglages({ trajets: on });
+    });
 
     function majResume(r) {
         const filtre = CS.filtresActifs(r.filtres);
         texte($('liveTrackingCompteur'),
-            (r.affiches === r.total ? fmt(r.total) : fmt(r.affiches) + ' / ' + fmt(r.total)) + ' DT · ' +
+            fmt(r.affiches) + ' / ' + fmt(r.flotte || r.total) + ' DT · ' +
             fmt(carte ? carte.segments : 0) + ' segments surveillés');
         texte($('trkPeriode'), 'Trajets : ' + r.periode.libelle + (r.periode.enDirect ? ' (en direct)' : ''));
         // legende = compteurs par etat, un clic filtre (re-clic = tous)
@@ -202,6 +210,13 @@ document.addEventListener('DOMContentLoaded', () => {
         remplirFormulaire(f);
         if (suivi) suivi.appliquerFiltres(f);
     }
+    // 26/11 : choisir une date avec « Shift en cours » affiche clairement le shift lu (jour ou nuit de cette date)
+    $('fltDate').addEventListener('change', () => {
+        if ($('fltDate').value && $('fltShift').value === 'encours') {
+            const h = new Date().getHours();
+            $('fltShift').value = h >= 6 && h < 18 ? 'jour' : 'nuit';
+        }
+    });
     // chaque changement de filtre s'applique tout de suite (le bouton reste un secours)
     ['fltType', 'fltFlux', 'fltStatut', 'fltZone', 'fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => appliquer(lireFormulaire())));
     document.querySelectorAll('[data-flt-teneur]').forEach((c) => c.addEventListener('change', () => appliquer(lireFormulaire())));
@@ -216,20 +231,22 @@ document.addEventListener('DOMContentLoaded', () => {
     $('cfgDiffMode').value = diff.mode;
     $('cfgDiffTrajets').checked = diff.trajets !== false;
     $('cfgDiffAnimations').checked = diff.animations !== false;
+    $('cfgDiffDtVides').checked = diff.dtVides !== false;
     function enregistrerDiffusion() {
         const d = Object.assign(CS.lireDiffusion(), {
             mode: $('cfgDiffMode').value, ecran: $('cfgDiffEcran').value,
             trajets: $('cfgDiffTrajets').checked, animations: $('cfgDiffAnimations').checked,
-            alertes: $('cfgShowAlerts').checked,
+            alertes: $('cfgShowAlerts').checked, dtVides: $('cfgDiffDtVides').checked,
         });
         CS.ecrireDiffusion(d);
-        if (suivi) suivi.reglages({ animations: d.animations });
+        $('trkTrajets').checked = d.trajets !== false;          // meme reglage que la barre de la carte
+        if (suivi) suivi.reglages({ animations: d.animations, dtVides: d.dtVides, trajets: d.trajets !== false });
         const etat = $('cfgDiffEtat');
         etat.textContent = 'Enregistré — appliqué en direct à la salle de contrôle.';
         etat.classList.add('ok'); clearTimeout(etat._t);
         etat._t = setTimeout(() => { etat.textContent = 'Appliqué en direct à la salle de contrôle.'; etat.classList.remove('ok'); }, 2500);
     }
-    ['cfgDiffMode', 'cfgDiffEcran', 'cfgDiffTrajets', 'cfgDiffAnimations', 'cfgShowAlerts']
+    ['cfgDiffMode', 'cfgDiffEcran', 'cfgDiffTrajets', 'cfgDiffAnimations', 'cfgShowAlerts', 'cfgDiffDtVides']
         .forEach((id) => $(id).addEventListener('change', enregistrerDiffusion));
 
     // ---- ecrans (API Window Management, Chrome / Edge) -------------------
@@ -374,7 +391,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // CSV du tracking (un fichier par jour, DT + excavatrices) et videos de shift, sur le PC de la
     // passerelle. La periode est celle du « Perimetre de suivi » (Date de production + Shift).
     function majEnregPeriode() {
-        const p = CS.periode(CS.lireFiltres());
+        // 26/11 : une date choisie ICI (videos et CSV d'un jour passe) prime ; vide = Perimetre de suivi
+        const dEnreg = $('enregDate') && $('enregDate').value;
+        const p = dEnreg ? CS.periode({ date: dEnreg, shift: $('enregShift').value || 'journee' }) : CS.periode(CS.lireFiltres());
         const jusqua = p.jusqua || new Date().toLocaleString('sv-SE').replace('T', ' ');
         texte($('enregPeriode'), p.libelle + ' · ' + p.depuis.slice(11, 16) + ' → ' + jusqua.slice(11, 16));
         $('btnEnregCsv').href = PASSERELLE() + '/api/tracking/export.csv?depuis=' + encodeURIComponent(p.depuis) +
@@ -395,7 +414,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return deb < per.jusqua && fin > per.depuis;
             };
             const jourCsv = (f) => { const m = /^(\d{4}-\d{2}-\d{2})\.csv$/.exec(f.nom); return !m || (m[1] >= per.depuis.slice(0, 10) && m[1] <= per.jusqua.slice(0, 10)); };
-            d.videos = (d.videos || []).filter(recoupe);
+            // 26/11 : une video faite hors du perimetre choisi (ex. REC aujourd'hui, perimetre sur hier) n'est plus
+            // invisible : les plus recentes hors periode sont listees a part, sous la periode.
+            const toutes = d.videos || [];
+            d.videos = toutes.filter(recoupe);
+            const horsPeriode = toutes.filter((f) => !recoupe(f)).sort((a, b) => (a.nom < b.nom ? 1 : -1)).slice(0, 5);
             d.csv = (d.csv || []).filter(jourCsv);
             const lien = (f) => PASSERELLE() + '/api/enregistrements/fichier?nom=' + encodeURIComponent(f.nom);
             const remplir = (ul, liste, vide) => {
@@ -413,6 +436,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }) : [Object.assign(document.createElement('li'), { className: 'vide', textContent: vide })]));
             };
             remplir($('enregVideos'), d.videos || [], 'Aucune vidéo sur cette période');
+            if (horsPeriode.length) {
+                const ul = $('enregVideos');
+                const t = document.createElement('li'); t.className = 'vide';
+                t.textContent = 'Hors de cette période (les plus récentes) :';
+                const tmp = document.createElement('ul');
+                remplir(tmp, horsPeriode, '');
+                ul.append(t, ...tmp.children);
+            }
             remplir($('enregCsv'), d.csv || [], 'Aucun CSV sur cette période');
             if ((d.en_cours || []).length) texte($('enregEtat'), 'Génération en cours : ' + d.en_cours.join(', '));
             else if (/^Génération en cours/.test($('enregEtat').textContent)) texte($('enregEtat'), 'Vidéo prête : elle figure dans la liste.');
@@ -452,7 +483,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (b.dataset.onglet === 'enreg') { majEnregPeriode(); surveillerEnreg(); }
     }));
     // le perimetre change : la liste se met a jour tout de suite (videos et CSV de la nouvelle periode)
-    ['fltShift', 'fltDate'].forEach((id) => $(id).addEventListener('change', () => { majEnregPeriode(); surveillerEnreg(); }));
+    ['fltShift', 'fltDate', 'enregDate', 'enregShift'].forEach((id) => $(id).addEventListener('change', () => { majEnregPeriode(); surveillerEnreg(); }));
+    { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+      $('enregDate').max = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     window.addEventListener('storage', (ev) => { if (ev.key === 'oreTrackingFiltres') surveillerEnreg(); });
     // bouton REC (section Enregistrements) : la passerelle filme la carte du dashboard en arriere-plan (js/enregistreur-carte.js)
     if (window.EnregistreurCarte) {
