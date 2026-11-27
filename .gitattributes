@@ -1,0 +1,4 @@
+# scripts et configuration du broker : fins de ligne Unix obligatoires (Ubuntu)
+deploiement/mqtt/*.sh   text eol=lf
+deploiement/mqtt/acl    text eol=lf
+deploiement/mqtt/*.conf text eol=lf

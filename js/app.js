@@ -990,9 +990,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (btnUnlock) btnUnlock.addEventListener('click', () => setMapConfigLocked(false));
-    if (btnConfirm) btnConfirm.addEventListener('click', () => setMapConfigLocked(true));
-    if (btnCancel) btnCancel.addEventListener('click', () => setMapConfigLocked(true));
+    // « Annuler » restaure l'etat d'avant « Modifier » (champs, zones, trails manuels)
+    let instantane = null;
+    function prendreInstantane() {
+        const champs = [...mapConfig.querySelectorAll('input, select')]
+            .filter(el => !el.closest('#zoneList') && !el.closest('#trailList') && el.type !== 'file')
+            .map(el => ({ el, value: el.value, checked: el.checked }));
+        const zones = [...zoneList.querySelectorAll('.zone-item')].map(i => ({
+            name: i.querySelector('.zone-name').value, lat: i.querySelector('.zone-lat').value,
+            lng: i.querySelector('.zone-lng').value, color: i.querySelector('.zone-color').value }));
+        const trails = [...trailList.querySelectorAll('.trail-item')].map(i => ({
+            from: i.querySelector('.trail-from').value, to: i.querySelector('.trail-to').value,
+            color: i.querySelector('.trail-color').value }));
+        return { champs, zones, trails };
+    }
+    function restaurerInstantane(st) {
+        st.champs.forEach(c => { c.el.value = c.value; c.el.checked = c.checked; });
+        zoneList.innerHTML = ''; trailList.innerHTML = '';
+        st.zones.forEach(z => addZone(z.name, z.lat, z.lng, z.color));
+        st.trails.forEach(t => addTrail(t.from, t.to, t.color));
+    }
+    if (btnUnlock) btnUnlock.addEventListener('click', () => { instantane = prendreInstantane(); setMapConfigLocked(false); });
+    if (btnConfirm) btnConfirm.addEventListener('click', () => {
+        setMapConfigLocked(true);
+        if (window.LiveCarte) window.LiveCarte.signaler();
+    });
+    if (btnCancel) btnCancel.addEventListener('click', () => {
+        if (instantane) { restaurerInstantane(instantane); instantane = null; }
+        setMapConfigLocked(true);
+    });
     setMapConfigLocked(true);
 
     // Restaurer les couches sauvegardees
@@ -1145,7 +1171,17 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const saved = JSON.parse(localStorage.getItem('oreTrackingTrails'));
             if (saved && saved.length) {
-                importedTrails = saved.filter(t => t && t.waypoints && t.waypoints.length >= 2);
+                // dedoublonnage : avant le 19/11, chaque ouverture de Live
+                // rajoutait les pistes par defaut (meme nom, memes points)
+                const vues = new Set();
+                importedTrails = saved.filter(t => {
+                    if (!t || !t.waypoints || t.waypoints.length < 2) return false;
+                    const cle = t.name + '|' + t.waypoints.length + '|' + t.waypoints[0] + '|' + t.waypoints[t.waypoints.length - 1];
+                    if (vues.has(cle)) return false;
+                    vues.add(cle);
+                    return true;
+                });
+                if (importedTrails.length !== saved.length) saveImportedTrails();
             }
         } catch(e) {}
         updateImportedTrailList();
@@ -1553,15 +1589,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         addZone(name, rawX, rawY, color);
                     }
-                    showToast('Zones chargees depuis Mining Areas.csv');
+                    console.info('[app] zones chargees depuis Mining Areas.csv');   // plus de bulle : elle revenait a chaque page
                 }
             }
         } catch(e) {
             console.warn('Auto-load zones failed:', e);
         }
 
-        // 2. Charger les trails depuis Trails.geojson.geojson
-        try {
+        // 2. Charger les trails depuis Trails.geojson.geojson — seulement si
+        // aucune n'est deja enregistree : avant le 19/11, chaque ouverture de
+        // Live les ajoutait une fois de plus (pistes doublees a chaque visite).
+        if (!importedTrails.length) try {
             const resp = await fetch('../data/Trails.geojson.geojson');
             if (resp.ok) {
                 const geo = await resp.json();
@@ -1602,14 +1640,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     saveImportedTrails();
                     updateImportedTrailList();
-                    if (count) showToast(count + ' trail' + (count > 1 ? 's' : '') + ' charge' + (count > 1 ? 's' : '') + ' depuis Trails.geojson');
+                    if (count) console.info('[app] ' + count + ' trail(s) charge(s) depuis Trails.geojson');
                 }
             }
         } catch(e) {
             console.warn('Auto-load trails failed:', e);
         }
     }
-    autoLoadDefaultData();
+    autoLoadDefaultData().then(() => { if (window.LiveCarte) window.LiveCarte.signaler(); });
 
     // ===== AFFICHAGE DES KPI SUR LE DASHBOARD =====
     // Chaque interrupteur [data-kpi] de la page Live montre / masque le KPI
@@ -1677,24 +1715,48 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             return p;
         }
-        // restaurer, puis enregistrer l'etat complet (valeurs par defaut comprises)
-        champs.forEach((el) => {
-            const k = el.dataset.planned || el.dataset.alerte;
-            const prop = el.dataset.planned ? 'planned' : 'alerte';
-            if (plan[k] && plan[k][prop] !== undefined) el.value = plan[k][prop];
-            el.addEventListener('change', () => {
-                try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
-            });
-        });
-        try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
-
         const base = () => (window.OTCFG && OTCFG.passerelle)
             ? OTCFG.passerelle()
             : 'http://' + (location.hostname || 'localhost') + ':8101';
+        // 25/11 (calibrage) : objectifs gardes sur la passerelle, lus par le dashboard de tout poste
+        // (avant : seulement dans ce navigateur, d'ou « Planned shift -- » ailleurs)
+        function enregistrer() {
+            const p = lire();
+            try { localStorage.setItem(CLE, JSON.stringify(p)); } catch (e) {}
+            fetch(base() + '/api/kpi/objectifs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ objectifs: p }),
+            }).catch(() => {});
+        }
+        function restaurer(source) {
+            champs.forEach((el) => {
+                const k = el.dataset.planned || el.dataset.alerte;
+                const prop = el.dataset.planned ? 'planned' : 'alerte';
+                if (source[k] && source[k][prop] !== undefined) el.value = source[k][prop];
+            });
+        }
+        restaurer(plan);
+        champs.forEach((el) => el.addEventListener('change', enregistrer));
+        fetch(base() + '/api/kpi/objectifs', { cache: 'no-store' }).then((r) => r.json()).then((d) => {
+            const srv = (d && d.objectifs) || {};
+            if (Object.keys(srv).length) {
+                restaurer(srv);
+                try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {}
+            } else {
+                enregistrer();           // premiere fois : les valeurs de ce poste deviennent celles de tous
+            }
+        }).catch(() => { try { localStorage.setItem(CLE, JSON.stringify(lire())); } catch (e) {} });
+
         const fmt = (v) => (Math.round((v || 0) * 10) / 10);
         async function actualiser() {
             try {
-                const k = await fetch(base() + '/api/kpi', { cache: 'no-store' }).then((r) => r.json());
+                // meme periode que le dashboard (shift en cours par defaut, ou le perimetre choisi)
+                let q = '';
+                if (window.CarteSuivi && CarteSuivi.periode && CarteSuivi.lireFiltres) {
+                    const p = CarteSuivi.periode(CarteSuivi.lireFiltres());
+                    q = '?depuis=' + encodeURIComponent(p.depuis) + '&jusqua=' + encodeURIComponent(p.jusqua);
+                }
+                const k = await fetch(base() + '/api/kpi' + q, { cache: 'no-store' }).then((r) => r.json());
                 const valeurs = {
                     minerais: k.minerais_t, ore: k.onces, waste: k.waste_t,
                     hg: k.grades.high.tonnes, mg: k.grades.medium.tonnes,
@@ -1702,7 +1764,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
                 document.querySelectorAll('input[data-actuel]').forEach((el) => {
                     el.value = fmt(valeurs[el.dataset.actuel]);
-                    el.title = 'Voyages du ' + k.jour + ' (' + k.voyages + ' voyage(s))';
+                    el.title = 'Dumpings validés du ' + k.jour + ' (' + k.voyages + ' voyage(s) comptés sur ' +
+                        (k.chargements !== undefined ? k.chargements : k.voyages) + ' chargement(s))';
                 });
             } catch (e) {
                 document.querySelectorAll('input[data-actuel]').forEach((el) => {
@@ -1710,7 +1773,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         }
-        actualiser();
+        setTimeout(actualiser, 0);           // apres le chargement de carte-suivi.js (periode du dashboard)
         setInterval(actualiser, 10000);
     })();
 
@@ -1803,7 +1866,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== PRESENT BUTTON =====
     const btnPresent = document.getElementById('btnPresent') || stubElement();
-    if (btnPresent) btnPresent.addEventListener('click', () => {
+
+    // Config de la carte (fond, couches, centre, zones, pistes, affichage) telle
+    // que saisie sur Live. Utilisee par PRESENTER et par la carte de suivi de
+    // Live (js/live-tracking.js, 19/11) via window.LiveCarte.
+    function construireConfigCarte() {
         const centerCRS = convertCRS(
             toFloat(document.getElementById('cfgCenterLat').value),
             toFloat(document.getElementById('cfgCenterLng').value)
@@ -1812,8 +1879,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const basemapVal = document.getElementById('cfgBasemap').value;
 
         const trailsForPresent = getTrails();
-        // Trails dans une cle dediee (petite) pour ne pas dependre du gros blob config
-        try { localStorage.setItem('oreTrackingTrails', JSON.stringify(trailsForPresent)); } catch(e) {}
 
         const config = {
             center: { lat: centerCRS.lat, lng: centerCRS.lng },
@@ -1821,7 +1886,8 @@ document.addEventListener('DOMContentLoaded', () => {
             zones: getZones(),
             trails: trailsForPresent,
             showZones: document.getElementById('cfgShowZones').checked,
-            showTrails: document.getElementById('cfgShowTrails').checked,
+            // 26/11 : la case « Trails » a disparu ; l'affichage des pistes suit le reglage « Trajets » (Diffusion)
+            showTrails: (document.getElementById('cfgShowTrails') || { checked: true }).checked,
             showLabels: document.getElementById('cfgShowLabels').checked,
             showAlerts: (document.getElementById('cfgShowAlerts') || { checked: true }).checked,
             basemap: basemapVal,
@@ -1845,6 +1911,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 }))
         };
 
+        return config;
+    }
+    window.LiveCarte = {
+        config: construireConfigCarte,
+        // previent la carte de suivi que la configuration a change
+        signaler: () => document.dispatchEvent(new CustomEvent('live:config')),
+    };
+
+    if (btnPresent) btnPresent.addEventListener('click', () => {
+        const config = construireConfigCarte();
         // Sauvegarder et ouvrir
         try {
             localStorage.setItem('oreTrackingConfig', JSON.stringify(config));
@@ -1852,8 +1928,9 @@ document.addEventListener('DOMContentLoaded', () => {
             config.layers.forEach(l => { if (l.type === 'georef') delete l.dataUrl; });
             try { localStorage.setItem('oreTrackingConfig', JSON.stringify(config)); } catch(e2) {}
         }
-
-        window.open('dashboard.html', '_blank', 'width=1920,height=1080');
+        // Mode et ecran cible (« Diffusion ») : js/live-tracking.js
+        if (window.LiveDiffusion) window.LiveDiffusion.ouvrir('dashboard.html');
+        else window.open('dashboard.html', '_blank', 'width=1920,height=1080');
     });
 
     // ===== SYNC BUTTON =====

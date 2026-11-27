@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="expect" href="#sidebar" blocking="render" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="../vendor/fontawesome/webfonts/fa-solid-900.woff2" />
+    <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css" />
 </head>
 <body>
     <!-- LOGIN OVERLAY -->
@@ -33,14 +36,8 @@
 
     <div class="app">
         <!-- TOP MENU BAR -->
-        <header class="menu-bar">
-            <div class="menu-left">
-                <span class="app-name">OreTracking</span>
-            </div>
-            <div class="menu-right">
-                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
-                <span class="app-version">OreTracking V2</span>
-            </div>
+                <header class="menu-bar">
+            <!-- topbar generee par js/navbar.js -->
         </header>
 
         <div class="app-body">
@@ -52,105 +49,117 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
-                    <div class="nav-top">
-                        <a class="sidebar-link active" data-page="home" href="home.html">
-                            <i class="fas fa-home"></i>
-                            <span>Home</span>
-                        </a>
-                        <a class="sidebar-link" data-page="live" href="live.html">
-                            <i class="fas fa-satellite-dish"></i>
-                            <span>Live</span>
-                        </a>
-                        <a class="sidebar-link" data-page="alerts" href="alerts.html">
-                            <i class="fas fa-bell"></i>
-                            <span>Alerts</span>
-                        </a>
-                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
-                            <i class="fas fa-inbox"></i>
-                            <span>Inbox</span>
-                        </a>
-                    </div>
-                    <div class="nav-bottom">
-                        <a class="sidebar-link" data-page="settings" href="settings.html">
-                            <i class="fas fa-cog"></i>
-                            <span data-i18n>Settings</span>
-                        </a>
-                        <a class="sidebar-link" data-page="sync" href="sync.html">
-                            <i class="fas fa-sync-alt"></i>
-                            <span data-i18n>Sync</span>
-                        </a>
-                        <a class="sidebar-link" data-page="senor" href="senor.html">
-                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
-                            <span data-i18n>Senor</span>
-                        </a>
-                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
-                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
-                            <span data-i18n>Dig Plan</span>
-                        </a>
-                    </div>
-                </nav>
-
-                <div class="sidebar-user">
-                    <div class="user-avatar">
-                        <i class="fas fa-user-circle"></i>
-                    </div>
-                    <div class="user-info">
-                        <span class="user-name">Gaston Albert</span>
-                        <span class="user-email">gaston.albert@oresys.com</span>
-                    </div>
-                    <button class="btn-logout" title="Deconnexion">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </button>
-                </div>
+                <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/navbar.js"></script>
 
             <!-- MAIN CONTENT AREA -->
             <main class="content">
 
                 <!-- PAGE: HOME -->
                 <section class="page active" id="page-home">
-                    <div class="page-home-grid">
-                        <div class="home-welcome">
-                            <h2>Bienvenue sur OreTracking V2</h2>
-                            <p>Systeme de tracking minier en temps reel</p>
-                            <!-- Voyant du site : calcule, pas declare -->
-                            <div class="voyant" id="homeVoyant">
-                                <span class="voyant-pastille vert"></span>
-                                <span class="voyant-texte">Verification...</span>
-                            </div>
-                        </div>
-                        <div class="home-stats">
-                            <div class="stat-card">
-                                <i class="fas fa-truck"></i>
-                                <div class="stat-value" id="statEngins">—</div>
-                                <div class="stat-label">Engins suivis en direct</div>
-                            </div>
-                            <div class="stat-card">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <div class="stat-value" id="statAlertes">—</div>
-                                <div class="stat-label">Alertes a traiter</div>
-                            </div>
-                            <div class="stat-card">
-                                <i class="fas fa-route"></i>
-                                <div class="stat-value" id="statMissions">—</div>
-                                <div class="stat-label">Missions en cours</div>
-                            </div>
-                            <div class="stat-card">
-                                <i class="fas fa-weight-hanging"></i>
-                                <div class="stat-value" id="statTonnage">—</div>
-                                <div class="stat-label">Tonnes du jour</div>
-                            </div>
-                        </div>
+                    <div class="r-pagehead">
+                        <div class="r-breadcrumb">Opérations <span class="r-crumb-sep">/</span> Home</div>
+                        <h1 class="r-title" id="homeGreeting">Tableau de bord</h1>
+                        <p class="r-subtitle">L'essentiel du site, les événements prioritaires et les opérations en cours.</p>
                     </div>
 
-                    <div class="panel panel-full">
-                        <div class="panel-label">A traiter maintenant</div>
-                        <div class="panel-content">
-                            <div id="homeFile" class="home-file">
-                                <div class="member-empty">Chargement...</div>
+                    <div class="page-home-grid">
+                        <div class="home-main-col">
+                            <!-- BANDEAU ALERTE SABLE -->
+                            <div class="r-bandeau">
+                                <div class="r-bandeau-main">
+                                    <div class="r-bandeau-label"><span class="r-bandeau-dot" id="homeVoyantDot"></span> SITE À SURVEILLER</div>
+                                    <div class="r-bandeau-headline" id="homeVoyantTxt">Vérification en cours…</div>
+                                    <div class="r-bandeau-sub" id="homeVoyant">
+                                        <span class="voyant-pastille vert"></span>
+                                        <span class="voyant-texte">Voyant calculé : alerte non vue dépassant le seuil.</span>
+                                    </div>
+                                </div>
+                                <a class="r-btn-dark r-bandeau-cta" href="alerts.html">Voir les alertes <i class="fas fa-arrow-right"></i></a>
+                            </div>
+
+                            <!-- 4 STATS -->
+                            <div class="home-stats">
+                                <div class="stat-card">
+                                    <i class="fas fa-truck"></i>
+                                    <div class="stat-label">Engins suivis en direct</div>
+                                    <div class="stat-value" id="statEngins">—</div>
+                                    <span class="stat-rule"></span>
+                                    <div class="stat-note" id="statEnginsNote"></div>
+                                </div>
+                                <div class="stat-card">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <div class="stat-label">Alertes à traiter</div>
+                                    <div class="stat-value" id="statAlertes">—</div>
+                                    <span class="stat-rule"></span>
+                                    <div class="stat-note" id="statAlertesNote"></div>
+                                </div>
+                                <div class="stat-card">
+                                    <i class="fas fa-route"></i>
+                                    <div class="stat-label">Missions en cours</div>
+                                    <div class="stat-value" id="statMissions">—</div>
+                                    <span class="stat-rule"></span>
+                                    <div class="stat-note" id="statMissionsNote"></div>
+                                </div>
+                                <div class="stat-card">
+                                    <i class="fas fa-weight-hanging"></i>
+                                    <div class="stat-label">Tonnes du shift</div>
+                                    <div class="stat-value" id="statTonnage">—</div>
+                                    <span class="stat-rule"></span>
+                                    <div class="stat-note" id="statTonnageNote"></div>
+                                </div>
+                            </div>
+
+                            <!-- FILE A TRAITER -->
+                            <div class="r-fileblock">
+                                <h2 class="r-filetitle">À traiter maintenant</h2>
+                                <p class="r-filesub">Les événements non vus, classés par ancienneté.</p>
+                                <div class="r-filehead">
+                                    <span>Heure / Engin</span>
+                                    <span>Événement</span>
+                                    <span class="r-filehead-delai">Délai</span>
+                                    <span></span>
+                                </div>
+                                <div id="homeFile" class="home-file">
+                                    <div class="member-empty">Chargement...</div>
+                                </div>
                             </div>
                         </div>
+
+                        <!-- PANNEAU SHIFT : horaires et progression calculés -->
+                        <aside class="panel-side">
+                            <div class="panel-side-head">
+                                <span class="panel-side-title">Shift de jour</span>
+                            </div>
+                            <div class="panel-side-body">
+                                <div class="shift-hours">—</div>
+                                <div class="shift-elapsed">Calcul...</div>
+                                <div class="shift-progress"><span></span></div>
+
+                                <!-- LE TERRAIN : donnees reelles (excavatrices en minage, equipes spotter, liaisons) -->
+                                <div class="side-terrain">
+                                    <span class="side-label">Le terrain</span>
+                                    <div class="side-item" id="terrainMinage">
+                                        <b class="side-item-titre">—</b>
+                                        <span class="side-item-detail"></span>
+                                    </div>
+                                    <div class="side-item" id="terrainEquipes">
+                                        <b class="side-item-titre">—</b>
+                                        <span class="side-item-detail"></span>
+                                    </div>
+                                    <div class="side-item" id="terrainLiaisons">
+                                        <b class="side-item-titre">—</b>
+                                        <span class="side-item-detail"></span>
+                                    </div>
+                                </div>
+
+                                <div class="side-actions">
+                                    <a class="side-btn side-btn-gold" href="live.html">Ouvrir Live <i class="fas fa-arrow-right"></i></a>
+                                    <a class="side-btn side-btn-dark" href="senor.html">Consignes Senor <i class="fas fa-arrow-right"></i></a>
+                                </div>
+                            </div>
+                        </aside>
                     </div>
                 </section>
 
@@ -160,13 +169,13 @@
         <!-- BOTTOM STATUS BAR -->
         <footer class="status-bar">
             <div class="status-left">
-                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-thermometer-half"></i> Temp. : --</span>
-                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-cloud-rain"></i> Pluie : --</span>
-                <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
+                <span class="status-item" title="Météo du site (même source que le dashboard)"><i class="fas fa-thermometer-half"></i> Temp. : <span id="homeTemp">--</span></span>
+                <span class="status-item" title="Météo du site (même source que le dashboard)"><i class="fas fa-cloud-rain"></i> Pluie : <span id="homePluie">--</span></span>
+                <span class="status-item" title="Météo du site (même source que le dashboard)"><i class="fas fa-tint"></i> Humidité : <span id="homeHumid">--</span></span>
             </div>
             <div class="status-right">
-                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
-                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+                <span class="status-item" id="statusDate">--</span>
+                <span class="status-item" id="statusTime">--</span>
             </div>
         </footer>
     </div>
@@ -187,9 +196,9 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="../vendor/leaflet/leaflet.js"></script>
+    <script src="../vendor/geotiff/geotiff.js"></script>
+    <script src="../vendor/proj4/proj4.js"></script>
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>
@@ -202,3 +211,4 @@
     <script src="../js/app.js"></script>
 </body>
 </html>
+

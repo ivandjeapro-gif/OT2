@@ -140,7 +140,8 @@ def main():
         input("\n Entree pour fermer...")
         return 1
 
-    url = "http://localhost:%d/html/digplan.html" % PORT_SAAS
+    # on ouvre la page de CONNEXION : session deja ouverte -> elle renvoie directement sur Home
+    url = "http://localhost:%d/html/connexion.html" % PORT_SAAS
     print(" Ouverture de %s" % url)
     try:
         webbrowser.open(url)

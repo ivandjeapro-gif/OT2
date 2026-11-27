@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OreTracking V2</title>
     <link rel="stylesheet" href="../css/style.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="../css/refonte.css" />
+    <link rel="expect" href="#sidebar" blocking="render" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="../vendor/fontawesome/webfonts/fa-solid-900.woff2" />
+    <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css" />
 </head>
 <body>
     <!-- LOGIN OVERLAY -->
@@ -33,14 +36,8 @@
 
     <div class="app">
         <!-- TOP MENU BAR -->
-        <header class="menu-bar">
-            <div class="menu-left">
-                <span class="app-name">OreTracking</span>
-            </div>
-            <div class="menu-right">
-                <span class="sync-pill" id="syncPill" title="Etat de la synchronisation"><span class="sync-dot-mini"></span><span class="sync-pill-txt">Sync</span></span>
-                <span class="app-version">OreTracking V2</span>
-            </div>
+                <header class="menu-bar">
+            <!-- topbar generee par js/navbar.js -->
         </header>
 
         <div class="app-body">
@@ -52,103 +49,135 @@
 
             <!-- LEFT SIDEBAR -->
             <aside class="sidebar" id="sidebar">
-                <nav class="sidebar-nav">
-                    <div class="nav-top">
-                        <a class="sidebar-link" data-page="home" href="home.html">
-                            <i class="fas fa-home"></i>
-                            <span>Home</span>
-                        </a>
-                        <a class="sidebar-link" data-page="live" href="live.html">
-                            <i class="fas fa-satellite-dish"></i>
-                            <span>Live</span>
-                        </a>
-                        <a class="sidebar-link active" data-page="alerts" href="alerts.html">
-                            <i class="fas fa-bell"></i>
-                            <span>Alerts</span>
-                        </a>
-                        <a class="sidebar-link" data-page="inbox" href="inbox.html">
-                            <i class="fas fa-inbox"></i>
-                            <span>Inbox</span>
-                        </a>
-                    </div>
-                    <div class="nav-bottom">
-                        <a class="sidebar-link" data-page="settings" href="settings.html">
-                            <i class="fas fa-cog"></i>
-                            <span data-i18n>Settings</span>
-                        </a>
-                        <a class="sidebar-link" data-page="sync" href="sync.html">
-                            <i class="fas fa-sync-alt"></i>
-                            <span data-i18n>Sync</span>
-                        </a>
-                        <a class="sidebar-link" data-page="senor" href="senor.html">
-                            <img src="../assets/1senor geology.png" alt="Senor" class="sidebar-link-icon" />
-                            <span data-i18n>Senor</span>
-                        </a>
-                        <a class="sidebar-link" data-page="digplan" href="digplan.html">
-                            <img src="../assets/1Dig Plan.png" alt="Dig Plan" class="sidebar-link-icon" />
-                            <span data-i18n>Dig Plan</span>
-                        </a>
-                    </div>
-                </nav>
-
-                <div class="sidebar-user">
-                    <div class="user-avatar">
-                        <i class="fas fa-user-circle"></i>
-                    </div>
-                    <div class="user-info">
-                        <span class="user-name">Gaston Albert</span>
-                        <span class="user-email">gaston.albert@oresys.com</span>
-                    </div>
-                    <button class="btn-logout" title="Deconnexion">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </button>
-                </div>
+                <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/navbar.js"></script>
 
             <!-- MAIN CONTENT AREA -->
             <main class="content">
 
 <!-- PAGE: ALERTS -->
                 <section class="page active" id="page-alerts">
-                    <div class="panel panel-full">
-                        <div class="panel-label">Alerts du jour</div>
-                        <div class="panel-content">
-                            <div class="alerts-description">
-                                <p>Liste des alertes durant les voyages des DT. Le dumping est classifie par <strong class="highlight-green">Rompad</strong> et pas <strong class="highlight-blue">Destination de teneur</strong>.</p>
-                            </div>
-                            <div class="alerts-filtres">
-                                <label>Engin
-                                    <input type="text" id="fltDt" class="form-input-sm" placeholder="DT-01" /></label>
-                                <label>Type
-                                    <select id="fltType" class="form-select-sm">
-                                        <option value="">Tous</option>
-                                        <option value="deviation">Deviation</option>
-                                        <option value="retour_trajet">Retour sur trajet</option>
-                                        <option value="offroad">Sortie de route</option>
-                                        <option value="retour_piste">Retour sur piste</option>
-                                        <option value="non_conforme">Dumping non conforme</option>
-                                        <option value="fin_mission">Fin de mission</option>
-                                    </select></label>
-                                <label class="chk"><input type="checkbox" id="fltNonVues" checked /> Non vues seulement</label>
-                                <button type="button" class="team-btn" id="btnAcquitTout">Tout marquer vu</button>
-                                <span class="alerts-compteur" id="alertsCompteur"></span>
-                            </div>
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Heure</th>
-                                        <th>Engin</th>
-                                        <th>Type</th>
-                                        <th>Description</th>
-                                        <th>Vue</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody id="alertsBody">
-                                    <tr><td colspan="6" class="muted">Chargement...</td></tr>
-                                </tbody>
-                            </table>
+                    <div class="r-pagehead">
+                        <nav class="r-breadcrumb" aria-label="Fil d'ariane">
+                            <span class="r-breadcrumb-cat">Opérations</span>
+                            <span class="r-breadcrumb-sep">/</span>
+                            <span class="r-breadcrumb-current">Alerts</span>
+                        </nav>
+                        <h1 class="r-title">Alertes des voyages</h1>
+                        <p class="r-subtitle">Repérez les événements non vus et acquittez chaque alerte.</p>
+                    </div>
+
+                    <!-- CARTE DE FILTRES -->
+                    <div class="r-filtercard r-filtercard-alerts">
+                        <div class="r-filter-field">
+                            <label class="r-filter-label" for="fltDt">Engin</label>
+                            <input type="text" id="fltDt" class="form-input-sm r-input" placeholder="DT-xx ou tous les engins" />
                         </div>
+                        <div class="r-filter-field">
+                            <label class="r-filter-label" for="fltType">Type d'événement</label>
+                            <select id="fltStatut" class="form-select-sm r-input" title="Off-route : sortie de route, déviation, checkpoint sauté · Wrong Dumping : mauvaise direction, zone ou checkpoint interdit, dumping non conforme">
+                                <option value="">Tous les statuts</option>
+                                <option value="wrong_dumping">Wrong Dumping</option>
+                                <option value="off_route">Off-route</option>
+                            </select>
+                            <select id="fltType" class="form-select-sm r-input">
+                                <option value="">Tous les types</option>
+                                <option value="mauvaise_direction">Mauvaise direction</option>
+                                <option value="demi_tour">Demi-tour en cours</option>
+                                <option value="retour_direction">Retour bonne direction</option>
+                                <option value="deviation">Déviation</option>
+                                <option value="retour_trajet">Retour sur trajet</option>
+                                <option value="offroad">Sortie de route</option>
+                                <option value="retour_piste">Retour sur piste</option>
+                                <option value="non_conforme">Dumping non conforme</option>
+                                <option value="fin_mission">Fin de mission</option>
+                                <option value="checkpoint">Checkpoint sauté</option>
+                                <option value="checkpoint_interdit">Checkpoint interdit</option>
+                                <option value="zone_approche">Zone interdite proche</option>
+                                <option value="zone_interdite">Entrée en zone interdite</option>
+                                <option value="dumping_hors_zone">Dumping hors zone</option>
+                                <option value="blast_rejete">Blast refusé</option>
+                            </select>
+                        </div>
+                        <div class="r-filter-field">
+                            <label class="r-filter-label" for="fltPeriode">Période</label>
+                            <select id="fltPeriode" class="form-select-sm r-input" title="Journée d'exploitation : 06 h à 06 h">
+                                <option value="">Toutes les dates</option>
+                                <option value="jour">Journée en cours</option>
+                                <option value="hier">Hier</option>
+                                <option value="7j">7 derniers jours</option>
+                                <option value="date">Une date précise…</option>
+                            </select>
+                        </div>
+                        <div class="r-filter-field" id="fltDateBox" hidden>
+                            <label class="r-filter-label" for="fltDate">Date</label>
+                            <input type="date" id="fltDate" class="form-input-sm r-input" />
+                        </div>
+                        <label class="r-filter-check"><input type="checkbox" id="fltNonVues" checked /> Non vues seulement</label>
+                        <button type="button" class="r-btn-dark team-btn" id="btnAcquitTout">Tout marquer vu</button>
+                        <span class="alerts-compteur r-sr-only" id="alertsCompteur"></span>
+                    </div>
+
+                    <!-- RANGÉE DE GRANDS COMPTEURS -->
+                    <div class="r-counterrow">
+                        <div class="r-counter"><span class="r-counter-num" id="rCountTotal">00</span><span class="r-counter-label">alertes du jour</span></div>
+                        <div class="r-counter r-counter-orange"><span class="r-counter-num" id="rCountUnseen">00</span><span class="r-counter-label">non vues</span></div>
+                        <div class="r-counter r-counter-red"><span class="r-counter-num" id="rCountLate">00</span><span class="r-counter-label" id="rCountLateLabel">au-delà de 10 min</span></div>
+                        <span class="r-counter-date" id="rCounterDate">--</span>
+                    </div>
+
+                    <!-- BANDEAU INFO -->
+                    <div class="r-infoband">
+                        <span class="r-infoband-bar"></span>
+                        Le dumping est classifié par <strong class="highlight-green">ROM Pad</strong>, et non par teneur ou destination de teneur.
+                    </div>
+
+                    <!-- LISTE -->
+                    <h2 class="r-listtitle">Toutes les alertes</h2>
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr>
+                                    <th>Heure</th>
+                                    <th>Engin</th>
+                                    <th>Statut</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                    <th>Vue</th>
+                                    <th class="r-th-action"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="alertsBody">
+                                <tr><td colspan="6" class="muted">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="r-tablefoot">
+                            <span id="alertsFootLeft">--</span>
+                            <span class="r-tablefoot-right" id="alertsFootSeuil">Seuil d'alerte rouge : 10 minutes · configurable dans Settings</span>
+                        </div>
+                    </div>
+
+                    <!-- RAPPORTS (23/11) : dumping par mission + sorties de route, memes filtres (engin, periode) -->
+                    <h2 class="r-listtitle">Dumping report <small class="muted" id="rapDumpInfo"></small>
+                        <button type="button" class="r-btn-dark team-btn" id="btnRapDumpCsv" style="float:right">Exporter CSV</button></h2>
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr><th>Début</th><th>Engin</th><th>Matière</th><th>Zone prévue</th><th>Verdict</th><th>Zone du dumping</th><th>Demi-tours</th></tr>
+                            </thead>
+                            <tbody id="rapDumpBody"><tr><td colspan="7" class="muted">Chargement...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <h2 class="r-listtitle">Off-road report <small class="muted" id="rapOffInfo"></small>
+                        <button type="button" class="r-btn-dark team-btn" id="btnRapOffCsv" style="float:right">Exporter CSV</button></h2>
+                    <div class="r-panel r-panel-plain">
+                        <table class="data-table r-table">
+                            <thead>
+                                <tr><th>Sortie</th><th>Engin</th><th>Distance</th><th>Retour sur piste</th><th>Durée hors piste</th></tr>
+                            </thead>
+                            <tbody id="rapOffBody"><tr><td colspan="5" class="muted">Chargement...</td></tr></tbody>
+                        </table>
                     </div>
                 </section>
 
@@ -163,8 +192,8 @@
                 <span class="status-item" title="Aucune sonde branchee"><i class="fas fa-tint"></i> Humidite : --</span>
             </div>
             <div class="status-right">
-                <span class="status-item" id="statusDate">Lundi 18 Septembre</span>
-                <span class="status-item" id="statusTime">10 h 23 m 40 S</span>
+                <span class="status-item" id="statusDate">--</span>
+                <span class="status-item" id="statusTime">--</span>
             </div>
         </footer>
     </div>
@@ -185,9 +214,9 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="../vendor/leaflet/leaflet.js"></script>
+    <script src="../vendor/geotiff/geotiff.js"></script>
+    <script src="../vendor/proj4/proj4.js"></script>
     <script src="../js/prefs.js"></script>
     <script src="../js/splash.js"></script>
     <script src="../js/sync-pill.js"></script>
@@ -196,7 +225,9 @@
     <script src="../js/server-ui.js"></script>
     <script src="../js/missions-ui.js"></script>
     <script src="../js/alerts.js"></script>
+    <script src="../js/rapports.js"></script>
     <script src="../js/gnss-serial.js"></script>
     <script src="../js/app.js"></script>
 </body>
 </html>
+

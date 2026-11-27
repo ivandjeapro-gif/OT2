@@ -267,6 +267,7 @@
         if (p.geosum_contenu) corpsReq.geosum_contenu = p.geosum_contenu;
         const d = await jsend('/api/blasts', 'POST', corpsReq);
         dernierGeosum = d.geosum || null;
+        dernierBase = d.base || null;
         return String(d.id);
       }
       const majReq = {
@@ -277,6 +278,7 @@
       };
       if (p.base_contenu) majReq.base_contenu = p.base_contenu;
       await jsend('/api/blasts', 'PUT', majReq);
+      dernierBase = null;     // en modification la base passe AVANT l'import du DXF : son compte rendu porterait sur d'anciens blocs
       if (p.dxf_contenu) {
         await jsend('/api/blasts_import', 'POST', {
           blast_id: Number(p.id), source_fichier: p.name_dxf, contenu: p.dxf_contenu,
@@ -293,6 +295,10 @@
     },
     async supprimer(blast) {
       await jsend('/api/blasts?id=' + encodeURIComponent(blast.id), 'DELETE');
+    },
+    // 18/11 : etat CLOS. La passerelle le transmet a Serveur_OT.
+    async clore(blast) {
+      return jsend('/api/blasts_clore', 'POST', { id: Number(blast.id) });
     },
     async engins() {
       const d = await jsend('/api/engins', 'GET');
@@ -341,7 +347,12 @@
       return String(d.numero);
     },
     async supprimer(blast) {
+      // Supprimer = clore puis retirer (18/11) : signal explicite aux tablettes.
+      await otSend('POST', 'blast_clore', null, { numero: blast.numero || blast.id, origine: 'saas' });
       await otSend('GET', 'dig_plan_suppr', { numero: blast.numero || blast.id });
+    },
+    async clore(blast) {
+      return otSend('POST', 'blast_clore', null, { numero: blast.numero || blast.id, origine: 'saas' });
     },
     async engins() {
       return []; // les positions vivent sur la passerelle, pas sur Serveur_OT
@@ -384,6 +395,8 @@
     const s = sources.find((x) => x.id === sourceSelectionnee);
     const label = $('#dpSourceLabel');
     if (label) label.textContent = s ? s.nom : '(aucune)';
+    const codes = $('#dpSourceCodes');
+    if (codes) codes.textContent = s && s.codes ? String(s.codes).trim() : '';
     const plusieurs = sources.length > 1;
     const prev = $('#dpSrcPrev');
     const next = $('#dpSrcNext');
@@ -421,14 +434,21 @@
         teneurSelectionnee = null;
       }
       if (!teneurSelectionnee && teneurs.length) teneurSelectionnee = teneurs[0].nom;
-      row.innerHTML = teneurs.length
-        ? teneurs.map((t) =>
-            '<button type="button" class="sg2-outline sg2-chip' + (t.nom === teneurSelectionnee ? ' sel' : '') +
-            '" data-teneur="' + esc(t.nom) + '">' + esc(t.nom) + '</button>').join('')
-        : '<span class="dp-note">Aucune teneur definie pour cette source (a configurer dans Senor Geology).</span>';
+      rendreChips();
     } catch (e) {
       setStatus('Teneurs injoignables (' + e.message + ')', false);
     }
+  }
+
+  function rendreChips() {
+    const row = $('#dpTeneursRow');
+    if (!row) return;
+    row.innerHTML = teneurs.length
+      ? teneurs.map((t) =>
+          '<button type="button" class="dp-chip' + (t.nom === teneurSelectionnee ? ' sel' : '') +
+          '" style="--fam:' + (window.OTCouleurs ? OTCouleurs.famille(t.nom) : '#8d887a') +
+          '" data-teneur="' + esc(t.nom) + '">' + esc(t.nom) + '</button>').join('')
+      : '<span class="dp-vide">Aucune teneur pour cette source (à configurer dans Senor).</span>';
   }
 
   /* ================================= Blasts ======================================= */
@@ -495,8 +515,15 @@
     const saisie = estEnSaisie();
 
     // pendant une saisie, on doit d'abord Enregistrer ou Annuler
-    $('#dpBtnEdit').disabled = !has || saisie;
+    const courant = has ? blastCourant() : null;
+    const clos = !!(courant && courant.clos_le);
+    $('#dpBtnEdit').disabled = !has || saisie || clos;   // un blast clos ne se modifie plus
     $('#dpBtnDelete').disabled = !has || saisie;
+    const btnClore = $('#dpBtnClore');
+    if (btnClore) {
+      btnClore.disabled = !has || saisie || clos;
+      btnClore.textContent = clos ? 'Blast clos' : 'Clore le blast';
+    }
 
     // Enregistrer / Annuler : visibles uniquement quand on les a appeles
     const actions = $('#dpFormActions');
@@ -526,8 +553,11 @@
     list.innerHTML = blasts.map((b) =>
       '<button type="button" class="dp-blast-item' + (b.id === blastSelectionne ? ' sel' : '') +
       '" data-blast="' + b.id + '">' + esc(b.nom || b.numero) +
-      '<small>' + esc(b.numero) + ' - ' + (b.nb_blocs || 0) + ' bloc(s)</small></button>').join('');
+      '<small>' + esc(b.numero) + ' - ' + (b.nb_blocs || 0) + ' bloc(s)' +
+      (b.clos_le ? ' - CLOS le ' + esc(String(b.clos_le).slice(0, 10)) : '') +
+      '</small></button>').join('');
   }
+
 
   // reinitialise les champs fichier a partir du blast courant (nom deja enregistre,
   // pas de contenu puisqu'on ne retelecharge pas le fichier depuis le serveur) ou vide.
@@ -566,6 +596,35 @@
   // doit JAMAIS passer inapercu : sans ce retour, le blast s'enregistre, la
   // table reste a zero, et personne ne sait pourquoi.
   let dernierGeosum = null;
+  let dernierBase = null;
+
+  // Alerte d'appariement : les valeurs (volume, tonnes, Au, densite, destination) se rattachent au bloc PAR SON NOM.
+  // Un DXF dont les calques portent d'autres noms que le CSV (cas typique : DXF exporte d'un modele precedent)
+  // laisse tout a zero SANS erreur. Rend { grave, texte } ou null.
+  function alerteAppariement() {
+    const exemples = (l) => l.slice(0, 3).join(', ') + (l.length > 3 ? ' …' : '');
+    const verifier = (rapport, fichier) => {
+      if (!rapport || rapport.erreur) return null;
+      if (rapport.illisible) return { grave: true, texte: fichier + ' illisible : colonne de noms de blocs introuvable.' };
+      if (!rapport.blocs) return null;
+      if (rapport.apparies === 0) {
+        return { grave: true, texte: 'AUCUN bloc du DXF ne correspond au ' + fichier + ' : les noms diffèrent, les valeurs restent à 0. ' +
+          'Noms du DXF : ' + exemples(rapport.sans_donnees || []) + ' — noms du ' + fichier + ' : ' + exemples(rapport.absents_du_dxf || []) + '.' };
+      }
+      // 26/11 : le Geosum ne liste que le MINERAI ; un bloc deja sterile par son nom (_WST_) y est absent par nature
+      // (ses valeurs viennent du fichier de base) : pas d'avertissement pour lui
+      const manquants = (rapport.sans_donnees || []).filter((n) => !(fichier === 'Geosum' && /_WST_/i.test(String(n))));
+      if (manquants.length) {
+        return { grave: false, texte: manquants.length + ' bloc(s) du DXF sans donnée dans le ' + fichier + ' (classés stérile) : ' +
+          exemples(manquants) + '.' };
+      }
+      return null;
+    };
+    const liste = [verifier(dernierBase, 'fichier de base'), verifier(dernierGeosum, 'Geosum')].filter(Boolean);
+    dernierBase = null;
+    if (!liste.length) return null;
+    return { grave: liste.some((a) => a.grave), texte: liste.map((a) => a.texte).join(' ') };
+  }
 
   function resumeGeosum() {
     const g = dernierGeosum;
@@ -623,8 +682,9 @@
         mode = 'consultation'; // enregistre : on ressort du mode saisie
         Splash.etape('Rechargement du blast...');
         await chargerBlasts(id);
-        Splash.succes('Blast mis a jour', nom);
-        setStatus('Blast mis a jour', true);
+        const alerte = alerteAppariement();
+        if (alerte && alerte.grave) { Splash.erreur('Attention : valeurs non importées', alerte.texte); setStatus('Blast mis a jour - ' + alerte.texte, false); }
+        else { Splash.succes('Blast mis a jour', nom); setStatus('Blast mis a jour' + (alerte ? ' - ' + alerte.texte : ''), !alerte); }
       } else {
         // un blast cree est rattache a la source affichee (sinon il n'apparait
         // dans aucune liste filtree) et a la teneur selectionnee
@@ -637,8 +697,9 @@
         mode = 'consultation';
         Splash.etape('Rechargement de la liste...');
         await chargerBlasts(id);
-        Splash.succes('Blast cree : ' + nom);
-        setStatus('Blast cree', true);
+        const alerte = alerteAppariement();
+        if (alerte && alerte.grave) { Splash.erreur('Attention : valeurs non importées', alerte.texte); setStatus('Blast cree - ' + alerte.texte, false); }
+        else { Splash.succes('Blast cree : ' + nom); setStatus('Blast cree' + (alerte ? ' - ' + alerte.texte : ''), !alerte); }
       }
     } catch (err) {
       Splash.erreur(estCreation ? 'Creation impossible' : 'Mise a jour impossible', err.message);
@@ -695,6 +756,35 @@
     $('#dpName').focus();
     $('#dpName').select();
     setStatus('Modifiez les champs de "' + (b.nom || b.numero) + '" puis cliquez Enregistrer', true);
+  }
+
+  /**
+   * Clore un blast (18/11, demande client) : le blast est termine. Il reste
+   * consultable ici, ne se modifie plus, et les tablettes purgent leurs
+   * donnees locales des que leurs envois sont recus par le serveur.
+   */
+  async function cloreBlast() {
+    const b = blastCourant();
+    if (!b || b.clos_le) return;
+    if (!await confirmerPopup('Clore le blast "' + (b.nom || b.numero) + '" ? ' +
+        'Il ne sera plus modifiable et les tablettes effaceront ses donnees ' +
+        'locales une fois leurs envois recus.')) return;
+    const sp = Splash.bloquer('Cloture du blast...', (b.nom || b.numero));
+    try {
+      const d = await API().clore(b);
+      await chargerBlasts();
+      if (d && d.ot_sync === false) {
+        Splash.succes('Blast clos (envoi au cloud en attente)', d.ot_erreur || '');
+        setStatus('Blast clos - cloud injoignable, nouvel essai automatique', false);
+      } else {
+        Splash.succes('Blast clos', b.nom || b.numero);
+        setStatus('Blast clos', true);
+      }
+      rendreBoutons();
+    } catch (err) {
+      Splash.erreur('Cloture impossible', err.message);
+      setStatus(err.message, false);
+    }
   }
 
   async function supprimerBlast() {
@@ -793,6 +883,8 @@
   function couleurDestination(dest) {
     const key = (dest || '').toUpperCase();
     if (PALETTE_DEST[key]) return PALETTE_DEST[key];
+    // couleur de la famille de teneur : meme source que toutes les pages (js/couleurs.js)
+    if (window.OTCouleurs && OTCouleurs.estConnue(dest)) return OTCouleurs.famille(dest);
     if (!coursOreColorMap[key]) {
       coursOreColorMap[key] = COULEURS_ORE[coursOreColor % COULEURS_ORE.length];
       coursOreColor++;
@@ -800,11 +892,17 @@
     return coursOreColorMap[key];
   }
 
+  window.addEventListener('couleurs:pret', () => {
+    try { rendreChips(); rendrePlan(); } catch (e) { /* plan pas encore pret */ }
+  });
+
   function rendrePlan() {
     const b = blastCourant();
     const oreblocs = (b && b.oreblocs) || [];
 
     $('#dpPlanTitle').textContent = b ? (b.numero || b.nom || '-') : '-';
+    const actif = $('#dpBlastActif');
+    if (actif) actif.textContent = b ? (b.numero || b.nom || '—') : '—';
     rendreMeta(b);
     $('#dpAuthor').textContent = '';
     $('#dpPageLabel').textContent = b ? (b.numero || '') + (b.page_label ? ' ' + b.page_label : '') : '';
@@ -841,33 +939,29 @@
     };
   }
 
-  /** N'affiche que les informations reellement connues. */
+  /** Ligne de contexte du plan : seulement ce qui est reellement connu (flitch, activite, pattern, source...). */
   function rendreMeta(b) {
     const grille = $('#dpMetaGrid');
     if (!grille) return;
     if (!b) { grille.innerHTML = ''; return; }
-
     const code = b.numero || b.nom || '';
     const d = decoderNomenclature(code);
-    const lignes = [];
+    const parts = [];
     if (d) {
-      lignes.push(['Blast', d.pattern]);
-      lignes.push(['Flitch', d.flitch]);
-      lignes.push(['Minage', d.profDebut + ' → ' + d.profFin]);
-      lignes.push(['Activite', d.activite]);
-      if (d.site) lignes.push(['Site', d.site]);
+      parts.push('Flitch ' + d.flitch);
+      parts.push('Plage ' + d.activite);
+      parts.push('Pattern ' + d.pattern);
+      if (d.profDebut && d.profFin) parts.push('Minage ' + d.profDebut + ' → ' + d.profFin);
+      if (d.site) parts.push(d.site);
     }
-    lignes.push(['Layer', code]);
-    // champs optionnels : affiches seulement s'ils sont renseignes
-    if (b.plan_date) lignes.push(['Date', b.plan_date]);
-    if (b.scale) lignes.push(['Scale', b.scale]);
-    if (b.source_nom) lignes.push(['Source', b.source_nom]);
-
-    grille.innerHTML = lignes.map((l) =>
-      '<span>' + esc(l[0]) + '</span><span>' + esc(l[1]) + '</span>').join('');
+    if (b.source_nom) parts.push(b.source_nom);
+    if (b.plan_date) parts.push(b.plan_date);
+    if (b.scale) parts.push('Échelle ' + b.scale);
+    const uniques = parts.filter((t, i) => parts.indexOf(t) === i);
+    grille.innerHTML = uniques.map((t) => '<span>' + esc(t) + '</span>').join('<i>·</i>');
   }
 
-  // onglet Map : affiche telle quelle la carte importee (Name_Map), rien de genere.
+  // onglet Map : affiche la carte importee (Name_Map) en plein cadre ; rien de genere.
   function rendreMapImage(b) {
     const wrap = $('#dpMapImageWrap');
     if (!wrap) return;
@@ -880,38 +974,75 @@
     const src = b && (b.map_apercu || b.map_url || b.map_image);
     rognage = null;
     if (src) {
-      // Rogner : seulement en consultation. Pendant une saisie, l'image rognee
-      // partirait avec des fichiers du formulaire pas encore valides.
-      const bouton = mode === 'consultation'
-        ? '<button type="button" class="dp-crop-toggle" id="dpCropBtn" title="Rogner la carte">' +
-          '<i class="fas fa-crop-simple"></i> Rogner</button>'
+      // Rogner : seulement en consultation (le formulaire est verrouille).
+      const boutons = mode === 'consultation'
+        ? '<div class="dp-crop-barre">' +
+          (lireRognage(b) ? '<button type="button" class="dp-crop-toggle" id="dpCropReset" title="Revenir a la carte entiere"><i class="fas fa-expand"></i> Plein cadre</button>' : '') +
+          '<button type="button" class="dp-crop-toggle" id="dpCropBtn" title="Rogner la carte (affichage local a ce poste)"><i class="fas fa-crop-simple"></i> Rogner</button>' +
+          '</div>'
         : '';
-      wrap.innerHTML = '<img id="dpMapImg" src="' + esc(src) + '" alt="Carte du blast" />' + bouton;
+      wrap.innerHTML = '<div class="dp-map-box" id="dpMapBox"><img id="dpMapImg" src="' + esc(src) + '" alt="Carte du blast" /></div>' + boutons;
+      const img = $('#dpMapImg');
+      img.addEventListener('load', () => ajusterCarte(false));
+      if (img.complete) ajusterCarte(false);
       const btn = $('#dpCropBtn');
       if (btn) btn.addEventListener('click', () => ouvrirRognage(b));
+      const reset = $('#dpCropReset');
+      if (reset) reset.addEventListener('click', () => { ecrireRognage(b, null); rendreMapImage(b); });
     } else {
       wrap.innerHTML = '<div class="dp-note">Aucune carte importee. Utilisez le champ Name_Map pour en ajouter une.</div>';
     }
   }
 
-  /* ============================ Rogner la carte ============================ */
-  // Rectangle trace sur l'image affichee, converti en pixels NATURELS, decoupe
-  // par canvas et enregistre sous `<nom>_rogne.<ext>` : l'original reste.
+  /* ============================ Rogner la carte (LOCAL) ============================ */
+  // Le rognage est un simple cadrage d'AFFICHAGE, propre a ce poste : le rectangle trace est memorise
+  // en fractions de l'image (localStorage). Rien n'est envoye ni enregistre : ni Drive, ni passerelle,
+  // ni fichier ; l'original et ce que voient les tablettes ne changent pas.
 
-  // URL de meme origine que la page : le SaaS sert aussi /data/plans/. L'URL
-  // de la passerelle (:8101) est une AUTRE origine, sans en-tete CORS : le
-  // canvas serait « contamine » et toDataURL echouerait.
-  function urlMemeOrigine(src) {
+  const cleRognage = (b) => 'dp-rognage:' + (b.id || b.numero || '') + ':' + (b.name_map || '');
+
+  function lireRognage(b) {
     try {
-      const u = new URL(src, window.location.href);
-      if (u.origin !== window.location.origin && u.pathname.indexOf('/data/plans/') === 0) {
-        return window.location.origin + u.pathname;
-      }
-      return u.href;
-    } catch (e) {
-      return src;
-    }
+      const v = JSON.parse(localStorage.getItem(cleRognage(b)) || 'null');
+      if (v && v.w > 0.02 && v.h > 0.02 && v.x >= 0 && v.y >= 0 && v.x + v.w <= 1.001 && v.y + v.h <= 1.001) return v;
+    } catch (e) { /* stockage indisponible ou illisible : carte entiere */ }
+    return null;
   }
+
+  function ecrireRognage(b, frac) {
+    try {
+      if (frac) localStorage.setItem(cleRognage(b), JSON.stringify(frac));
+      else localStorage.removeItem(cleRognage(b));
+    } catch (e) { /* stockage indisponible : le cadrage ne sera pas memorise */ }
+  }
+
+  // Dimensionne la carte pour REMPLIR la zone disponible (zone cadree si un rognage existe, sinon image entiere).
+  function ajusterCarte(complet) {
+    const wrap = $('#dpMapImageWrap'), box = $('#dpMapBox'), img = $('#dpMapImg');
+    if (!wrap || !box || !img || !img.naturalWidth) return;
+    const b = blastCourant();
+    const frac = (!complet && b && lireRognage(b)) || { x: 0, y: 0, w: 1, h: 1 };
+    // largeur : celle de la zone ; hauteur maximale : ce que la fenetre permet (la zone s'ajuste ensuite a l'image)
+    const W = wrap.clientWidth;
+    const H = Math.max(420, Math.min(window.innerHeight - 330, 900));
+    if (!W) return;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    const cw = frac.w * nw, ch = frac.h * nh;
+    const sc = Math.min(W / cw, H / ch);
+    box.style.width = (cw * sc) + 'px';
+    box.style.height = (ch * sc) + 'px';
+    img.style.width = (nw * sc) + 'px';
+    img.style.height = (nh * sc) + 'px';
+    img.style.left = (-frac.x * nw * sc) + 'px';
+    img.style.top = (-frac.y * nh * sc) + 'px';
+    wrap.style.height = Math.max(ch * sc, 160) + 'px';   // pas de vide autour d'une carte basse ou large
+  }
+
+  let minuteurRedim = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(minuteurRedim);
+    minuteurRedim = setTimeout(() => { if (!rognage) ajusterCarte(false); }, 120);
+  });
 
   function ouvrirRognage(b) {
     const img = $('#dpMapImg');
@@ -921,7 +1052,9 @@
       return;
     }
     fermerRognage();
-    const zone = img.getBoundingClientRect();
+    ajusterCarte(true);                 // on trace toujours sur l'image ENTIERE
+    const box = $('#dpMapBox');
+    const zone = box.getBoundingClientRect();
     const base = wrap.getBoundingClientRect();
     const couche = document.createElement('div');
     couche.className = 'dp-crop-layer';
@@ -929,7 +1062,7 @@
     couche.style.top = (zone.top - base.top) + 'px';
     couche.style.width = zone.width + 'px';
     couche.style.height = zone.height + 'px';
-    couche.innerHTML = '<div class="dp-crop-hint">Tracez la zone a garder</div>' +
+    couche.innerHTML = '<div class="dp-crop-hint">Tracez la zone a garder (affichage local)</div>' +
       '<div class="dp-crop-box" hidden></div>';
     const barre = document.createElement('div');
     barre.className = 'dp-crop-actions';
@@ -938,8 +1071,8 @@
       '<button type="button" class="dp-crop-cancel"><i class="fas fa-xmark"></i> Annuler</button>';
     wrap.appendChild(couche);
     wrap.appendChild(barre);
-    const btn = $('#dpCropBtn');
-    if (btn) btn.hidden = true;
+    const tools = wrap.querySelector('.dp-crop-barre');
+    if (tools) tools.hidden = true;
     rognage = { b: b, couche: couche, barre: barre, cadre: couche.querySelector('.dp-crop-box'),
                 rect: null, x0: 0, y0: 0, actif: false };
 
@@ -977,7 +1110,7 @@
     };
     couche.addEventListener('pointerup', fin);
     couche.addEventListener('pointercancel', fin);
-    barre.querySelector('.dp-crop-cancel').addEventListener('click', fermerRognage);
+    barre.querySelector('.dp-crop-cancel').addEventListener('click', () => { fermerRognage(); ajusterCarte(false); });
     barre.querySelector('.dp-crop-ok').addEventListener('click', validerRognage);
     document.addEventListener('keydown', echapRognage);
   }
@@ -996,7 +1129,7 @@
   }
 
   function echapRognage(ev) {
-    if (ev.key === 'Escape') fermerRognage();
+    if (ev.key === 'Escape') { fermerRognage(); ajusterCarte(false); }
   }
 
   function fermerRognage() {
@@ -1005,76 +1138,21 @@
     rognage.couche.remove();
     rognage.barre.remove();
     rognage = null;
-    const btn = $('#dpCropBtn');
-    if (btn) btn.hidden = false;
+    const tools = document.querySelector('#dpMapImageWrap .dp-crop-barre');
+    if (tools) tools.hidden = false;
   }
 
-  function chargerImage(url) {
-    return new Promise((resolve, reject) => {
-      const im = new Image();
-      im.crossOrigin = 'anonymous';
-      im.onload = () => resolve(im);
-      im.onerror = () => reject(new Error('image illisible'));
-      im.src = url;
-    });
-  }
-
-  async function validerRognage() {
+  // Valide : memorise le cadrage LOCALEMENT (fractions de l'image), sans aucun envoi.
+  function validerRognage() {
     if (!rognage || !rognage.rect) return;
     const b = rognage.b;
-    const img = $('#dpMapImg');
     const couche = rognage.couche.getBoundingClientRect();
     const r = rognage.rect;
-    if (!img || !couche.width || !couche.height) return;
-    const ex = img.naturalWidth / couche.width;
-    const ey = img.naturalHeight / couche.height;
-    const sx = Math.round(r.x * ex), sy = Math.round(r.y * ey);
-    const sw = Math.max(1, Math.round(r.w * ex)), sh = Math.max(1, Math.round(r.h * ey));
-
-    // Nom : `<nom>_rogne.<ext>`, sans empiler les suffixes d'un rognage
-    // precedent. L'ancien fichier n'est jamais ecrase.
-    const nomActuel = String(b.name_map || ((b.numero || 'carte') + '.jpg'));
-    const m = nomActuel.match(/^(.*?)(\.[A-Za-z0-9]+)?$/);
-    const ext = ((m && m[2]) || '.jpg').toLowerCase();
-    const racine = ((m && m[1]) || nomActuel).replace(/_rogne$/i, '');
-    const png = ext === '.png';
-    const nouveauNom = racine + '_rogne' + (png ? '.png' : (ext === '.jpeg' ? '.jpeg' : '.jpg'));
-
-    let dataUrl;
-    try {
-      const source = await chargerImage(urlMemeOrigine(img.currentSrc || img.src));
-      const canvas = document.createElement('canvas');
-      canvas.width = sw;
-      canvas.height = sh;
-      canvas.getContext('2d').drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
-      dataUrl = png ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
-    } catch (err) {
-      // Carte hors de ce poste (lien Drive en mode Serveur_OT) : le navigateur
-      // interdit de la relire, on ne peut pas la decouper ici.
-      setStatus('Rognage impossible : carte non disponible sur ce poste (' + err.message + ')', false);
-      return;
-    }
-
-    const payload = {
-      id: b.id, numero: b.numero || b.id, nom: b.nom || b.numero || '',
-      name_map: nouveauNom, map_contenu: dataUrl,
-    };
-    CHAMPS_FICHIER.forEach((cle) => {
-      if (cle !== 'map') payload['name_' + cle] = b['name_' + cle] || '';
-    });
+    if (!couche.width || !couche.height) return;
+    ecrireRognage(b, { x: r.x / couche.width, y: r.y / couche.height, w: r.w / couche.width, h: r.h / couche.height });
     fermerRognage();
-    Splash.bloquer('Rognage de la carte...', nouveauNom);
-    try {
-      Splash.etape('Enregistrement de la carte rognee...');
-      const id = await API().enregistrer(payload, false);
-      Splash.etape('Rechargement du blast...');
-      await chargerBlasts(id);
-      Splash.succes('Carte rognee', nouveauNom + ' (original conserve : ' + nomActuel + ')');
-      setStatus('Carte rognee : ' + nouveauNom, true);
-    } catch (err) {
-      Splash.erreur('Rognage impossible', err.message);
-      setStatus(err.message, false);
-    }
+    rendreMapImage(b);
+    setStatus('Carte rognee pour ce poste (rien n\'est modifie sur le serveur ni le Drive)', true);
   }
 
   // point-in-polygon (ray casting), miroir de point_in_polygon() cote serveur
@@ -1089,6 +1167,10 @@
     }
     return dedans;
   }
+
+  // avancement par bloc (tonnes minees / theoriques), alimente par majDiagrammeOnline ; sert aux etiquettes du plan
+  let progressionBlocs = {};
+  let derniersEnCours = [];
 
   function rendreSvg(containerId, oreblocs, highlightIds) {
     const wrap = $('#' + containerId);
@@ -1128,7 +1210,7 @@
         (h - (y - minY)).toFixed(1), // flip vertical : y croissant vers le haut
       ]);
       svg += '<polygon points="' + screenPts.map((p) => p.join(',')).join(' ') +
-        '" fill="' + fill + '" stroke="#e2e8f0" stroke-width="' + traitW.toFixed(3) + '"' +
+        '" fill="' + fill + '" fill-opacity=".30" stroke="' + fill + '" stroke-width="' + (traitW * 1.6).toFixed(3) + '"' +
         (enCours ? ' class="dp-ore-mining"' : '') + ' />';
       screenPts.forEach(([sx, sy]) => {
         num++;
@@ -1137,10 +1219,29 @@
       // etiquette du bloc pres de son centroide
       const cx = screenPts.reduce((s, p) => s + Number(p[0]), 0) / screenPts.length;
       const cy = screenPts.reduce((s, p) => s + Number(p[1]), 0) / screenPts.length;
-      svg += '<text x="' + cx.toFixed(1) + '" y="' + cy.toFixed(1) + '" class="dp-svg-label" font-size="' + (w / 45).toFixed(1) + '">' + esc(b.nom) + '</text>';
+      const pr = progressionBlocs[b.nom];
+      const fs = w / 45;
+      svg += '<text x="' + cx.toFixed(1) + '" y="' + (cy - fs * 0.2).toFixed(1) + '" class="dp-svg-label" font-size="' + fs.toFixed(1) + '">' + esc(b.nom) + '</text>';
+      if (pr && pr.theo) {
+        const pct = Math.round(pr.mine / pr.theo * 100);
+        const over = pr.mine > pr.theo;
+        svg += '<text x="' + cx.toFixed(1) + '" y="' + (cy + fs * 0.85).toFixed(1) + '" class="dp-svg-sous' + (over ? ' over' : '') + '" font-size="' + (fs * 0.62).toFixed(1) + '">' +
+          pct + ' %' + (over ? ' · OVERMINE' : (enCours ? ' · EN COURS' : '')) + '</text>';
+        svg += '<text x="' + cx.toFixed(1) + '" y="' + (cy + fs * 1.5).toFixed(1) + '" class="dp-svg-sous2" font-size="' + (fs * 0.55).toFixed(1) + '">' +
+          Math.round(pr.mine).toLocaleString('fr-FR') + ' / ' + Math.round(pr.theo).toLocaleString('fr-FR') + ' t</text>';
+      }
     });
     svg += '</svg>';
     wrap.innerHTML = svg;
+  }
+
+  // Deux types seulement : bloc de minerai (icone) ou bloc sterile (« sterile »), d'apres le drapeau `minerai`
+  // de la passerelle (0 = sterile, absent = minerai).
+  const estSterile = (b) => b && (b.minerai === 0 || b.minerai === '0' || b.minerai === false);
+  function pastilleMatiere(b) {
+    return estSterile(b)
+      ? '<span class="dp-matiere waste" title="Bloc stérile"><i class="fas fa-mountain"></i></span>'
+      : '<span class="dp-matiere ore" title="Bloc de minerai"><i class="fas fa-gem"></i></span>';
   }
 
   function rendreTable(oreblocs) {
@@ -1153,7 +1254,7 @@
     tbody.innerHTML = oreblocs.map((b) => {
       const dest = (b.destination || '').toUpperCase();
       return '<tr' + (dest && dest !== 'W' ? ' class="dp-row-ore"' : '') + '>' +
-        '<td>' + esc(b.nom) + '</td>' +
+        '<td>' + pastilleMatiere(b) + esc(b.nom) + '</td>' +
         '<td>' + esc(b.volume || 0) + '</td>' +
         '<td>' + esc(b.tonnes || 0) + '</td>' +
         '<td>' + esc(b.au_teneur || 0) + '</td>' +
@@ -1174,7 +1275,15 @@
   function rendreDiagramme(oreblocs) {
     const el = $('#dpDiagram');
     if (!el) return;
-    if (!oreblocs.length) { el.innerHTML = ''; if (diagTimer) { clearInterval(diagTimer); diagTimer = null; } return; }
+    if (!oreblocs.length) {
+      el.innerHTML = '';
+      if (diagTimer) { clearInterval(diagTimer); diagTimer = null; }
+      progressionBlocs = {};
+      const p0 = $('#dpAvancementPct'), t0 = $('#dpAvancementTonnes'), b0 = $('#dpAvancementBarre');
+      if (p0) p0.textContent = '--'; if (t0) t0.textContent = ''; if (b0) b0.style.width = '0';
+      rendreOvermine([]);
+      return;
+    }
     el.innerHTML = '<div class="dp-diag-legende">' +
       '<span><span class="dp-leg-mine"></span> Mine (reel)</span>' +
       '<span><span class="dp-leg-theo"></span> Theorique (plan)</span>' +
@@ -1209,6 +1318,20 @@
     }
 
     const noms = Object.keys(theo);
+    // avancement du blast : total mine / total theorique (le mine d'un bloc est plafonne a son theorique
+    // pour le pourcentage global : un overmine ne doit pas masquer un bloc encore a miner)
+    progressionBlocs = {};
+    noms.forEach((n) => { progressionBlocs[n] = { mine: mine[n] || 0, theo: theo[n] }; });
+    const totTheo = noms.reduce((s, n) => s + theo[n], 0);
+    const totMine = noms.reduce((s, n) => s + Math.min(mine[n] || 0, theo[n] || (mine[n] || 0)), 0);
+    const pctGlobal = totTheo ? Math.round(totMine / totTheo * 100) : 0;
+    const elPct = $('#dpAvancementPct'), elT = $('#dpAvancementTonnes'), elB = $('#dpAvancementBarre');
+    if (elPct) elPct.textContent = totTheo ? pctGlobal + ' %' : '--';
+    if (elT) elT.textContent = totTheo
+      ? Math.round(totMine).toLocaleString('fr-FR') + ' / ' + Math.round(totTheo).toLocaleString('fr-FR') + ' t minées' : '';
+    if (elB) elB.style.width = Math.min(100, pctGlobal) + '%';
+    const vue = $('#dpProgressView');
+    if (vue && !vue.hidden) rendreSvg('dpSvgWrapProgress', oreblocs, derniersEnCours);
     const maxT = Math.max.apply(null, noms.map((n) => Math.max(theo[n], mine[n] || 0))) || 1;
     box.innerHTML = noms.map((nom) => {
       const t = theo[nom];
@@ -1217,8 +1340,10 @@
       const pctM = Math.max(0, Math.min(100, Math.round((m / maxT) * 100)));
       const pct = t ? Math.min(100, Math.round((m / t) * 100)) : 0;
       const ok = t ? (m >= t * 0.98) : false; // atteint si >= 98% du plan
-      return '<div class="dp-bar-row">' +
-        '<span class="dp-bar-label" title="' + esc(nom) + '">' + esc(nom) + '</span>' +
+      const ob = oreblocs.find((o) => o.nom === nom) || {};
+      const couleur = window.OTCouleurs ? OTCouleurs.famille(ob.destination) : '#8d887a';
+      return '<div class="dp-bar-row" style="--fam:' + couleur + '">' +
+        '<span class="dp-bar-label" title="' + esc(nom) + '">' + pastilleMatiere(ob) + esc(nom) + '</span>' +
         '<div class="dp-bar-track">' +
           '<div class="dp-bar-fill theo" style="width:' + pctT + '%"></div>'
           + '<div class="dp-bar-fill mine" style="width:' + pctM + '%"></div>' +
@@ -1240,22 +1365,20 @@
   }
 
   function rendreOvermine(liste) {
+    const card = $('#dpOvermineCard');
     const box = $('#dpOvermineListe');
     if (!box) return;
-    if (!liste || !liste.length) {
-      box.innerHTML = '<div class="dp-overmine-vide">Aucun overmine — le minage reste dans le plan.</div>';
-      box.classList.remove('alerte');
-      return;
-    }
-    box.classList.add('alerte');
-    box.innerHTML = liste.map((o) =>
-      '<div class="dp-overmine-item">' +
-        '<i class="fas fa-triangle-exclamation"></i>' +
-        '<span class="dp-om-nom" title="' + esc(o.nom) + '">' + esc(o.nom) + '</span>' +
-        '<span class="dp-om-val">+' + Math.round(o.exces).toLocaleString('fr-FR') + ' t' +
-          ' <em>(' + Math.round(o.mine).toLocaleString('fr-FR') + ' / ' +
-          Math.round(o.theo).toLocaleString('fr-FR') + ')</em></span>' +
-      '</div>').join('');
+    if (card) card.hidden = !liste || !liste.length;
+    const titre = $('#dpOvermineTitre');
+    if (titre && liste && liste.length) titre.textContent = 'Overmine · ' + liste.length + (liste.length > 1 ? ' blocs' : ' bloc');
+    box.innerHTML = (liste || []).map((o) => {
+      const pct = o.theo ? Math.round(o.exces / o.theo * 100) : 0;
+      return '<div class="dp-overmine-item">' +
+        '<b title="' + esc(o.nom) + '">' + esc(o.nom) + ' : ' + Math.round(o.mine).toLocaleString('fr-FR') + ' t minées / ' +
+          Math.round(o.theo).toLocaleString('fr-FR') + ' t théoriques</b>' +
+        '<span>+' + Math.round(o.exces).toLocaleString('fr-FR') + ' t · dépassement de ' + pct + ' %</span>' +
+      '</div>';
+    }).join('');
   }
 
   function jgetPasserelle(path) {
@@ -1274,12 +1397,18 @@
       rendreSvg('dpSvgWrapProgress', [], []);
       return;
     }
-    const totalT = oreblocs.reduce((s, b) => s + (Number(b.tonnes) || 0), 0);
-    const totalV = oreblocs.reduce((s, b) => s + (Number(b.volume) || 0), 0);
+    const somme = (l, k) => l.reduce((s, b) => s + (Number(b[k]) || 0), 0);
+    const fmtN = (v, d) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
+    const ore = oreblocs.filter((b) => !estSterile(b));
+    const ster = oreblocs.filter(estSterile);
+    const carte = (valeur, libelle, detail) =>
+      '<div class="dp-kpi"><b>' + valeur + '</b><span>' + libelle + '</span>' + (detail ? '<small>' + detail + '</small>' : '') + '</div>';
     el.innerHTML = '<div class="dp-progress-kpis">' +
-      '<div class="dp-kpi"><b>' + oreblocs.length + '</b><span>Blocs</span></div>' +
-      '<div class="dp-kpi"><b>' + totalT.toLocaleString('fr-FR') + '</b><span>Tonnes totales</span></div>' +
-      '<div class="dp-kpi"><b>' + totalV.toLocaleString('fr-FR') + '</b><span>Volume total (m3)</span></div>' +
+      carte(oreblocs.length, 'Blocs', ore.length + ' minerai · ' + ster.length + ' stérile' + (ster.length > 1 ? 's' : '')) +
+      carte(fmtN(somme(oreblocs, 'tonnes'), 0) + ' t', 'Tonnes totales', fmtN(somme(ore, 'tonnes'), 0) + ' t minerai · ' + fmtN(somme(ster, 'tonnes'), 0) + ' t stérile') +
+      carte(fmtN(somme(oreblocs, 'volume'), 0) + ' m³', 'Volume total', fmtN(somme(ore, 'volume'), 0) + ' m³ minerai · ' + fmtN(somme(ster, 'volume'), 0) + ' m³ stérile') +
+      carte(somme(ore, 'tonnes') ? fmtN(somme(ore.map((b) => ({ x: (Number(b.tonnes) || 0) * (Number(b.au_teneur) || 0) })), 'x') / somme(ore, 'tonnes'), 2) : '--',
+        'Teneur moyenne', 'Au_ok · minerai') +
       '</div>';
     rafraichirEngins();
   }
@@ -1350,8 +1479,10 @@
         });
       } catch (e2) { /* engins indisponibles : les canaux A+D suffisent */ }
 
+      derniersEnCours = enCoursIds;
       rendreSvg('dpSvgWrapProgress', oreblocs, enCoursIds);
     } catch (e) {
+      derniersEnCours = [];
       rendreSvg('dpSvgWrapProgress', oreblocs, []);
     }
   }
@@ -1410,6 +1541,8 @@
     $('#dpBtnNew').addEventListener('click', nouveauBlast);
     $('#dpBtnEdit').addEventListener('click', modifierBlast);
     $('#dpBtnDelete').addEventListener('click', supprimerBlast);
+    const btnClore = $('#dpBtnClore');
+    if (btnClore) btnClore.addEventListener('click', cloreBlast);
     $('#dpForm').addEventListener('submit', sauverBlast);
     $('#dpBtnCancel').addEventListener('click', annulerForm);
     $('#dpName').addEventListener('input', majLabelsFichier);
@@ -1426,9 +1559,70 @@
     $('#dpTabProgress').addEventListener('click', () => activerTab('progress'));
   }
 
+  /* ---- Equipe de service (jour / nuit) : memes parametres equipe_jour / equipe_nuit que Senor et Home ---- */
+  async function chargerService() {
+    const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
+    const g = window.API;     // `API` est ici la fonction du backend Dig Plan : on lit l'objet global
+    if (!sj || !sn || !g) return;
+    const st = $('#dpServiceStatus');
+    try {
+      const [cfg, ident] = await Promise.all([g.getConfig(), g.getRows('sync_identifiants')]);
+      const p = (cfg && (cfg.params || cfg)) || {};
+      const codes = Array.from(new Set(((ident && ident.rows) || [])
+        .filter((r) => r.profil === 'SPOT' && r.actif === 1).map((r) => r.equipe).filter(Boolean))).sort();
+      servicePersonnel = ((ident && ident.rows) || []).filter((r) => r.profil === 'SPOT' && r.actif === 1);
+      [[sj, p.equipe_jour || ''], [sn, p.equipe_nuit || '']].forEach(([sel, val]) => {
+        const liste = val && codes.indexOf(val) < 0 ? codes.concat(val) : codes;
+        sel.innerHTML = '<option value="">Non définie</option>' +
+          liste.map((c) => '<option value="' + esc(c) + '"' + (c === val ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+      });
+      if (st) st.textContent = '';
+      rendreService();
+    } catch (e) {
+      if (st) st.textContent = 'Connexion requise';
+    }
+  }
+
+  // Carte « Equipe de service » : le shift en cours est mis en avant, avec les membres de son equipe.
+  let servicePersonnel = [];
+  function rendreService() {
+    const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
+    if (!sj || !sn) return;
+    const h = new Date().getHours();
+    const jour = h >= 6 && h < 18;
+    const rj = $('#dpSvcJour'), rn = $('#dpSvcNuit');
+    if (rj) rj.classList.toggle('actif', jour);
+    if (rn) rn.classList.toggle('actif', !jour);
+    const code = (jour ? sj : sn).value;
+    const shift = $('#dpServiceShift');
+    if (shift) shift.textContent = (jour ? 'Shift de jour' : 'Shift de nuit') + ' · ' + (code || 'non définie');
+    const box = $('#dpServiceMembres');
+    if (!box) return;
+    const membres = servicePersonnel.filter((r) => r.equipe === code)
+      .sort((a, b) => (String(b.role).toUpperCase() === 'CHEF_EQUIPE') - (String(a.role).toUpperCase() === 'CHEF_EQUIPE'));
+    box.innerHTML = code && membres.length
+      ? membres.map((m) => '<span class="dp-svc-membre' + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' chef' : '') + '">' +
+          esc(m.nom || m.identifiant) + (String(m.role).toUpperCase() === 'CHEF_EQUIPE' ? ' · chef' : '') + '</span>').join('')
+      : '';
+  }
+
+  async function enregistrerService(cle, valeur) {
+    const st = $('#dpServiceStatus');
+    try {
+      await window.API.saveConfig({ [cle]: valeur });
+      if (st) st.textContent = 'Équipe de service enregistrée.';
+    } catch (e) {
+      if (st) st.textContent = 'Enregistrement impossible : ' + ((e && e.message) || 'serveur indisponible');
+    }
+  }
+
   async function init() {
     if (!$('#page-digplan')) return;
     brancherEvenements();
+    chargerService();
+    const sj = $('#dpEquipeJour'), sn = $('#dpEquipeNuit');
+    if (sj) sj.addEventListener('change', () => { rendreService(); enregistrerService('equipe_jour', sj.value); });
+    if (sn) sn.addEventListener('change', () => { rendreService(); enregistrerService('equipe_nuit', sn.value); });
     // sequentiel : chargerBlasts filtre sur la source courante, qui doit
     // donc etre connue avant (en parallele la liste partait non filtree).
     await chargerSources();

@@ -1,0 +1,23 @@
+# =====================================================================
+# Droits par compte — broker OreTracking (Mosquitto)
+# Installe dans /etc/mosquitto/acl par installer_broker.sh
+# %u = identifiant du compte = code du DT (ex. DT-18)
+# =====================================================================
+
+# Chaque DT : uniquement ses propres sujets (CDC § 5). Les « pattern »
+# s'appliquent a tous les comptes ; places en tete, avant tout « user ».
+pattern write camions/%u/position
+pattern write camions/%u/evenement
+pattern write camions/%u/connexion
+pattern read camions/%u/mission
+pattern read camions/%u/alerte
+
+# Passerelle du site : lit tout le suivi, publie les ordres vers les DT
+user passerelle
+topic read camions/#
+topic write camions/+/mission
+topic write camions/+/alerte
+
+# Page de controle / recette : lecture seule
+user controle
+topic read camions/#

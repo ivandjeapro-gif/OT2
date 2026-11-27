@@ -34,6 +34,7 @@ La base est un fichier SQLite unique : data/oretracking.db (cree au premier
 lancement, pre-remplie avec les donnees de demarrage).
 """
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -295,7 +296,6 @@ DEFAULT_PARAMS = {
     "port_db": "5432",
     "base": "oretracking_db",
     "user": "admin",
-    "mode_simulation": "true",
     "rafraichissement": "5",
     "theme": "Sombre",
     "animations": "true",
@@ -548,6 +548,42 @@ def auth_context(authorizer):
         if sess:
             return {"via": "session", **sess}
     return None
+
+
+# --------------------------- profil de l'utilisateur (admin / senor / geologue) ---
+# Le profil vit dans Firestore (users/{uid}.role, base « ot-test »), pas dans le jeton Firebase.
+# Lecture par l'API REST de Firestore AVEC le jeton de l'utilisateur (comme le fait la page : il lit
+# son propre document), mis en cache 60 s. Sert a la passerelle (:8101) pour autoriser ses ecritures.
+FIRESTORE_DOC = "https://firestore.googleapis.com/v1/projects/ot-test-3c6df/databases/ot-test/documents/users/"
+_ROLE_CACHE = {}          # uid -> (role, expire)
+
+
+def normaliser_role(r):
+    r = str(r or "").strip().lower()
+    if r == "admin":
+        return "admin"
+    if r in ("senor", "senor_geology", "senorgeology"):
+        return "senor"
+    return "geologue"         # viewer / inconnu : le plus restreint des profils d'usage
+
+
+def role_firestore(jeton, uid):
+    """Profil de l'utilisateur ; None si illisible (reseau, regle Firestore) ou compte desactive."""
+    c = _ROLE_CACHE.get(uid)
+    if c and c[1] > time.time():
+        return c[0]
+    role = None
+    try:
+        req = urllib.request.Request(FIRESTORE_DOC + uid, headers={"Authorization": "Bearer " + jeton})
+        with urllib.request.urlopen(req, timeout=6) as rep:
+            champs = (json.loads(rep.read().decode("utf-8")) or {}).get("fields") or {}
+        if not (champs.get("desactive") or {}).get("booleanValue"):
+            role = normaliser_role((champs.get("role") or {}).get("stringValue"))
+    except Exception as e:
+        print("  ROLE: lecture Firestore impossible pour %s (%s)" % (uid, e))
+        return None
+    _ROLE_CACHE[uid] = (role, time.time() + 60)
+    return role
 
 
 def init_db():
@@ -1475,10 +1511,35 @@ def _flotte_detail(conn, remote_flotte):
     return lignes
 
 
+def facteurs_familles(conn):
+    """Tonnes par voyage, par famille de DT (Parametres > Flotte, 17/11).
+    Stocke en JSON dans params.truck_factor_familles : {"1500": 30, ...}.
+    Seules les valeurs > 0 sont gardees ; famille en majuscules."""
+    ligne = conn.execute(
+        "SELECT valeur FROM params WHERE cle='truck_factor_familles'").fetchone()
+    try:
+        brut = json.loads(ligne["valeur"]) if ligne and ligne["valeur"] else {}
+    except (ValueError, TypeError):
+        brut = {}
+    out = {}
+    for fam, val in (brut.items() if isinstance(brut, dict) else []):
+        try:
+            v = float(str(val).replace(",", "."))
+        except (ValueError, TypeError):
+            continue
+        if v > 0 and math.isfinite(v):
+            out[_txt(fam).upper()] = int(v) if v == int(v) else round(v, 2)
+    return out
+
+
 def gas_push_rows(dataset, conn):
     """Lignes a envoyer en ligne pour un dataset (source : etat local)."""
     if dataset == "flotte":
         rows = []
+        # truck_factor_t (17/11) : tonnes par voyage de la famille, colonne
+        # facultative de l'onglet flotte de Serveur_OT. Vide = repli sur le
+        # facteur global cote serveurs. Excavatrices : toujours vide.
+        facteurs = facteurs_familles(conn)
         # source : engins (liste operationnelle) UNION sync_flotte (machines
         # ajoutees via Settings, presentes ici meme avant le prochain pull).
         # Dedup par famille+numero : engins gagne (il porte le statut live).
@@ -1501,9 +1562,12 @@ def gas_push_rows(dataset, conn):
                 vues.add(cle)
                 statut = r["statut"] if src == "engins" else None
                 actif = bool(_bool(r["actif"]) and (statut is None or _txt(statut) != "inactif"))
-                rows.append({"role": role_famille(famille),
+                role = role_famille(famille)
+                rows.append({"role": role,
                              "famille": famille, "numero": int(numero),
-                             "actif": actif})
+                             "actif": actif,
+                             "truck_factor_t": (facteurs.get(famille.upper(), "")
+                                                if role == "DT" else "")})
         rows.sort(key=lambda x: x["numero"])
         return rows
     if dataset == "profils":
@@ -1901,6 +1965,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"user": {
                     "id": s["compte_id"], "nom": s["nom"],
                     "email": s["email"], "role": s["role"]}})
+
+            # Profil de l'appelant (jeton Firebase ou session) : lu par la passerelle pour autoriser ses ecritures
+            if path == "/api/auth/role" and method == "GET":
+                ctx = auth_context(self)
+                if ctx["via"] == "firebase":
+                    role = role_firestore(self._token(), ctx["uid"])
+                    if role is None:
+                        return self._json(403, {"error": "profil illisible ou compte desactive"})
+                    return self._json(200, {"role": role, "email": ctx.get("email", ""), "uid": ctx["uid"]})
+                return self._json(200, {"role": normaliser_role(ctx.get("role")), "email": ctx.get("email", "")})
 
             # ---- COMPTES (panneau Securite) ----
             if path == "/api/comptes":
@@ -2388,12 +2462,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "fichier introuvable"})
         ext = os.path.splitext(full)[1].lower()
         ctype = self.STATIC_EXT.get(ext, "application/octet-stream")
+        # 20/11 : avant, TOUT etait « no-store » : a chaque changement de page le navigateur retelechargeait
+        # style.css (130 Ko), refonte.css, les scripts et le logo de la barre -> la page (et la barre) se
+        # redessinait « comme rechargee ». Maintenant : code (html / css / js) revalide par ETag (304 instantane,
+        # une modification deployee est vue tout de suite) ; images et polices gardees 5 min ; donnees
+        # (csv, json, geojson...) toujours relues.
+        st = os.stat(full)
+        etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+        if ext in (".html", ".css", ".js"):
+            cache = "no-cache"
+        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2"):
+            cache = "public, max-age=300"
+        else:
+            cache = "no-store"
+        if cache != "no-store" and self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            return
         with open(full, "rb") as f:
             data = f.read()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
+        if cache != "no-store":
+            self.send_header("ETag", etag)
         self.end_headers()
         self.wfile.write(data)
 

@@ -366,14 +366,16 @@
     forms.forEach((f) => {
       f.style.display = authenticated ? '' : 'none';
     });
+    const btnF = document.getElementById('btnTruckFactors');
+    if (btnF) btnF.style.display = authenticated ? '' : 'none';
   }
 
   // ============ TEAMS (Spotter) ============
   // Source de verite : onglet `identifiants` du Google Sheet (miroir local
   // sync_identifiants). Un membre = une ligne (profil, identifiant, nom,
   // role, equipe, actif). L'equipe est un attribut du membre : la carte
-  // d'equipe regroupe les lignes a la volÃ©e. Une team est creee AVEC son
-  // chef d'equipe (premiere ligne) â€” jamais vide.
+  // d'equipe regroupe les lignes a la volée. Une team est creee AVEC son
+  // chef d'equipe (premiere ligne) — jamais vide.
 
   const ROLE_LIBELLE = {
     'SPOTER': 'Spotter',
@@ -407,12 +409,97 @@
     return TEAM_COLORS[h % TEAM_COLORS.length];
   }
 
+  // Equipe de service (params equipe_jour / equipe_nuit) : lue par Home.
+  const SERVICE = { jour: '', nuit: '', charge: false };
+  function renderService(rows) {
+    const selJ = $('#equipeJour'), selN = $('#equipeNuit');
+    if (!selJ || !selN) return;
+    const codes = Array.from(new Set((rows || []).filter((r) => r.profil === 'SPOT' && r.actif === 1)
+      .map((r) => r.equipe).filter(Boolean))).sort();
+    [[selJ, SERVICE.jour], [selN, SERVICE.nuit]].forEach(([sel, val]) => {
+      const liste = val && !codes.includes(val) ? codes.concat(val) : codes;
+      sel.innerHTML = '<option value="">Non définie</option>' +
+        liste.map((c) => '<option value="' + eqEscape(c) + '"' + (c === val ? ' selected' : '') + '>' + eqEscape(c) + '</option>').join('');
+    });
+  }
+  async function chargerService(rows) {
+    try {
+      const r = await API.getConfig();
+      const p = (r && (r.params || r)) || {};
+      SERVICE.jour = p.equipe_jour || '';
+      SERVICE.nuit = p.equipe_nuit || '';
+    } catch (e) { /* serveur indisponible : listes vides */ }
+    renderService(rows);
+  }
+  async function enregistrerService(cle, valeur) {
+    const st = $('#serviceStatus');
+    try {
+      await API.saveConfig({ [cle]: valeur });
+      SERVICE[cle === 'equipe_jour' ? 'jour' : 'nuit'] = valeur;
+      if (st) st.textContent = 'Équipe de service enregistrée.';
+    } catch (e) {
+      if (st) st.textContent = 'Enregistrement impossible : ' + ((e && e.message) || 'serveur indisponible');
+    }
+  }
+
+  // ---- codes de teneur : table {code -> grade} tenue par la passerelle (/api/codes_teneur) ----
+  const passerelleCodes = () => (window.OTCFG && OTCFG.passerelle)
+    ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+  const listeCodes = (txt) => String(txt || '').split(/[,\s;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+
+  async function chargerCodesTeneur() {
+    const st = $('#codesTeneurStatus');
+    try {
+      const r = await fetch(passerelleCodes() + '/api/codes_teneur', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      document.querySelectorAll('#codesTeneurForm [data-grade]').forEach((inp) => {
+        inp.value = Object.keys(d.codes || {}).filter((c) => d.codes[c] === inp.dataset.grade).join(', ');
+      });
+      const ster = $('#codesSteriles');
+      if (ster) ster.value = (d.steriles || []).join(', ');
+      document.querySelectorAll('#codesTeneurForm [data-couleur]').forEach((inp) => {
+        if (d.couleurs && d.couleurs[inp.dataset.couleur]) inp.value = d.couleurs[inp.dataset.couleur];
+      });
+      if (st) st.textContent = '';
+    } catch (e) {
+      if (st) st.textContent = 'Passerelle injoignable : codes non chargés';
+    }
+  }
+
+  async function enregistrerCodesTeneur(e) {
+    e.preventDefault();
+    const st = $('#codesTeneurStatus');
+    const codes = {};
+    document.querySelectorAll('#codesTeneurForm [data-grade]').forEach((inp) => {
+      listeCodes(inp.value).forEach((c) => { codes[c] = inp.dataset.grade; });
+    });
+    const couleurs = {};
+    document.querySelectorAll('#codesTeneurForm [data-couleur]').forEach((inp) => { couleurs[inp.dataset.couleur] = inp.value; });
+    try {
+      const r = await fetch(passerelleCodes() + '/api/codes_teneur', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes, steriles: listeCodes(($('#codesSteriles') || {}).value), couleurs }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      if (st) st.textContent = 'Codes de teneur enregistrés.';
+      if (window.OTCouleurs) OTCouleurs.recharger();
+      chargerCodesTeneur();
+    } catch (err) {
+      if (st) st.textContent = 'Enregistrement impossible : ' + err.message;
+    }
+  }
+
   function renderTeams(rows) {
+    renderService(rows);
     const box = $('#teamContainer');
     if (!box) return;
     const membres = (rows || []).filter((r) => r.profil === 'SPOT');
+    const compteur = $('#cptEquipes');
     if (!membres.length) {
-      box.innerHTML = '<div class="empty-state"><i class="fas fa-users"></i><span>Aucune equipe creee. Utilisez "Nouvelle equipe" ci-dessous.</span></div>';
+      box.innerHTML = '<div class="pm-vide">Aucune équipe créée. Utilisez « Créer une équipe » ci-dessus.</div>';
+      if (compteur) compteur.textContent = '0 enregistrée';
       return;
     }
     // regroupement par code d'equipe (champ `equipe` du membre)
@@ -422,66 +509,64 @@
       (equipes[cle] = equipes[cle] || []).push(r);
     });
     const cles = Object.keys(equipes).sort();
-    box.innerHTML = '<div class="team-grid">' + cles.map((cle) => {
+    const nbActives = cles.filter((c) => equipes[c].some((r) => r.actif === 1)).length;
+    if (compteur) compteur.textContent = nbActives + (nbActives > 1 ? ' actives' : ' active') + ' · ' + cles.length +
+      (cles.length > 1 ? ' enregistrées' : ' enregistrée');
+    // un panneau « Modifier » ouvert le reste apres rechargement de la liste
+    const ouverts = new Set(Array.from(box.querySelectorAll('.pm-eq.ouvert')).map((x) => x.dataset.equipe));
+    box.innerHTML = cles.map((cle) => {
       const liste = equipes[cle];
       const active = liste.some((r) => r.actif === 1);
       const chef = liste.find((r) => (r.role || '').toUpperCase() === 'CHEF_EQUIPE');
       const couleur = (liste.find((r) => r.couleur) || {}).couleur || couleurEquipe(cle);
       const nomChef = chef ? (chef.nom || chef.identifiant || '') : '';
+      const e = eqEscape(cle);
+      const ouvert = ouverts.has(cle);
 
-      let html = '<div class="team-card' + (active ? '' : ' desactive') + '" data-equipe="' + eqEscape(cle) + '" style="--team-color:' + couleur + '">' +
-        '<div class="team-head">' +
-          '<span class="team-badge">' + eqEscape(cle.split('-')[0] || cle) + '</span>' +
-          '<div class="team-head-info">' +
-            '<div class="team-title">' +
-              '<span class="team-nom" title="' + eqEscape(cle) + '">' + eqEscape(cle) + '</span>' +
-              '<span class="team-state">' + (active ? 'Active' : 'Inactive') + '</span>' +
-            '</div>' +
-            '<div class="team-meta">' +
-              '<i class="fas fa-star"></i>' +
-              '<span class="chef-ligne">' + (nomChef
-                ? 'Chef : <span class="chef-nom">' + eqEscape(nomChef) + '</span>'
-                : '<em>Aucun chef d\'equipe nomme</em>') + '</span>' +
-              ' &middot; <i class="fas fa-user-friends"></i> ' + liste.length + (liste.length > 1 ? ' membres' : ' membre') +
-            '</div>' +
-          '</div>' +
-          '<span class="team-actions">' +
-            '<button class="team-btn" data-action="team-toggle" data-equipe="' + eqEscape(cle) + '" data-active="' + active + '">' +
-              '<i class="fas fa-' + (active ? 'pause' : 'play') + '"></i> ' + (active ? 'Desactiver' : 'Activer') + '</button>' +
-            '<button class="team-btn danger" data-action="team-delete" data-equipe="' + eqEscape(cle) + '">' +
-              '<i class="fas fa-trash"></i> Supprimer</button>' +
+      let html = '<div class="pm-eq' + (active ? '' : ' desactive') + (ouvert ? ' ouvert' : '') + '" data-equipe="' + e + '">' +
+        '<div class="pm-ligne pm-ligne-eq">' +
+          '<span class="pm-code">' + e + '</span>' +
+          '<span class="pm-eq-nom"><b>' + (nomChef ? 'Chef · ' + eqEscape(nomChef) : '<em>Aucun chef nommé</em>') + '</b>' +
+            '<small>' + liste.length + (liste.length > 1 ? ' membres' : ' membre') + '</small></span>' +
+          '<span class="pm-eq-couleur"><i style="background:' + eqEscape(couleur) + '"></i></span>' +
+          '<span class="pm-eq-etat">' +
+            '<button type="button" class="pm-switch' + (active ? ' on' : '') + '" role="switch" aria-checked="' + active + '" ' +
+              'data-action="team-toggle" data-equipe="' + e + '" data-active="' + active + '" ' +
+              'title="' + (active ? 'Désactiver' : 'Activer') + ' l\'équipe"><i></i></button>' +
+            '<span>' + (active ? 'Active' : 'Inactive') + '</span>' +
           '</span>' +
+          '<span class="pm-actions">' +
+            '<button type="button" class="pm-lien" data-action="team-edit" data-equipe="' + e + '">Modifier</button>' +
+            '<button type="button" class="pm-menu-btn" data-action="team-menu" aria-haspopup="true" title="Actions">…</button>' +
+            '<span class="pm-menu" hidden>' +
+              '<button type="button" data-action="team-toggle" data-equipe="' + e + '" data-active="' + active + '">' + (active ? 'Désactiver' : 'Activer') + '</button>' +
+              '<button type="button" class="danger" data-action="team-delete" data-equipe="' + e + '">Supprimer</button>' +
+            '</span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="pm-eq-membres"' + (ouvert ? '' : ' hidden') + '>';
+      html += liste.length ? liste.map((r) => {
+        const estChef = (r.role || '').toUpperCase() === 'CHEF_EQUIPE';
+        const roleLb = ROLE_LIBELLE[String(r.role || '').toUpperCase()] || (r.role || 'Membre');
+        return '<div class="pm-membre"' + (r.actif === 1 ? '' : ' style="opacity:.5"') + '>' +
+          '<span class="pm-membre-nom">' + eqEscape(r.nom || r.identifiant) + '</span>' +
+          '<span class="pm-membre-role' + (estChef ? ' chef' : '') + '">' + eqEscape(roleLb) + '</span>' +
+          '<button type="button" class="pm-lien danger" data-action="member-remove" data-id="' + r.id + '" ' +
+            'title="Retirer cette personne de l\'équipe">Retirer</button>' +
         '</div>';
-      html += '<div class="team-body">';
-      html += '<div class="team-members">';
-      if (!liste.length) {
-        html += '<div class="member-empty">Equipe vide</div>';
-      } else {
-        html += liste.map((r) => {
-          const estChef = (r.role || '').toUpperCase() === 'CHEF_EQUIPE';
-          const roleLb = ROLE_LIBELLE[String(r.role || '').toUpperCase()] || (r.role || 'Membre');
-          return '<div class="team-member"' + (r.actif === 1 ? '' : ' style="opacity:0.5"') + '>' +
-            '<i class="fas fa-' + (estChef ? 'user-tie' : 'user') + '"></i>' +
-            '<span class="member-name">' + eqEscape(r.nom || r.identifiant) + '</span>' +
-            '<span class="member-role' + (estChef ? ' chef' : '') + '">' + eqEscape(roleLb) + '</span>' +
-            '<button class="account-btn" data-action="member-remove" data-id="' + r.id + '" title="Retirer cette personne de l\'equipe">' +
-              '<i class="fas fa-times"></i></button>' +
-          '</div>';
-        }).join('');
-      }
-      html += '</div>';
-      html += '<form class="member-add-form" data-equipe="' + eqEscape(cle) + '">' +
-        '<input type="text" class="form-input-sm" placeholder="Ajouter une personne : son nom" name="mname" required />' +
-        '<select class="form-select-sm" name="mrole">' +
+      }).join('') : '<div class="pm-vide">Équipe vide</div>';
+      html += '<form class="member-add-form pm-membre-ajout" data-equipe="' + e + '">' +
+        '<input type="text" placeholder="Ajouter une personne : son nom" name="mname" required />' +
+        '<select name="mrole">' +
           '<option value="SPOTER">Spotter</option>' +
-          '<option value="CHEF_EQUIPE">Chef d\'equipe</option>' +
-          '<option value="OPERATEUR">Operateur</option>' +
+          '<option value="CHEF_EQUIPE">Chef d\'équipe</option>' +
+          '<option value="OPERATEUR">Opérateur</option>' +
         '</select>' +
-        '<button type="submit" class="btn-add-xs"><i class="fas fa-plus"></i> Ajouter</button>' +
+        '<button type="submit" class="pm-btn-sombre">+ Ajouter</button>' +
       '</form>';
       html += '</div></div>';
       return html;
-    }).join('') + '</div>';
+    }).join('');
   }
 
   function equipListError(e) {
@@ -494,6 +579,7 @@
   async function loadTeams() {
     try {
       const rows = await loadMembresSync();
+      if (!SERVICE.charge) { SERVICE.charge = true; await chargerService(rows); }
       renderTeams(rows);
       setEquipAuthUi(true);
     } catch (e) {
@@ -524,7 +610,7 @@
       Splash.succes('Equipe creee', equipe + ' - chef : ' + chefNom);
       equipStatus('teamStatus', 'Team creee (chef: ' + chefNom + ')', true);
       e.target.reset();
-      if ($('#newTeamColor')) $('#newTeamColor').value = '#3b82f6';
+      if ($('#newTeamColor')) $('#newTeamColor').selectedIndex = 0;
       await loadTeams();
     } catch (err) { Splash.erreur('Creation impossible', err.message); equipStatus('teamStatus', 'Erreur: ' + err.message, false); }
   }
@@ -613,6 +699,23 @@
     if (action === 'team-toggle') toggleTeam(btn.dataset.equipe, btn.dataset.active === 'true');
     else if (action === 'team-delete') deleteTeam(btn.dataset.equipe);
     else if (action === 'member-remove') removeMember(btn.dataset.id);
+    else if (action === 'team-edit') {
+      const eq = btn.closest('.pm-eq');
+      if (eq) {
+        eq.classList.toggle('ouvert');
+        const panneau = eq.querySelector('.pm-eq-membres');
+        if (panneau) panneau.hidden = !eq.classList.contains('ouvert');
+      }
+    } else if (action === 'team-menu') {
+      const menu = btn.parentElement.querySelector('.pm-menu');
+      const ouvrir = menu.hidden;
+      document.querySelectorAll('.pm-menu').forEach((m) => { m.hidden = true; });
+      menu.hidden = !ouvrir;
+    }
+    if (action !== 'team-menu') {
+      const menu = btn.closest('.pm-menu');
+      if (menu) menu.hidden = true;
+    }
   }
 
   // ============ MACHINES (Truck / Excavator) ============
@@ -626,41 +729,233 @@
     return API.getRows('sync_flotte').then((d) => d.rows || []);
   }
 
+  // Rendu « Parametres › Flotte » (maquette du 19/11) : une ligne par engin,
+  // 6 visibles puis « consulter le reste ». Les DT ont une colonne « Temps
+  // reel » (compte MQTT tenu par la passerelle, voir etatMqtt ci-dessous).
+  const VISIBLES_INITIAL = 6;
+  const flotteDepliee = { truck: false, excavator: false };
+  const dernieresLignes = { truck: [], excavator: [] };
+
   function renderEquipList(type, rows) {
     const cfg = EQUIP_TYPES[type];
     const box = $('#' + cfg.container);
     if (!box) return;
-    const machines = (rows || []).filter((r) => cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0);
+    // Un DT (code « DT-… » ou famille 1500 / 785 / ADT) n'est JAMAIS une excavatrice, meme en famille « Autre »
+    // (« AUTRE » figure dans les deux listes : sans ce garde-fou, un DT apparaissait dans les deux colonnes).
+    const estDT = (r) => /^DT-/i.test(String(r.code || '')) || FAMILLES_DT.indexOf(String(r.famille || '').toUpperCase()) >= 0;
+    const machines = (rows || []).filter((r) => type === 'truck'
+      ? estDT(r) || cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0
+      : !estDT(r) && cfg.familles.indexOf(String(r.famille || '').toUpperCase()) >= 0);
     machines.sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), undefined, { numeric: true }));
+    dernieresLignes[type] = machines;
+    const cpt = $(type === 'truck' ? '#cptTrucks' : '#cptExcavators');
+    if (cpt) cpt.textContent = String(machines.length).padStart(2, '0') + ' engin' + (machines.length > 1 ? 's' : '') + ' enregistré' + (machines.length > 1 ? 's' : '');
     if (!machines.length) {
-      box.innerHTML = '<div class="empty-state"><i class="fas ' + cfg.icon + '"></i><span>Aucun engin</span></div>';
+      box.innerHTML = '<div class="pm-vide">Aucun engin</div>';
+      majVoirPlus(type, 0);
       return;
     }
-    box.innerHTML = machines.map((r) => {
-      const active = r.actif === 1;
-      const summary = (r.famille || '') + ' Â· nÂ° ' + (r.numero != null ? r.numero : '?');
-      let html = '<div class="account-item' + (active ? '' : ' desactive') + '" data-id="' + r.id + '">' +
-        '<i class="fas ' + cfg.icon + '"></i>' +
-        '<span class="account-nom">' + eqEscape(r.code || ('?-' + r.numero)) + '</span>' +
-        '<span class="account-email">' + eqEscape(summary) + '</span>';
-      if (!active) html += '<span class="account-flag">desactive</span>';
-      html += '<span class="account-actions">' +
-        '<button class="account-btn" data-eq="' + type + '" data-action="toggle" data-id="' + r.id + '" data-active="' + active + '" title="' + (active ? 'Desactiver' : 'Activer') + '">' +
-        '<i class="fas fa-' + (active ? 'ban' : 'check') + '"></i></button>' +
-        '<button class="account-btn" data-eq="' + type + '" data-action="delete" data-id="' + r.id + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
-        '</span></div>';
+    const visibles = flotteDepliee[type] ? machines : machines.slice(0, VISIBLES_INITIAL);
+    box.innerHTML = visibles.map((r) => {
+      const active = Number(r.actif) === 1;
+      const code = eqEscape(r.code || ('?-' + r.numero));
+      let html = '<div class="pm-ligne' + (active ? '' : ' desactive') + '" data-id="' + r.id + '" data-code="' + code + '">' +
+        '<span class="pm-code">' + code + '</span>' +
+        '<span class="pm-famille">' + eqEscape(r.famille || '') + (active ? '' : ' <em>· désactivé</em>') + '</span>';
+      if (type === 'truck') html += '<span class="pm-tr" data-tr="' + code + '">' + celluleTempsReel(r.code, active) + '</span>';
+      html += '<span class="pm-actions">' +
+        '<button type="button" class="pm-menu-btn" data-eq="' + type + '" data-action="menu" aria-haspopup="true" title="Actions">…</button>' +
+        '<span class="pm-menu" hidden>' +
+          '<button type="button" data-eq="' + type + '" data-action="toggle" data-id="' + r.id + '" data-active="' + active + '">' + (active ? 'Désactiver' : 'Activer') + '</button>' +
+          (type === 'truck' && active ? '<button type="button" data-eq="truck" data-action="renouveler" data-code="' + code + '">Renouveler l\'accès temps réel</button>' : '') +
+          '<button type="button" class="danger" data-eq="' + type + '" data-action="delete" data-id="' + r.id + '">Supprimer</button>' +
+        '</span></span></div>';
       return html;
     }).join('');
+    majVoirPlus(type, machines.length);
+  }
+
+  function majVoirPlus(type, total) {
+    const b = $(type === 'truck' ? '#truckVoirPlus' : '#excavatorVoirPlus');
+    if (!b) return;
+    b.hidden = total <= VISIBLES_INITIAL;
+    b.textContent = flotteDepliee[type]
+      ? 'Réduire l\'affichage ↑'
+      : 'Affichage de ' + VISIBLES_INITIAL + ' engins · consulter le reste de la flotte (' + total + ') →';
+  }
+
+  // ---- temps reel (MQTT) : etat des comptes tenu par la passerelle ----
+  // GET /api/mqtt/comptes (jamais de mot de passe) ; apres un changement de
+  // flotte, POST /api/mqtt/rapprocher pour un effet immediat (sinon la
+  // passerelle rattrape d'elle-meme toutes les 30 s).
+  const passerelleBase = () => (window.OTCFG && OTCFG.passerelle)
+    ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+  let etatMqtt = null;            // derniere reponse /api/mqtt/comptes
+
+  function celluleTempsReel(code, actif) {
+    if (!etatMqtt) return '<span class="pm-tr-etat attente">…</span>';
+    if (!etatMqtt.configure) return '<span class="pm-tr-etat absent" title="Broker non installé">—</span>';
+    const c = (etatMqtt.comptes || []).find((x) => x.code === code);
+    if (!actif) return '<span class="pm-tr-etat inactif" title="DT désactivé : accès coupé">Désactivé</span>';
+    if (!c || !c.applique_broker) return '<span class="pm-tr-etat attente" title="Compte en cours de création">En création</span>';
+    if (c.en_ligne) {
+      const age = c.derniere_position_s;
+      return '<span class="pm-tr-etat ok" title="Tablette connectée">En ligne' + (age != null ? ' · ' + (age < 60 ? age + ' s' : Math.round(age / 60) + ' min') : '') + '</span>';
+    }
+    return '<span class="pm-tr-etat hors" title="Compte prêt, tablette non connectée">Hors ligne</span>';
+  }
+
+  function majCellulesTempsReel() {
+    dernieresLignes.truck.forEach((r) => {
+      const el = document.querySelector('[data-tr="' + CSS.escape(String(r.code || '')) + '"]');
+      if (el) el.innerHTML = celluleTempsReel(r.code, Number(r.actif) === 1);
+    });
+    const bandeau = $('#mqttEtatFlotte');
+    if (!bandeau || !etatMqtt) return;
+    bandeau.hidden = false;
+    const t = bandeau.querySelector('.pm-mqtt-texte');
+    let cls = 'ok', msg;
+    if (!etatMqtt.configure) {
+      cls = 'ko'; msg = 'Temps réel : broker MQTT non installé sur ce poste.';
+    } else if (etatMqtt.erreur) {
+      cls = 'ko'; msg = 'Temps réel : ' + etatMqtt.erreur;
+    } else {
+      const enLigne = (etatMqtt.comptes || []).filter((c) => c.en_ligne).length;
+      msg = 'Temps réel : ' + (etatMqtt.comptes || []).length + ' accès DT tenus à jour, ' + enLigne + ' tablette(s) en ligne';
+      if (etatMqtt.ot_erreur) { cls = 'warn'; msg += ' — envoi à Serveur_OT : ' + etatMqtt.ot_erreur; }
+      else if (etatMqtt.ot_envoye_le) msg += ' — accès envoyés à Serveur_OT le ' + etatMqtt.ot_envoye_le;
+    }
+    bandeau.className = 'pm-mqtt ' + cls;
+    t.textContent = msg;
+  }
+
+  async function lireEtatMqtt() {
+    try {
+      const r = await fetch(passerelleBase() + '/api/mqtt/comptes', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      etatMqtt = await r.json();
+    } catch (e) {
+      etatMqtt = { configure: true, erreur: 'passerelle :8101 injoignable (' + e.message + ')', comptes: [] };
+    }
+    majCellulesTempsReel();
+  }
+
+  async function rapprocherMqtt() {
+    try {
+      await fetch(passerelleBase() + '/api/mqtt/rapprocher', { method: 'POST', cache: 'no-store' });
+    } catch (e) { /* la passerelle rattrape toute seule toutes les 30 s */ }
+    lireEtatMqtt();
+  }
+
+  async function renouvelerMqtt(code) {
+    if (!await Splash.confirmer('Renouveler l\'accès temps réel de ' + code + ' ?\nL\'ancien mot de passe est refusé immédiatement ; la tablette se reconnecte seule sous 2 min.',
+        { titre: 'Accès temps réel', libelleOk: 'Renouveler' })) return;
+    try {
+      const r = await fetch(passerelleBase() + '/api/mqtt/renouveler', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      const d = await r.json();
+      equipStatus('truckStatus', d.ok ? 'Accès de ' + code + ' renouvelé' : 'Renouvellement impossible : ' + (d.erreur || d.broker || '?'), !!d.ok);
+    } catch (e) {
+      equipStatus('truckStatus', 'Passerelle injoignable : ' + e.message, false);
+    }
+    lireEtatMqtt();
+  }
+
+  function initTempsReel() {
+    if (!$('#mqttEtatFlotte')) return;
+    lireEtatMqtt();
+    setInterval(() => {
+      const onglet = document.querySelector('#page-settings .onglet-pane[data-onglet="flotte"]');
+      if (onglet && !onglet.hidden) lireEtatMqtt();
+    }, 10000);
+    ['truck', 'excavator'].forEach((type) => {
+      const b = $(type === 'truck' ? '#truckVoirPlus' : '#excavatorVoirPlus');
+      if (b) b.addEventListener('click', () => {
+        flotteDepliee[type] = !flotteDepliee[type];
+        renderEquipList(type, dernieresLignes[type].length ? dernieresLignes[type].concat([]) : []);
+      });
+    });
+    // un menu « … » ouvert se referme au clic ailleurs
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.pm-actions')) return;
+      document.querySelectorAll('.pm-menu').forEach((m) => { m.hidden = true; });
+    });
+  }
+
+  // ---- truck factor par famille de DT (17/11) ----
+  // Stocke dans params.truck_factor_familles (JSON) ; envoye avec la flotte
+  // (colonne truck_factor_t de l'onglet flotte de Serveur_OT).
+  let facteursFamilles = {};
+  function lireFacteur(v) {
+    const n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+    return isFinite(n) && n > 0 ? n : null;
+  }
+  async function renderTruckFactors(rows) {
+    const box = $('#truckFactorList');
+    if (!box) return;
+    try {
+      const { params } = await API.getConfig();
+      facteursFamilles = JSON.parse((params && params.truck_factor_familles) || '{}') || {};
+    } catch (e) { /* hors ligne : on garde ce qu'on a */ }
+    const presentes = new Set(FAMILLES_DT);
+    (rows || []).forEach((r) => {
+      const f = String(r.famille || '').toUpperCase();
+      if (FAMILLES_DT.indexOf(f) >= 0) presentes.add(f);
+    });
+    box.innerHTML = Array.from(presentes).map((f) => {
+      const nb = (rows || []).filter((r) => String(r.famille || '').toUpperCase() === f).length;
+      const v = facteursFamilles[f] != null ? facteursFamilles[f] : '';
+      return '<div class="account-item truck-factor-row">' +
+        '<span class="truck-factor-fam">' + eqEscape(f) + ' <small>(' + nb + ' DT)</small></span>' +
+        '<input type="number" class="form-input-sm" min="0.5" max="500" step="0.5" placeholder="global"' +
+        ' data-famille="' + eqEscape(f) + '" value="' + eqEscape(String(v)) + '" /> <span>t</span></div>';
+    }).join('');
+  }
+  async function saveTruckFactors() {
+    const btn = $('#btnTruckFactors');
+    const nouveaux = {};
+    let invalide = '';
+    document.querySelectorAll('#truckFactorList input[data-famille]').forEach((inp) => {
+      if (String(inp.value).trim() === '') return;
+      const n = lireFacteur(inp.value);
+      if (n === null || n > 500) invalide = invalide || inp.dataset.famille;
+      else nouveaux[inp.dataset.famille] = n;
+    });
+    if (invalide) { equipStatus('truckFactorStatus', 'Valeur invalide pour ' + invalide + ' (0.5 a 500 t)', false); return; }
+    if (btn) btn.disabled = true;
+    try {
+      await API.saveConfig({ truck_factor_familles: JSON.stringify(nouveaux) });
+      facteursFamilles = nouveaux;
+      let msg = 'Enregistre';
+      try {
+        const rep = await API.pushGas(['flotte']);
+        const r = rep && rep.resultats && rep.resultats.flotte;
+        msg = (rep && rep.ok && r && !r.erreur)
+          ? 'Enregistre et envoye a Serveur_OT (' + r.ecrites + ' engins)'
+          : 'Enregistre ; envoi a Serveur_OT en echec : ' + ((r && r.erreur) || (rep && (rep.errors || []).join(', ')) || '?');
+        equipStatus('truckFactorStatus', msg, !!(rep && rep.ok));
+      } catch (eP) {
+        equipStatus('truckFactorStatus', 'Enregistre ; envoi a Serveur_OT impossible : ' + (eP.message || eP), false);
+      }
+    } catch (e) {
+      equipStatus('truckFactorStatus', 'Echec : ' + (e.message || e), false);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   async function loadEquipList(type) {
     const cfg = EQUIP_TYPES[type];
     try {
-      renderEquipList(type, await loadFlotteSync());
+      const lignes = await loadFlotteSync();
+      renderEquipList(type, lignes);
+      if (type === 'truck') renderTruckFactors(lignes);
       setEquipAuthUi(true);
     } catch (e) {
       const box = $('#' + cfg.container);
       if (box) box.innerHTML = '<div class="account-item muted">' + equipListError(e) + '</div>';
+      const boxF = type === 'truck' ? $('#truckFactorList') : null;
+      if (boxF) boxF.innerHTML = '<div class="account-item muted">' + equipListError(e) + '</div>';
       if (e && e.status === 401) setEquipAuthUi(false);
     }
   }
@@ -673,7 +968,7 @@
     let famille = (type === 'excavator' ? (familleSelect ? familleSelect.value : 'EXCAVATOR') : (familleSelect ? familleSelect.value : '1500'));
     if (famille === 'AUTRE') {
       const v = (familleAutre && familleAutre.value ? familleAutre.value.trim() : '').toUpperCase();
-      if (!v) { equipStatus(cfg.statusId, 'PrÃ©cisez la famille', false); return; }
+      if (!v) { equipStatus(cfg.statusId, 'Précisez la famille', false); return; }
       famille = v;
     }
     const numField = e.target.querySelector('input[type="number"]');
@@ -692,7 +987,8 @@
       Splash.etape('Publication vers le cloud...');
       try { if (window.pushGasSiCouche) await window.pushGasSiCouche(); } catch (eSync) { }
       Splash.succes('Machine ajoutee', code);
-      equipStatus(cfg.statusId, 'Ajoute: ' + code + ' (poussez vers Google Sheets)', true);
+      equipStatus(cfg.statusId, 'Ajouté : ' + code + (type === 'truck' ? ' — accès temps réel en cours de création' : ''), true);
+      if (type === 'truck') rapprocherMqtt();
       e.target.reset();
       if (familleAutre) { familleAutre.value = ''; familleAutre.style.display = 'none'; }
       if (familleSelect) familleSelect.value = type === 'excavator' ? 'EXCAVATOR' : '1500';
@@ -704,8 +1000,9 @@
   async function toggleEquip(type, id, active) {
     try {
       await API.updateRow('sync_flotte', id, { actif: active ? 0 : 1 });
-      equipStatus(EQUIP_TYPES[type].statusId, active ? 'Desactive' : 'Active', true);
+      equipStatus(EQUIP_TYPES[type].statusId, active ? 'Désactivé' + (type === 'truck' ? ' — accès temps réel coupé' : '') : 'Activé', true);
       await loadEquipList(type);
+      if (type === 'truck') rapprocherMqtt();
       try { if (window.pushGasSiCouche) await window.pushGasSiCouche(); } catch(err) { /* sync best effort */ }
     } catch (e) { equipStatus(EQUIP_TYPES[type].statusId, 'Erreur: ' + e.message, false); }
   }
@@ -715,8 +1012,9 @@
         { titre: 'Suppression de machine', danger: true, libelleOk: 'Supprimer' })) return;
     try {
       await API.deleteRow('sync_flotte', id);
-      equipStatus(EQUIP_TYPES[type].statusId, 'Supprime (poussez vers Google Sheets)', true);
+      equipStatus(EQUIP_TYPES[type].statusId, 'Supprimé' + (type === 'truck' ? ' — accès temps réel supprimé' : ''), true);
       await loadEquipList(type);
+      if (type === 'truck') rapprocherMqtt();
       try { if (window.pushGasSiCouche) await window.pushGasSiCouche(); } catch(err) { /* sync best effort */ }
     } catch (e) { equipStatus(EQUIP_TYPES[type].statusId, 'Erreur: ' + e.message, false); }
   }
@@ -725,6 +1023,16 @@
     const btn = e.target.closest('[data-action]');
     if (!btn || !btn.dataset.eq) return;
     const type = btn.dataset.eq;
+    if (btn.dataset.action === 'menu') {
+      const menu = btn.parentElement.querySelector('.pm-menu');
+      const ouvrir = menu.hidden;
+      document.querySelectorAll('.pm-menu').forEach((m) => { m.hidden = true; });
+      menu.hidden = !ouvrir;
+      return;
+    }
+    const menu = btn.closest('.pm-menu');
+    if (menu) menu.hidden = true;
+    if (btn.dataset.action === 'renouveler') { renouvelerMqtt(btn.dataset.code); return; }
     if (btn.dataset.action === 'toggle') toggleEquip(type, btn.dataset.id, btn.dataset.active === 'true');
     else if (btn.dataset.action === 'delete') deleteEquip(type, btn.dataset.id);
   }
@@ -768,9 +1076,11 @@
     const a = loadAssignments();
     const cat = (window.OreTrackingGnss && window.OreTrackingGnss.loadGnssCatalog)
       ? window.OreTrackingGnss.loadGnssCatalog() : [];
-    // un GNSSÐ¸Ñ€ÑƒÐµÑ‚ÑÑ pairÃ© hors catalogue reste visible
+    // un GNSSÐ¸Ñ€ÑƒÐµÑ‚ÑÑ pairé hors catalogue reste visible
     cat.forEach((c) => { if (!reg.some((r) => r.id === c.id)) reg.push({ id: c.id, terminal: '' }); });
 
+    const cpt = $('#cptGnss');
+    if (cpt) cpt.textContent = 'Catalogue GNSS · ' + reg.length + (reg.length > 1 ? ' récepteurs enregistrés' : ' récepteur enregistré');
     if (!reg.length) {
       box.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i><span>Aucun GNSS enregistre</span></div>';
       return;
@@ -788,7 +1098,7 @@
           (lie ? '<i class="fas fa-tablet-alt"></i> ' + eqEscape(r.terminal)
                : '<span style="opacity:.4">Non lie</span>');
       if (engin) {
-        html += ' &nbsp;Â·&nbsp; <i class="fas fa-digging"></i> ' + eqEscape(engin);
+        html += ' &nbsp;·&nbsp; <i class="fas fa-digging"></i> ' + eqEscape(engin);
       }
       html += '</span>';
       // actions : dissocier (si lie) + supprimer, sur chaque ligne
@@ -869,7 +1179,7 @@
     if (list.find((t) => t.id === id)) { equipStatus('tabletStatus', 'Tablette deja existante', false); return; }
     list.push({ id, team: '', actif: true });
     saveTablets(list);
-    equipStatus('tabletStatus', 'AjoutÃ©e: ' + id, true);
+    equipStatus('tabletStatus', 'Ajoutée: ' + id, true);
     e.target.reset();
     renderFleet();
     // Synchronisation avec le serveur (API publique, pas d'auth requise)
@@ -880,9 +1190,9 @@
         body: JSON.stringify({ nom: id, device_id: id, type: 'terrain' })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      equipStatus('tabletStatus', 'AjoutÃ©e: ' + id + ' (serveur OK)', true);
+      equipStatus('tabletStatus', 'Ajoutée: ' + id + ' (serveur OK)', true);
     } catch (err) {
-      equipStatus('tabletStatus', 'AjoutÃ©e localement (serveur indisponible)', false);
+      equipStatus('tabletStatus', 'Ajoutée localement (serveur indisponible)', false);
     }
   }
 
@@ -1047,7 +1357,7 @@
       const btn = $('#btnRegisterDevice');
       if (btn) btn.addEventListener('click', () => {
         registerThisDevice(info.id);
-        equipStatus('tabletStatus', 'Tablette enregistrÃ©e: ' + info.id, true);
+        equipStatus('tabletStatus', 'Tablette enregistrée: ' + info.id, true);
         renderThisDeviceBanner();
       });
     } else if (info.ignored) {
@@ -1127,7 +1437,7 @@
         renderThisDeviceBanner();
         renderFleet();
         renderTabEquip();
-        equipStatus('tabletStatus', 'Tablette supprimÃ©e : ' + info.id, true);
+        equipStatus('tabletStatus', 'Tablette supprimée : ' + info.id, true);
       });
     }
   }
@@ -1142,7 +1452,7 @@
     const a = loadAssignments();
 
     if (!tablets.length) {
-      box.innerHTML = '<div class="empty-state"><i class="fas fa-tablet-alt"></i><span>Aucune tablette</span></div>';
+      box.innerHTML = '<div class="pm-vide">Aucune tablette enregistrée</div>';
       return;
     }
 
@@ -1156,20 +1466,14 @@
         ? a.gnss[gnssId] : null;
       const equipLabel = equip ? enginLabel(equip.type, equip.target) : null;
 
-      const rowCls = 'account-item' + (active ? '' : ' desactive');
+      const rowCls = 'pm-ligne pm-ligne-terrain' + (active ? '' : ' desactive');
       return '<div class="' + rowCls + '" data-tab-id="' + eqEscape(t.id) + '">' +
-        '<i class="fas fa-tablet-alt"></i>' +
-        '<span class="account-nom">' + eqEscape(t.id) + '</span>' +
-        '<span class="account-email" style="flex:1">' +
-          (gnssId ? '<i class="fas fa-satellite-dish"></i> ' + eqEscape(gnssId) : '<span style="opacity:.4">Pas de GNSS</span>') +
-          ' &nbsp;Â·&nbsp; ' +
-          (equipLabel ? '<i class="fas fa-digging"></i> ' + eqEscape(equipLabel) : '<span style="opacity:.4">Pas d\'engin</span>') +
-        '</span>' +
-        (active ? '' : '<span class="account-flag">desactive</span>') +
-        '<span class="account-actions">' +
-          '<button class="account-btn" data-action="tab-toggle" data-id="' + eqEscape(t.id) + '" data-active="' + active + '" title="' + (active ? 'Desactiver' : 'Activer') + '">' +
-            '<i class="fas fa-' + (active ? 'ban' : 'check') + '"></i></button>' +
-          '<button class="account-btn" data-action="tab-delete" data-id="' + eqEscape(t.id) + '" title="Supprimer"><i class="fas fa-trash"></i></button>' +
+        '<span class="pm-code">' + eqEscape(t.id) + (active ? '' : ' <em>· désactivée</em>') + '</span>' +
+        '<span class="pm-famille">' + (gnssId ? eqEscape(gnssId) : '<span class="pm-aucun">Pas de GNSS</span>') + '</span>' +
+        '<span class="pm-famille">' + (equipLabel ? eqEscape(equipLabel) : '<span class="pm-aucun">Aucun engin</span>') + '</span>' +
+        '<span class="pm-actions">' +
+          '<button type="button" class="pm-lien" data-action="tab-toggle" data-id="' + eqEscape(t.id) + '" data-active="' + active + '">' + (active ? 'Désactiver' : 'Activer') + '</button>' +
+          '<button type="button" class="pm-lien danger" data-action="tab-delete" data-id="' + eqEscape(t.id) + '">Supprimer</button>' +
         '</span></div>';
     }).join('');
   }
@@ -1255,7 +1559,7 @@
 
     // machines : miroir sync_flotte. Camions = familles 1500/785/ADT ;
     // excavatrices = toutes les autres familles (Hitachi EX, Komatsu PC,
-    // HYUNDAI, VOLVO, EXCAVATOR...) â€” meme regle que la page Sync.
+    // HYUNDAI, VOLVO, EXCAVATOR...) — meme regle que la page Sync.
     const flotte = await allFlotteRows();
     const trucks = flotte.filter((r) => FAMILLES_DT.indexOf(String(r.famille).toUpperCase()) >= 0)
       .map((r) => ({ equip_id: r.code }));
@@ -1264,8 +1568,8 @@
     // fallback si API indisponible : engins deja connus dans assignments
     if (!trucks.length && !excs.length) {
       sel.innerHTML = '<option value="">Choisir un engin...</option>' +
-        '<option value="truck:__manual">â€” Saisir un ID DT â€”</option>' +
-        '<option value="excavator:__manual">â€” Saisir un ID EXC â€”</option>';
+        '<option value="truck:__manual">— Saisir un ID DT —</option>' +
+        '<option value="excavator:__manual">— Saisir un ID EXC —</option>';
       return;
     }
 
@@ -1299,7 +1603,7 @@
     const a = loadAssignments();
     a.gnss[gnssId] = { type, target };
     saveAssignments(a);
-    equipStatus('tabEquipStatus', 'AffectÃ©: ' + enginLabel(type, target), true);
+    equipStatus('tabEquipStatus', 'Affecté: ' + enginLabel(type, target), true);
     await renderTabEquip();
     renderFleet();
   }
@@ -1312,7 +1616,7 @@
     const a = loadAssignments();
     delete a.gnss[gnssEntry.id];
     saveAssignments(a);
-    equipStatus('tabEquipStatus', 'RetirÃ©', true);
+    equipStatus('tabEquipStatus', 'Retiré', true);
     await renderTabEquip();
     renderFleet();
   }
@@ -1333,13 +1637,13 @@
         const det = detectThisDevice();
         const os = (d.platform + (d.platformVersion ? ' ' + d.platformVersion : '')).trim();
         if (det.isNew) {
-          equipStatus('tabletStatus', 'DÃ©tectÃ©e : ' + det.model
+          equipStatus('tabletStatus', 'Détectée : ' + det.model
             + (os && os !== det.model && d.platform !== 'Inconnu' ? ' (' + os + ')' : '')
             + ' -> ' + det.id + ' (cliquer + pour enregistrer)', true);
         } else {
-          equipStatus('tabletStatus', 'DÃ©tectÃ©e : ' + det.model
+          equipStatus('tabletStatus', 'Détectée : ' + det.model
             + (os && os !== det.model && d.platform !== 'Inconnu' ? ' (' + os + ')' : '')
-            + ' -> ' + det.id + ' (deja enregistrÃ©e)', true);
+            + ' -> ' + det.id + ' (deja enregistrée)', true);
         }
       }, () => {
         const det = detectThisDevice();
@@ -1422,6 +1726,16 @@
       });
     }
 
+    // codes de teneur (classement des voyages)
+    chargerCodesTeneur();
+    const formCodes = $('#codesTeneurForm');
+    if (formCodes) formCodes.addEventListener('submit', enregistrerCodesTeneur);
+
+    // equipe de service
+    const selJ = $('#equipeJour'), selN = $('#equipeNuit');
+    if (selJ) selJ.addEventListener('change', () => enregistrerService('equipe_jour', selJ.value));
+    if (selN) selN.addEventListener('change', () => enregistrerService('equipe_nuit', selN.value));
+
     // teams (spotter)
     const teamForm = $('#teamAddForm');
     if (teamForm) teamForm.addEventListener('submit', addTeam);
@@ -1447,6 +1761,7 @@
     // (Firebase ou token localStorage non expire)
     loadTeams();
     Object.keys(EQUIP_TYPES).forEach((t) => loadEquipList(t));
+    initTempsReel();
 
     // session Firebase etablie -> recharge (loadTeams re-affiche les +)
     const MSG_AUTH = 'Connectez-vous pour gerer les equipements';
@@ -1484,7 +1799,7 @@
         .map(k => c[k] + ' ' + (LIBELLES[k] || k));
       const msg = 'Recupere: ' + (parts.join(', ') || 'rien');
       if (status) {
-        status.textContent = msg + (res.errors && res.errors.length ? ' â€” ' + res.errors.length + ' erreur(s)' : '');
+        status.textContent = msg + (res.errors && res.errors.length ? ' — ' + res.errors.length + ' erreur(s)' : '');
         status.className = 'account-status ' + (res.errors && res.errors.length ? 'err' : 'ok');
       }
       if (res.errors && res.errors.length) console.warn('[GAS Pull] erreurs:', res.errors);
@@ -1548,7 +1863,7 @@
       const msg = 'profils ' + (res.profils || []).length
         + ' | Spotter ' + (res.identifiants || []).length
         + ' | engins ' + (res.flotte || []).length
-        + ' | ' + (lignes.length ? lignes.join(' â€” ') : 'aucune anomalie detectee');
+        + ' | ' + (lignes.length ? lignes.join(' — ') : 'aucune anomalie detectee');
       if (status) {
         status.textContent = msg;
         status.style.color = lignes.length ? '#f97316' : '#22c55e';
@@ -1573,7 +1888,7 @@
       const errs = res.errors || [];
       if (status) {
         if (errs.length) {
-          status.textContent = 'Pousse: ' + (parts.join(', ') || 'rien') + ' â€” ' + errs[0];
+          status.textContent = 'Pousse: ' + (parts.join(', ') || 'rien') + ' — ' + errs[0];
           status.className = 'account-status err';
         } else {
           status.textContent = 'Pousse vers Google Sheets: ' + (parts.join(', ') || 'rien');
@@ -1764,6 +2079,8 @@
     if (btnTest) btnTest.addEventListener('click', testConnection);
     const btnSave = $('#btnSaveConfig');
     if (btnSave) btnSave.addEventListener('click', saveConfig);
+    const btnFacteurs = $('#btnTruckFactors');
+    if (btnFacteurs) btnFacteurs.addEventListener('click', saveTruckFactors);
     const selBackend = $('#cfgBackend');
     if (selBackend) selBackend.addEventListener('change', toggleBackend);
     const btnPull = $('#btnPullGas');
@@ -1840,29 +2157,93 @@
       });
     });
 
+    // ----- onglet Connexion : menu de sections + barre « Enregistrer » (maquette Parametres) -----
+    const barreEnr = document.getElementById('pmBarre');
+    const majBarre = () => {
+      const actif = document.querySelector('#page-settings .onglet-pane.actif');
+      if (barreEnr) barreEnr.hidden = !(actif && actif.dataset.onglet === 'connexion');
+    };
+    barre.addEventListener('click', () => setTimeout(majBarre, 0));
+    majBarre();
+
+    const menu = document.getElementById('pmCxNav');
+    if (menu) {
+      const liens = Array.from(menu.querySelectorAll('.pm-cx-lien'));
+      const sections = liens.map((a) => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+      const marquer = (id) => liens.forEach((a) => a.classList.toggle('actif', a.getAttribute('href') === '#' + id));
+      menu.addEventListener('click', (e) => {
+        const a = e.target.closest('.pm-cx-lien');
+        if (!a) return;
+        e.preventDefault();
+        const cible = document.querySelector(a.getAttribute('href'));
+        if (cible) { cible.scrollIntoView({ behavior: 'smooth', block: 'start' }); marquer(cible.id); }
+      });
+      // section visible = celle dont le haut est le plus proche du haut de la zone de defilement
+      const conteneur = document.querySelector('.content');
+      const defile = conteneur && /(auto|scroll)/.test(getComputedStyle(conteneur).overflowY) ? conteneur : window;
+      const surDefilement = () => {
+        const haut = defile === window ? 0 : defile.getBoundingClientRect().top;
+        let choisie = sections[0];
+        sections.forEach((sec) => { if (sec.getBoundingClientRect().top - haut <= 90) choisie = sec; });
+        if (choisie) marquer(choisie.id === 'panelRelais' ? 'cx-passerelle' : choisie.id);
+      };
+      defile.addEventListener('scroll', surDefilement, { passive: true });
+    }
+    // Enregistrer : declenche l'enregistrement des seules sections modifiees (chacune garde sa propre logique et son statut)
+    const sales = new Set();
+    document.querySelectorAll('#page-settings .pm-carte[data-groupe]').forEach((c) => {
+      const g = c.dataset.groupe;
+      c.addEventListener('input', () => sales.add(g));
+      c.addEventListener('change', () => sales.add(g));
+    });
+    const prefs = document.getElementById('cx-preferences');
+    if (prefs) { prefs.addEventListener('change', () => sales.add('config')); prefs.addEventListener('input', () => sales.add('config')); }
+    const texteBarre = document.getElementById('pmBarreTexte');
+    const dire = (t) => { if (texteBarre) texteBarre.textContent = t; };
+    const TEXTE_DEFAUT = "Les modifications s'appliquent à cet environnement.";
+    const boutons = { config: '#btnSaveConfig', ot: '#btnOtSave', relais: '#btnRelaisSave' };
+    const btnEnr = document.getElementById('pmBarreEnregistrer');
+    if (btnEnr) btnEnr.addEventListener('click', () => {
+      const a = Array.from(sales);
+      if (!a.length) { dire('Aucune modification à enregistrer.'); setTimeout(() => dire(TEXTE_DEFAUT), 3000); return; }
+      a.forEach((g) => { const b = document.querySelector(boutons[g]); if (b) b.click(); });
+      sales.clear();
+      dire("Enregistrement de " + a.length + " section(s)… l'état de chacune s'affiche dans sa carte.");
+      setTimeout(() => dire(TEXTE_DEFAUT), 5000);
+    });
+    const btnAnn = document.getElementById('pmBarreAnnuler');
+    if (btnAnn) btnAnn.addEventListener('click', () => { sales.clear(); location.reload(); });
+
     // bandeau de sync : ping leger du SaaS toutes les 10 s
     const dot = document.getElementById('syncDot');
     const texte = document.getElementById('syncTexte');
-    let dernierOk = null;
+    const detail = document.getElementById('syncDetail');
+    let dernierOk = null, enLigne = false;
+    const ilYa = (d) => {
+      const s = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
+      return s < 60 ? 'il y a ' + s + ' s' : 'il y a ' + Math.round(s / 60) + ' min';
+    };
+    // « Cloud connecté · dernier échange il y a 2 s » (maquette), recalcule chaque seconde
+    const majTexte = () => {
+      if (dot) dot.className = 'sync-dot ' + (enLigne ? 'ok' : 'ko');
+      if (texte) {
+        texte.textContent = enLigne
+          ? 'Cloud connecté · dernier échange ' + ilYa(dernierOk)
+          : 'Hors ligne' + (dernierOk ? ' · dernier échange ' + ilYa(dernierOk) : ' · aucune connexion au serveur');
+      }
+      if (detail) {
+        const coche = (id) => { const e = document.getElementById(id); return !e || e.checked; };
+        detail.textContent = [coche('syncCouchePull') ? 'Cloud 5 s' : '', coche('syncCoucheLan') ? 'LAN temps réel' : '',
+                              coche('syncCoucheOffice') ? 'Relais Office actif' : ''].filter(Boolean).join(' / ');
+      }
+    };
     const ping = () => {
-      API.getConfig().then(() => {
-        dernierOk = new Date();
-        if (dot) dot.className = 'sync-dot ok';
-        if (texte) {
-          texte.textContent = 'Synchronise â€” dernier echange ' +
-            dernierOk.toLocaleTimeString();
-        }
-      }).catch(() => {
-        if (dot) dot.className = 'sync-dot ko';
-        if (texte) {
-          texte.textContent = 'Hors ligne' + (dernierOk
-            ? ' â€” dernier echange ' + dernierOk.toLocaleTimeString()
-            : ' â€” aucune connexion au serveur');
-        }
-      });
+      API.getConfig().then(() => { dernierOk = new Date(); enLigne = true; majTexte(); })
+        .catch(() => { enLigne = false; majTexte(); });
     };
     ping();
     setInterval(ping, 10000);
+    setInterval(majTexte, 1000);
 
     const btn = document.getElementById('btnSyncMaintenant');
     if (btn) btn.addEventListener('click', () => {
@@ -1871,20 +2252,7 @@
       if (typeof chargerToutEquipements === 'function') chargerToutEquipements();
     });
 
-    // compteurs de machines dans l'onglet Flotte (17 DT / 8 EX attendus)
-    const majCompteurs = () => {
-      const trucks = document.querySelectorAll('#truckContainer .account-item:not(.muted)').length;
-      const excs = document.querySelectorAll('#excavatorContainer .account-item:not(.muted)').length;
-      const t = document.getElementById('cptTrucks');
-      if (t) t.textContent = 'Trucks (' + trucks + ')';
-      const x = document.getElementById('cptExcavators');
-      if (x) x.textContent = 'Excavators (' + excs + ')';
-    };
-    const obs = new MutationObserver(majCompteurs);
-    ['truckContainer', 'excavatorContainer'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) obs.observe(el, { childList: true });
-    });
+    // compteurs de machines : ecrits par renderEquipList (19/11)
   }
 
   if (document.readyState === 'loading') {
@@ -1900,6 +2268,6 @@
     loadEquipList, loadEquipLists: async () => {
       for (const t of Object.keys(EQUIP_TYPES)) await loadEquipList(t);
     },
-    refreshAssignments, renderGnssRegistry, loadGnssRegistry, renderFleet,
+    refreshAssignments, renderGnssRegistry, loadGnssRegistry, renderFleet, renderTruckFactors, renderTeams,
   };
 })();

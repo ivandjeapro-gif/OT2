@@ -1,0 +1,5 @@
+# Port local 1884 (passerelle du PC, sans compte) : lit tout le suivi,
+# publie les ordres vers les DT. Lignes avant tout « user » = acces anonyme.
+topic read camions/#
+topic write camions/+/mission
+topic write camions/+/alerte

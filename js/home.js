@@ -10,6 +10,34 @@
 (function () {
   'use strict';
 
+  // Les raisons renvoyees par MSUI sont techniques (« offroad non vue
+  // (DT-02) »). On les reformule pour l'affichage, sans changer la regle
+  // de calcul du voyant (niveau rouge/jaune/vert reste identique).
+  function raisonLisible(v, etat) {
+    const brut = String(v.raison || '');
+    const code = (brut.match(/\((DT-?\d+)\)/i) || [])[1];
+    const aTraiter = (etat.alertes || [])
+      .filter(MSUI.aTraiter).length;
+
+    if (/offroad/i.test(brut)) {
+      return code
+        ? 'Alerte de sortie de route non lue sur ' + code.toUpperCase()
+        : 'Alertes de sortie de route non lues';
+    }
+    if (/mission/i.test(brut) && /dev/i.test(brut)) {
+      return code
+        ? 'Mission déviée non traitée sur ' + code.toUpperCase()
+        : 'Missions déviées non traitées';
+    }
+    if (/passerelle|muette|down/i.test(brut)) {
+      return 'La passerelle ne répond plus';
+    }
+    if (aTraiter) {
+      return aTraiter + (aTraiter > 1 ? ' alertes restent à traiter' : ' alerte reste à traiter');
+    }
+    return brut;
+  }
+
   function rendreVoyant(etat) {
     const box = document.getElementById('homeVoyant');
     if (!box) return;
@@ -18,30 +46,138 @@
     const texte = box.querySelector('.voyant-texte');
     if (pastille) pastille.className = 'voyant-pastille ' + v.niveau;
     if (texte) {
-      texte.textContent = v.raison;
+      texte.textContent = raisonLisible(v, etat);
       if (etat.passerelleDown && etat.dernierReussi) {
-        texte.textContent += ' — donnees de ' + etat.dernierReussi.toLocaleTimeString();
+        texte.textContent += ' — données de ' + etat.dernierReussi.toLocaleTimeString('fr-FR');
+      }
+    }
+
+    // Titre du bandeau : traduction du niveau en une phrase lisible,
+    // affichee dans la maquette au-dessus du detail du voyant.
+    const titre = document.getElementById('homeVoyantTxt');
+    if (titre) {
+      const aTraiter = (etat.alertes || [])
+        .filter(MSUI.aTraiter).length;
+      if (etat.passerelleDown) {
+        titre.textContent = 'Passerelle injoignable';
+      } else if (v.niveau === 'rouge') {
+        titre.textContent = aTraiter
+          ? aTraiter + (aTraiter > 1 ? ' alertes demandent ' : ' alerte demande ') + 'votre attention'
+          : 'Le site demande votre attention';
+      } else if (v.niveau === 'jaune') {
+        titre.textContent = 'Le site demande une verification';
+      } else {
+        titre.textContent = 'Le site fonctionne normalement';
       }
     }
   }
 
+  // ------------------------------------------------------------ compteurs : sources REELLES
+  //  - engins suivis : DT dont la position est fraiche (/api/suivi_dt : pas « signal perdu », 2 min) / parc DT (SaaS)
+  //  - alertes a traiter : alertes non vues et non informatives (MSUI)
+  //  - missions en cours : missions au statut en_cours (MSUI)
+  //  - tonnes du jour : production reelle de la journee 06 h - 06 h lue chez Serveur_SG (/api/kpi), minerai + waste
+  // Aucune valeur par defaut, aucune estimation : une source muette affiche « — », pas un chiffre invente.
+  const COMPTEURS = { suivi: null, kpi: null };
+
   function rendreStats(etat) {
-    const engins = (etat.engins || []).filter((e) => e.actif !== 0);
-    const alertes = (etat.alertes || []).filter((a) => !a.acquittee && !MSUI.estInfo(a));
-    const missions = (etat.missions || []).filter((m) => m.statut === 'en_cours');
-    const aujourdhui = new Date().toISOString().slice(0, 10);
-    const voy = (etat.voyages || []).filter(
-      (v) => String(v.created_at || '').slice(0, 10) === aujourdhui);
-    const tonnes = voy.reduce((s, v) => s + (v.volume_t || 0), 0);
+    const alertes = (etat.alertes || []).filter(MSUI.aTraiter);
+    const missions = (etat.missions || []).filter(MSUI.missionActive);
+    const nonCloses = (etat.missions || []).filter(MSUI.missionNonClose).length;
 
     const set = (id, val) => {
       const el = document.getElementById(id);
       if (el) el.textContent = val;
     };
-    set('statEngins', engins.length + ' / ' + (window.PARC_ENGINS || '?'));
-    set('statAlertes', alertes.length);
-    set('statMissions', missions.length);
-    set('statTonnage', Math.round(tonnes) + ' t');
+
+    // Parc total : referentiel SaaS (sync_flotte, camions seulement : les excavatrices ne roulent pas de missions).
+    const parc = COMPTEURS.flotte || ((typeof window.PARC_ENGINS === 'number' && window.PARC_ENGINS > 0) ? window.PARC_ENGINS : null);
+    if (COMPTEURS.suivi) {
+      const enDirect = COMPTEURS.suivi.filter((e) => e.type === 'DT' && e.etat !== 'signal_perdu').length;
+      set('statEngins', parc ? (enDirect + ' / ' + parc) : String(enDirect));
+    } else {
+      set('statEngins', '—');
+    }
+    set('statAlertes', String(alertes.length).padStart(2, '0'));
+    set('statMissions', String(missions.length).padStart(2, '0'));
+    set('statMissionsNote', nonCloses ? nonCloses + ' cycle' + (nonCloses > 1 ? 's' : '') + ' jamais clos' : '');
+    const k = COMPTEURS.kpi;
+    set('statTonnage', k ? formaterTonnage(Math.round((Number(k.minerais_t) || 0) + (Number(k.waste_t) || 0))) : '—');
+  }
+
+  function lireCompteurs() {
+    const base = basePasserelleHome();
+    fetch(base + '/api/suivi_dt', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        COMPTEURS.suivi = Array.isArray(d) ? d : (d && (d.engins || null));
+        COMPTEURS.flotte = d && Number(d.flotte_dt) > 0 ? Number(d.flotte_dt) : null;   // meme flotte que le dashboard
+        if (TERRAIN.etat) rendreStats(TERRAIN.etat);
+      })
+      .catch(() => { COMPTEURS.suivi = null; });
+    // 25/11 (calibrage) : tonnage du SHIFT en cours, comme le dashboard par defaut
+    const deux = (n) => String(n).padStart(2, '0');
+    const loc = (t) => { const x = new Date(t); return x.getFullYear() + '-' + deux(x.getMonth() + 1) + '-' + deux(x.getDate()) + ' ' + deux(x.getHours()) + ':' + deux(x.getMinutes()) + ':00'; };
+    const deb = MSUI.debutShiftMs ? MSUI.debutShiftMs() : null;
+    const q = deb ? '?depuis=' + encodeURIComponent(loc(deb)) + '&jusqua=' + encodeURIComponent(loc(deb + 12 * 3600000)) : '';
+    fetch(base + '/api/kpi' + q, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { COMPTEURS.kpi = d && typeof d.minerais_t !== 'undefined' ? d : null; if (TERRAIN.etat) rendreStats(TERRAIN.etat); })
+      .catch(() => { COMPTEURS.kpi = null; });
+  }
+
+  // Tonnage lisible : « 53 500 t » avec séparateur milliers.
+  function formaterTonnage(t) {
+    return String(t).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f') + ' t';
+  }
+
+    // Un code engin absent ne doit rien afficher (pas de tiret orphelin).
+    const codePropre = (v) => {
+      const t = String(v == null ? '' : v).trim();
+      return (t === '—' || t === '-' || t === '–' || t === 'null' || t === 'undefined') ? '' : t;
+    };
+
+  // Mise en forme d'un message d'alerte : la base stocke les libelles en
+  // majuscules (« SORTIE DE ROUTE : ... »). On les ramene a une casse
+  // lisible pour l'affichage, sans abimer les codes engin (DT-02,
+  // DT-019) qui doivent rester en capitales. Aucune donnee modifiee.
+  function casseLisible(txt) {
+    const s = String(txt || '').trim();
+    if (!s) return '';
+
+    // On ne touche qu'au PREMIER mot quand il est entierement en majuscules
+    // (« SORTIE DE ROUTE : ... » -> « Sortie de route : ... »).
+    // Les codes techniques (BLAST, TEST_BASE, 242.5_OM_LWP2) gardent
+    // leur casse d'origine, et les codes engin restent en capitales.
+    const m = s.match(/^([A-Z][A-Z\s]{2,}?)(?=\s*[:—·]|\s+[a-z0-9])/);
+    let out = s;
+    if (m) {
+      const premier = m[1].trim();
+      const bas = premier.toLowerCase();
+      out = bas.charAt(0).toUpperCase() + bas.slice(1) + s.slice(premier.length);
+    }
+    return out.replace(/\bdt-(\d+)\b/gi, function (t, n) { return 'DT-' + n; });
+  }
+
+  // Duree ecoulee, format court et lisible (« 12 min », « 7 h », « 2 j »).
+  // Meme donnee que MSUI.ilYA, mise en forme pour la colonne « Delai ».
+  function delaiCourt(createdAt) {
+    if (!createdAt) return '';
+    const d = new Date(String(createdAt).replace(' ', 'T') + 'Z');
+    if (isNaN(d.getTime())) return '';
+    const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+    if (s < 60) return s + ' s';
+    if (s < 3600) return Math.floor(s / 60) + ' min';
+    const h = Math.floor(s / 3600);
+    if (h < 24) return h + ' h';
+    const j = Math.floor(h / 24);
+    return j + ' j ' + (h % 24) + ' h';
+  }
+
+  // Heure de l'evenement, affichee dans la colonne « Heure / Engin »
+  // comme sur la maquette. Simple mise en forme d'une donnee deja recue.
+  function heureDe(createdAt) {
+    const d = new Date(String(createdAt || '').replace(' ', 'T') + 'Z');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   }
 
   // File du matin : regles simples, chaque item mene a la page qui traite.
@@ -52,13 +188,22 @@
     const seuilMs = (etat.seuilRougeMin || 10) * 60000;
 
     for (const a of (etat.alertes || [])) {
-      if (a.acquittee || MSUI.estInfo(a)) continue;
+      if (!MSUI.aTraiter(a)) continue;
       const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
       const vieux = Date.now() - t > seuilMs;
+      // maquette : titre + sous-titre, decoupe sur « : » ou « — »
+      const brut = casseLisible(a.message);
+      const sep = brut.search(/[:\u2014]/);
+      const titre = sep > 0 ? brut.slice(0, sep).trim() : brut;
+      const detail = sep > 0 ? brut.slice(sep + 1).trim() : '';
       items.push({
         urgence: vieux ? 2 : 1,
-        html: '<b>' + MSUI.esc(a.dt_code) + '</b> — ' + MSUI.esc(a.message) +
-          ' <span class="file-age">' + MSUI.ilYA(a.created_at) + '</span>',
+        id: a.id,
+        titre: titre,
+        detail: detail,
+        code: codePropre(a.dt_code),
+        heure: heureDe(a.created_at),
+        age: delaiCourt(a.created_at),
         lien: 'alerts.html',
       });
     }
@@ -69,18 +214,23 @@
       if (e.type === 'DT' && e.statut === 'ODT' && !enMission.has(e.code)) {
         items.push({
           urgence: 2,
-          html: '<b>' + MSUI.esc(e.code) + '</b> est charge (ODT) mais n\'a pas de mission',
+          titre: 'Charge sans mission',
+          detail: 'est chargé (ODT) mais n\'a pas de mission',
+          code: codePropre(e.code),
+          heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
           lien: 'senor.html',
         });
       }
     }
     // missions deviees
     for (const m of (etat.missions || [])) {
-      if (m.statut === 'en_cours' && Number(m.devie) === 1 || m.statut === 'devoie') {
+      if (m.statut === 'en_cours' && Number(m.devie) === 1) {
         items.push({
           urgence: 1,
-          html: '<b>' + MSUI.esc(m.dt_code) + '</b> a devie de sa mission (' +
-            Math.round(m.ecart_m || 0) + ' m du trajet, bloc #' + m.orebloc_id + ')',
+          titre: 'Mission déviée',
+          detail: Math.round(m.ecart_m || 0) + ' m du trajet, bloc #' + m.orebloc_id,
+          code: codePropre(m.dt_code),
+          heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
           lien: 'senor.html',
         });
       }
@@ -91,10 +241,64 @@
       return;
     }
     items.sort((a, b) => b.urgence - a.urgence);
+    // Rendu de la file comme la maquette : heure au-dessus du code,
+    // titre + sous-titre, delai, et un bouton « Marquer vu » par ligne.
+    // Le bouton appelle la vraie route d'acquittement (POST /api/alertes).
     box.innerHTML = items.slice(0, 8).map((it) =>
-      '<a class="file-item u' + it.urgence + '" href="' + it.lien + '">' +
-      '<i class="fas fa-' + (it.urgence === 2 ? 'fire' : 'bell') + '"></i>' +
-      '<span>' + it.html + '</span></a>').join('');
+      '<div class="file-item u' + it.urgence + '">' +
+        '<div class="file-cell">' +
+          '<div class="file-slot">' +
+            '<span class="file-quand">' +
+              (it.heure ? '<em class="file-heure">' + it.heure + '</em>' : '') +
+              (it.code ? '<b class="file-code">' + MSUI.esc(it.code) + '</b>' : '') +
+            '</span>' +
+            '<span class="file-quoi">' +
+              '<span class="file-titre">' + MSUI.esc(it.titre) + '</span>' +
+              (it.detail ? '<span class="file-detail">' + MSUI.esc(it.detail) + '</span>' : '') +
+            '</span>' +
+            '<span class="file-age">' + (it.age || '') + '</span>' +
+            '<button type="button" class="file-marquer" data-alerte="' + (it.id || '') + '">' +
+              'Marquer vu</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>').join('');
+  }
+
+  // « Marquer vu » : branche sur la route d'acquittement existante.
+  // On delegue a alerts-ui si present, sinon appel direct a la passerelle.
+  function brancherMarquerVu() {
+    const box = document.getElementById('homeFile');
+    if (!box) return;
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest('.file-marquer');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute('data-alerte');
+      if (!id) return;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+
+      const faire = (window.AlertsUI && typeof AlertsUI.acquitter === 'function')
+        ? AlertsUI.acquitter(id)
+        : fetch(basePasserelleHome() + '/api/alertes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'acquit', id: id }),
+          }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+
+      Promise.resolve(faire)
+        .catch(() => {
+          btn.disabled = false;
+          btn.textContent = 'Marquer vu';
+        });
+    });
+  }
+
+  // base passerelle : meme logique que missions-ui (OTCFG, sinon :8101)
+  function basePasserelleHome() {
+    if (window.OTCFG && typeof OTCFG.passerelle === 'function') return OTCFG.passerelle();
+    return 'http://' + location.hostname + ':8101';
   }
 
   // Total du parc (referentiel administratif, SaaS :8100, table sync_flotte).
@@ -110,13 +314,186 @@
     }).catch(() => { window.PARC_ENGINS = window.PARC_ENGINS || null; });
   }
 
+  // Panneau SHIFT : horaires et progression CALCULÉS d'après l'heure
+  // réelle (shift de jour 06:00–18:00, de nuit 18:00–06:00). Rien en dur.
+  function rendreShift() {
+    const h = document.querySelector('.shift-hours');
+    const el = document.querySelector('.shift-elapsed');
+    const bar = document.querySelector('.shift-progress span');
+    if (!h || !el || !bar) return;
+
+    const now = new Date();
+    const min = now.getHours() * 60 + now.getMinutes();
+    const jour = min >= 360 && min < 1080; // 06:00 → 18:00
+    const debut = jour ? 360 : 1080;
+    const duree = 720; // 12 h
+    const ecoule = ((min - debut) + 1440) % 1440;
+    const clamp = Math.max(0, Math.min(duree, ecoule));
+
+    const fmt = (m) =>
+      String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+
+    h.innerHTML = fmt(debut) + ' <span class="shift-dash">—</span> ' + fmt(debut + duree);
+    el.textContent =
+      Math.floor(clamp / 60) + ' h ' + (clamp % 60) + ' écoulées sur 12 heures';
+    bar.style.width = Math.round((clamp / duree) * 100) + '%';
+  }
+
+  // Le titre du panneau suit le shift réel (jour/nuit).
+  function titreShift() {
+    const t = document.querySelector('.panel-side-title');
+    if (!t) return;
+    const min = new Date().getHours() * 60 + new Date().getMinutes();
+    t.textContent = (min >= 360 && min < 1080) ? 'Shift de jour' : 'Shift de nuit';
+  }
+
+  // ---------------------------------------------------------------- Le terrain
+  // Trois lignes du panneau, toutes calculees : jamais de texte en dur.
+  const TERRAIN = { etat: null, blasts: [], equipes: null, relais: null, cloud: null, minage: null, sources: [] };
+
+  function ecrireItem(id, titre, detail) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.querySelector('.side-item-titre').textContent = titre;
+    el.querySelector('.side-item-detail').textContent = detail || '';
+  }
+
+  function dansPolygone(x, y, poly) {
+    let dedans = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dedans = !dedans;
+    }
+    return dedans;
+  }
+
+  // Excavatrices en minage (statut OMEX : dans un orebloc ET position fraiche) : code, pit, blast.
+  // Minage : d'abord ce que le SPOTTER a declare (pelle + bloc, valable 30 min, /api/minage_actuel), sinon
+  // les pelles dont le statut est OMEX (en minage) localisees dans un bloc.
+  // Pit d'un bloc : la source (Senor) dont les codes admis figurent dans le nom du bloc
+  // (275_OM_LMP2_014 -> LMP2 -> « Main Pit »). Rien n'est ecrit en dur.
+  function pitDeNom(nom) {
+    const segs = String(nom || '').toUpperCase().split(/[_\s.-]+/);
+    const src = (TERRAIN.sources || []).find((x) =>
+      String(x.codes || '').toUpperCase().split(/[,\s;]+/).filter(Boolean).some((c) => segs.indexOf(c) >= 0));
+    return src ? src.nom : '';
+  }
+
+  // Minages en cours : TOUS (/api/minages), une ligne par pelle. Sources : le DT (auto), le spotter
+  // (secours), le bureau (formulaire de secours) - la plus fiable l'emporte cote passerelle.
+  function rendreMinage() {
+    const liste = (TERRAIN.minage && TERRAIN.minage.minages) || [];
+    if (!liste.length) {
+      ecrireItem('terrainMinage', 'Aucune excavatrice en minage',
+        'Détecté automatiquement par les DT (ou déclaré par le spotter).');
+      return;
+    }
+    const pits = Array.from(new Set(liste.map((m) => pitDeNom(m.bloc)).filter(Boolean)));
+    const titre = (pits.length ? pits.join(' / ') + ' · ' : '') + liste.map((m) => m.exca_code).join(', ');
+    const detail = liste.map((m) => m.exca_code + ' → ' + (m.bloc || ('#' + m.orebloc_id)) +
+      (m.matiere === 'waste' ? ' · stérile' : '') + (m.origine && m.origine !== 'dt' ? ' (' + m.origine + ')' : '')).join(' · ');
+    ecrireItem('terrainMinage', titre, detail);
+  }
+
+  // Equipe de service du shift en cours : choisie par l'admin (Settings > Equipes, params equipe_jour / equipe_nuit),
+  // titre = equipe, detail = ses membres (chef en premier). Rien d'invente : sans choix, on le dit.
+  function rendreEquipes() {
+    const rows = TERRAIN.equipes;
+    if (!rows) { ecrireItem('terrainEquipes', 'Équipe de service', 'Connectez-vous pour afficher l’équipe.'); return; }
+    const h = new Date().getHours();
+    const jour = h >= 6 && h < 18;
+    const code = (TERRAIN.service || {})[jour ? 'jour' : 'nuit'] || '';
+    const shift = jour ? 'jour' : 'nuit';
+    if (!code) {
+      ecrireItem('terrainEquipes', 'Équipe de service non définie',
+        'Choisir l’équipe du shift de ' + shift + ' dans Settings › Équipes.');
+      return;
+    }
+    const membres = rows.filter((r) => r.profil === 'SPOT' && r.equipe === code && r.actif === 1)
+      .sort((a, b) => (String(b.role).toUpperCase() === 'CHEF_EQUIPE') - (String(a.role).toUpperCase() === 'CHEF_EQUIPE'));
+    const noms = membres.map((r) => (r.nom || r.identifiant || '') +
+      (String(r.role).toUpperCase() === 'CHEF_EQUIPE' ? ' (chef)' : ''));
+    ecrireItem('terrainEquipes', 'Équipe ' + code + ' · shift de ' + shift, noms.length ? noms.join(', ') : 'Aucun membre actif');
+  }
+
+  // Liaisons : Cloud (SaaS joignable), LAN temps reel (passerelle joignable), Office (relais configure).
+  function rendreLiaisons() {
+    const etat = TERRAIN.etat;
+    const lan = !!etat && !etat.passerelleDown;
+    const cloud = TERRAIN.cloud === true;
+    const office = !!(TERRAIN.relais && TERRAIN.relais.office_actif);
+    const liste = [['Cloud', cloud], ['LAN temps réel', lan], ['Office', office]];
+    const ok = liste.filter((l) => l[1]);
+    const mots = ['Aucune', 'Une', 'Deux', 'Trois'];
+    const titre = ok.length === 0 ? 'Aucune liaison connectée'
+      : mots[ok.length] + (ok.length > 1 ? ' liaisons connectées' : ' liaison connectée');
+    const hors = liste.filter((l) => !l[1]).map((l) => l[0]);
+    ecrireItem('terrainLiaisons', titre, ok.map((l) => l[0]).join(' · ') + (hors.length ? ' — hors ligne : ' + hors.join(', ') : ''));
+  }
+
+  function rendreTerrain() { rendreMinage(); rendreEquipes(); rendreLiaisons(); }
+
+  function lireMinages() {
+    fetch(basePasserelleHome() + '/api/minages', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.minage = d && d.minages ? d : null; rendreMinage(); }).catch(() => {});
+  }
+
+  function lireTerrain() {
+    const base = basePasserelleHome();
+    fetch(base + '/api/blasts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && d.blasts) TERRAIN.blasts = d.blasts; rendreTerrain(); }).catch(() => {});
+    lireMinages();
+    fetch(base + '/api/sources', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.sources = (d && d.sources) || []; rendreMinage(); }).catch(() => {});
+    fetch(base + '/api/relais', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { TERRAIN.relais = d; rendreLiaisons(); }).catch(() => { TERRAIN.relais = null; rendreLiaisons(); });
+    if (typeof API !== 'undefined' && API.getConfig) {
+      API.getConfig().then((c) => {
+        const p = (c && (c.params || c)) || {};
+        TERRAIN.service = { jour: p.equipe_jour || '', nuit: p.equipe_nuit || '' };
+        TERRAIN.cloud = true; rendreLiaisons(); rendreEquipes();
+      }).catch(() => { TERRAIN.cloud = false; rendreLiaisons(); });
+    }
+    if (typeof API !== 'undefined' && API.getRows) {
+      API.getRows('sync_identifiants').then((d) => { TERRAIN.equipes = (d && d.rows) || []; rendreEquipes(); })
+        .catch(() => { TERRAIN.equipes = null; rendreEquipes(); });
+    }
+  }
+
   function init() {
     if (!document.getElementById('homeVoyant')) return;
     if (!window.MSUI) return;
     lireParc();
     setInterval(lireParc, 60000);
-    MSUI.onTick((etat) => { rendreVoyant(etat); rendreStats(etat); rendreFile(etat); });
+    MSUI.onTick((etat) => { TERRAIN.etat = etat; rendreVoyant(etat); rendreStats(etat); rendreFile(etat); rendreMinage(); rendreLiaisons(); });
+    lireTerrain();
+    setInterval(lireTerrain, 60000);
+    setInterval(lireMinages, 10000);
+    lireCompteurs();
+    // 26/11 (calibrage) : meteo du site, meme source et meme point que le dashboard (Open-Meteo)
+    const lireMeteo = () => {
+      let cfg = {};
+      try { cfg = JSON.parse(localStorage.getItem('oreTrackingConfig')) || {}; } catch (e) {}
+      const lat = (cfg.center && cfg.center.lat) || 8.2626, lng = (cfg.center && cfg.center.lng) || -4.6301;
+      fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+            '&current=temperature_2m,relative_humidity_2m&daily=precipitation_sum&timezone=auto&forecast_days=1')
+        .then((r) => r.json()).then((d) => {
+          const c = d.current || {}, num = (v) => (typeof v === 'number' && isFinite(v));
+          const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+          if (num(c.temperature_2m)) set('homeTemp', Math.round(c.temperature_2m) + ' °C');
+          if (num(c.relative_humidity_2m)) set('homeHumid', Math.round(c.relative_humidity_2m) + ' %');
+          const p = d.daily && d.daily.precipitation_sum && d.daily.precipitation_sum[0];
+          if (num(p)) set('homePluie', p.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' mm');
+        }).catch(() => { /* hors ligne : tirets */ });
+    };
+    lireMeteo();
+    setInterval(lireMeteo, 600000);
+    setInterval(lireCompteurs, 10000);
     MSUI.demarrer(5000);
+    brancherMarquerVu();
+    rendreShift();
+    titreShift();
+    setInterval(rendreShift, 60000);
   }
 
   if (document.readyState === 'loading') {

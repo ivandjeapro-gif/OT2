@@ -12,10 +12,46 @@ import {
   createUserWithEmailAndPassword,
 } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
 import {
-  collection, getDocs, getDoc, doc, setDoc, query, orderBy,
+  collection, getDocs, getDoc, doc, setDoc, query, orderBy, runTransaction,
 } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
+import {
+  normaliserRole, libelleRole, peutAcceder, roleSuivant, connexionUnique, PAGE_REPLI,
+  ouvrirSessionUnique, battementSessionUnique, fermerSessionUnique, SESSION_BATTEMENT_MS,
+} from './roles.js';
 
 function $(sel) { return document.querySelector(sel); }
+
+// page de connexion dediee (html/connexion.html) : un ecran de login sans application derriere
+const PAGE_CONNEXION = /\/connexion\.html$/i.test(location.pathname);
+
+// -------------------------------------------- ecritures vers la passerelle ---
+// La passerelle (:8101) exige un jeton Firebase pour toute ECRITURE (POST / PUT / DELETE) :
+// elle verifie le profil (admin / senor / geologue) aupres du SaaS. Ce relais ajoute l'en-tete
+// Authorization a ces requetes, pour TOUTES les pages qui chargent auth.js ; les lectures
+// (GET) restent sans jeton.
+(function relaisJetonPasserelle() {
+  const nativeFetch = window.fetch.bind(window);
+  function basePasserelle() {
+    let base = '';
+    try { base = localStorage.getItem('sgApiBase') || ''; } catch (e) { /* stockage indisponible */ }
+    return (base || (location.protocol + '//' + (location.hostname || 'localhost') + ':8101')).replace(/\/+$/, '');
+  }
+  window.fetch = async function (input, init) {
+    try {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const methode = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      if (methode !== 'GET' && methode !== 'HEAD' && methode !== 'OPTIONS' && url.indexOf(basePasserelle() + '/') === 0) {
+        const jeton = await window.OreTrackingAuth.getToken();
+        if (jeton) {
+          const h = new Headers((init && init.headers) || (input && input.headers) || undefined);
+          if (!h.has('Authorization')) h.set('Authorization', 'Bearer ' + jeton);
+          init = Object.assign({}, init || {}, { headers: h });
+        }
+      }
+    } catch (e) { /* sans jeton : la passerelle repondra 401, rien ne casse ici */ }
+    return nativeFetch(input, init);
+  };
+})();
 
 // profil Firestore de l'utilisateur courant (role, desactive)
 let myProfile = null;
@@ -91,11 +127,15 @@ function hideLogin() {
   if (app) app.style.visibility = 'visible';
 }
 
-function renderUser(user) {
+function renderUser(user, role) {
+  const roleEl = $('.user-role');
+  if (roleEl) roleEl.textContent = user && role ? libelleRole(role) : '';
   const name = $('.user-name');
   const email = $('.user-email');
   if (name) name.textContent = user ? (user.nom || user.displayName || user.email || '') : '';
   if (email) email.textContent = user ? (user.email || '') : '';
+  // la barre de navigation (js/navbar.js) reaffiche ces valeurs des son premier rendu sur la page suivante
+  if (window.OreNavbar) window.OreNavbar.memoriser({ nom: name ? name.textContent : '', email: email ? email.textContent : '', role: roleEl ? roleEl.textContent : '' });
 }
 
 function resetLoginForm() {
@@ -140,10 +180,83 @@ async function doLogin(identifiant, password) {
 
 async function doLogout() {
   if (!confirm('Se deconnecter ?')) return;
+  await libererSessionUnique();
   try { await signOut(auth); } catch (e) { /* deja deconnecte */ }
   renderUser(null);
   resetLoginForm();
   showLogin();
+}
+
+// ----------------------------------------- connexion unique (Senor_Geology) ---
+// Un seul poste a la fois sur un compte « senor » : document Firestore
+// sessions_unique/{uid} (regle a ajouter : lecture/ecriture par le proprietaire).
+// Identifiant de poste = par NAVIGATEUR (localStorage) : plusieurs onglets d'un meme poste
+// partagent la session, un autre PC est refuse tant que le premier est actif (90 s sans
+// battement = libere). Firestore injoignable : on laisse entrer (jamais de blocage total),
+// avec un avertissement.
+let battementTimer = null;
+let sessionUniqueUid = null;
+
+function identifiantPoste() {
+  let sid = null;
+  try { sid = localStorage.getItem('ore-poste-id'); } catch (e) { /* stockage indisponible */ }
+  if (!sid) {
+    sid = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+    try { localStorage.setItem('ore-poste-id', sid); } catch (e) { /* idem */ }
+  }
+  return sid;
+}
+const nomPoste = () => (navigator.platform || 'poste') + ' · ' + screen.width + 'x' + screen.height + ' · ' + location.hostname;
+
+function storeSessionUnique(tx) {
+  const ref = (uid) => doc(db, 'sessions_unique', uid);
+  return {
+    lire: async (uid) => { const s = await tx.get(ref(uid)); return s.exists() ? s.data() : null; },
+    ecrire: async (uid, d) => { tx.set(ref(uid), d); },
+    supprimer: async (uid) => { tx.delete(ref(uid)); },
+  };
+}
+
+async function liberer(uid) {
+  try { await fsOp(runTransaction(db, (tx) => fermerSessionUnique(storeSessionUnique(tx), uid, identifiantPoste())), 8000); }
+  catch (e) { /* le delai de 90 s libere de toute facon */ }
+}
+
+async function libererSessionUnique() {
+  if (battementTimer) { clearInterval(battementTimer); battementTimer = null; }
+  if (sessionUniqueUid) { const u = sessionUniqueUid; sessionUniqueUid = null; await liberer(u); }
+}
+
+/** Rend true si l'utilisateur peut entrer. Refus : message + deconnexion. */
+async function prendreSessionUnique(user, role) {
+  if (!connexionUnique(role)) return true;
+  let r;
+  try {
+    r = await fsOp(runTransaction(db, (tx) => ouvrirSessionUnique(storeSessionUnique(tx), user.uid, identifiantPoste(), nomPoste())), 15000);
+  } catch (e) {
+    console.warn('[connexion unique] Firestore injoignable ou regle absente : controle ignore (' + (e.code || e.message) + ')');
+    return true;
+  }
+  if (!r.ok) {
+    const depuis = r.depuis ? new Date(r.depuis).toLocaleTimeString('fr-FR') : '?';
+    pendingLoginMsg = { text: 'Ce compte Senor_Geology est deja connecte sur un autre poste' +
+      (r.appareil ? ' (' + r.appareil + ')' : '') + ' — derniere activite ' + depuis, cls: 'err' };
+    await signOut(auth).catch(() => {});
+    return false;
+  }
+  sessionUniqueUid = user.uid;
+  if (battementTimer) clearInterval(battementTimer);
+  battementTimer = setInterval(async () => {
+    try {
+      const b = await fsOp(runTransaction(db, (tx) => battementSessionUnique(storeSessionUnique(tx), user.uid, identifiantPoste(), nomPoste())), 15000);
+      if (!b.ok) {
+        clearInterval(battementTimer); battementTimer = null; sessionUniqueUid = null;
+        pendingLoginMsg = { text: 'Session reprise sur un autre poste' + (b.appareil ? ' (' + b.appareil + ')' : ''), cls: 'err' };
+        await signOut(auth).catch(() => {});
+      }
+    } catch (e) { /* reseau coupe : on reessaie au prochain battement */ }
+  }, SESSION_BATTEMENT_MS);
+  return true;
 }
 
 // ------------------------------------------------- panneau Securite ------
@@ -158,12 +271,12 @@ async function upsertProfile(user) {
   const ref = doc(db, 'users', user.uid);
   const snap = await fsOp(getDoc(ref));
   if (snap.exists()) return snap.data();
-  // premier profil vu = admin, sinon viewer
-  let role = 'viewer';
+  // premier profil vu = admin, sinon geologue (profil d'usage le plus restreint)
+  let role = 'geologue';
   try {
     const tous = await fsOp(getDocs(collection(db, 'users')));
     if (tous.empty) role = 'admin';
-  } catch (e) { /* liste refusee : on reste viewer */ }
+  } catch (e) { /* liste refusee : on reste geologue */ }
   const prof = {
     email: user.email || '',
     nom: user.displayName || (user.email || '').split('@')[0],
@@ -174,21 +287,24 @@ async function upsertProfile(user) {
   return prof;
 }
 
-// Navigation selon le role : admin = tout, viewer = tout sauf Live et Settings.
+// Navigation selon le profil (js/roles.js) : admin = tout ; senor = geologue + Senor ;
+// geologue = Home, Live, Alerts, Inbox, Dig Plan, Sync, Aide. Retourne false si la page
+// courante est interdite : on renvoie alors sur Home (et l'ecran n'est pas devoile).
 function applyNavAccess(role) {
-  const isAdmin = role === 'admin';
-  document.querySelectorAll('.sidebar-link[data-page="live"], .sidebar-link[data-page="settings"]').forEach(l => {
-    l.classList.toggle('nav-hidden', !isAdmin);
+  const masques = [];
+  document.querySelectorAll('.sidebar-link[data-page]').forEach(l => {
+    const cache = !peutAcceder(role, l.dataset.page);
+    l.classList.toggle('nav-hidden', cache);
+    if (cache) masques.push(l.dataset.page);
   });
-  // si la page courante devient interdite, on renvoie sur Home
-  if (!isAdmin) {
-    const active = document.querySelector('.sidebar-link.active');
-    const page = active && active.dataset.page;
-    if (page === 'live' || page === 'settings') {
-      const home = document.querySelector('.sidebar-link[data-page="home"]');
-      if (home) naviguerVers(home);
-    }
+  if (window.OreNavbar) window.OreNavbar.memoriser({ masques: masques });   // meme menu des le premier affichage de la page suivante
+  const active = document.querySelector('.sidebar-link.active');
+  const page = active && active.dataset.page;
+  if (page && !peutAcceder(role, page)) {
+    const home = document.querySelector('.sidebar-link[data-page="' + PAGE_REPLI + '"]');
+    if (home) { naviguerVers(home); return false; }
   }
+  return true;
 }
 
 /**
@@ -233,7 +349,7 @@ async function loadAccounts() {
         '<i class="fas fa-user-circle"></i>' +
         '<span class="account-nom">' + escapeHtml(c.nom || c.email || d.id) + '</span>' +
         '<span class="account-email">' + escapeHtml(c.email || '') + '</span>' +
-        '<span class="' + roleCls + '">' + (accAdmin ? 'Admin' : 'Viewer') + '</span>';
+        '<span class="' + roleCls + '">' + libelleRole(c.role) + '</span>';
       if (c.desactive) html += '<span class="account-flag">desactive</span>';
       if (isSelf) html += '<span class="account-self" title="Vous">vous</span>';
       if (isAdmin && !isSelf) {
@@ -264,7 +380,7 @@ async function addAccount(e) {
   e.preventDefault();
   const nom = (($('#accNom') || {}).value || '').trim();
   const email = (($('#accEmail') || {}).value || '').trim();
-  const role = ($('#accRole') || {}).value || 'viewer';
+  const role = normaliserRole(($('#accRole') || {}).value || 'geologue');
   const password = ($('#accPassword') || {}).value || '';
   if (!nom || !email || !password) {
     setAccountStatus('Nom, email et mot de passe requis', 'err');
@@ -330,8 +446,8 @@ async function onAccountAction(e) {
     if (!snap.exists()) { setAccountStatus('Compte introuvable', 'err'); return; }
     const data = snap.data();
     if (btn.dataset.action === 'role') {
-      const newRole = data.role === 'admin' ? 'viewer' : 'admin';
-      if (data.role === 'admin' && newRole === 'viewer') {
+      const newRole = roleSuivant(data.role);
+      if (data.role === 'admin' && newRole !== 'admin') {
         // ne jamais retirer le dernier admin actif
         const tous = await fsOp(getDocs(query(collection(db, 'users'))));
         const autres = tous.docs.filter(d =>
@@ -345,14 +461,15 @@ async function onAccountAction(e) {
       if (!await Splash.confirmer(
           'Changer le role de "' + nomCompte + '" ?',
           { titre: 'Changement de role', danger: false,
-            details: 'Role actuel : ' + (data.role === 'admin' ? 'Admin' : 'Viewer') +
-                     ' -> ' + (newRole === 'admin' ? 'Admin (tous les droits)' : 'Viewer (lecture seule)') +
-                     '. Continuer ?',
+            details: 'Role actuel : ' + libelleRole(data.role) + ' -> ' + libelleRole(newRole) +
+                     (newRole === 'admin' ? ' (toutes les pages)'
+                       : newRole === 'senor' ? ' (pages du Geologue + Senor, connexion unique)'
+                       : ' (Home, Live, Alerts, Inbox, Dig Plan, Sync, Aide)') + '. Continuer ?',
             libelleOk: 'Changer le role' })) return;
       const sp = Splash.bloquer('Modification du compte...', nomCompte);
       await fsOp(setDoc(ref, { role: newRole }, { merge: true }));
       sp.fermer();
-      Splash.succes('Role modifie', nomCompte + ' : ' + (newRole === 'admin' ? 'Admin' : 'Viewer'));
+      Splash.succes('Role modifie', nomCompte + ' : ' + libelleRole(newRole));
       setAccountStatus('Role mis a jour : ' + newRole, 'ok');
     } else if (btn.dataset.action === 'toggle-active') {
       const willDisable = !data.desactive;
@@ -476,9 +593,17 @@ function initAuth() {
       }
       renderUser(myProfile && myProfile.nom
         ? { nom: myProfile.nom, email: user.email }
-        : user);
-      applyNavAccess(myProfile ? myProfile.role : 'viewer');
-      hideLogin();
+        : user, myProfile ? myProfile.role : '');
+      const roleCourant = normaliserRole(myProfile ? myProfile.role : '');
+      // profil « Senor_Geology » : un seul poste a la fois
+      if (!(await prendreSessionUnique(user, roleCourant))) return;
+      if (PAGE_CONNEXION) {                // page de connexion dediee : session ouverte -> Home
+        const acc = (typeof PREFS !== 'undefined' && PREFS.get('homePage')) || 'home';
+        location.replace(/^[a-z_]+$/i.test(acc) ? acc + '.html' : 'home.html');
+        return;
+      }
+      const pageAutorisee = applyNavAccess(roleCourant);
+      if (pageAutorisee) hideLogin();      // page interdite : renvoi sur Home, rien n'est devoile
       // page d'accueil par defaut (Preferences) — seulement si on n'est pas déjà sur une page de l'app
       try {
         var home = (typeof PREFS !== 'undefined') ? PREFS.get('homePage') : 'home';
@@ -500,6 +625,7 @@ function initAuth() {
       } catch (e) { /* noop */ }
     } else {
       stopInactivityWatch();
+      await libererSessionUnique();
       myProfile = null;
       if (window.API && API.clearFirebaseToken) API.clearFirebaseToken();
       applyNavAccess('admin'); // ecran login : nav complete par defaut
@@ -514,7 +640,7 @@ function initAuth() {
     }
   });
   // masqué d'emblée : l'overlay n'apparait que si l'utilisateur n'a pas de session valide
-  hideLogin();
+  if (!PAGE_CONNEXION) hideLogin();
 }
 
 if (document.readyState === 'loading') {
@@ -523,4 +649,7 @@ if (document.readyState === 'loading') {
   initAuth();
 }
 
-window.OreTrackingAuth = { doLogin, doLogout, loadAccounts, loadSecurityPanel };
+// getToken : jeton Firebase du compte connecte (en-tete Authorization des ecritures vers la passerelle)
+window.OreTrackingAuth = { doLogin, doLogout, loadAccounts, loadSecurityPanel,
+  getToken: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),
+  role: () => normaliserRole(myProfile ? myProfile.role : '') };

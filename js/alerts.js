@@ -2,7 +2,8 @@
  * alerts.js — page Alerts : flux d'alertes reel (passerelle via
  * missions-ui.js), filtres et acquittement.
  * Types reels : deviation, retour_trajet, offroad, retour_piste,
- * non_conforme, fin_mission, arrivee, mission.
+ * non_conforme, fin_mission, arrivee, mission ; 24/11 : mauvaise_direction, demi_tour, retour_direction
+ * (alerte unique du chauffeur). Statuts : Off-route / Wrong Dumping (colonne et filtre).
  * Les types de la maquette sans donnees (carburant, meteo, grade)
  * ne sont pas pretendus : ils reviendront quand la source existera.
  * ===================================================================== */
@@ -16,16 +17,43 @@
     retour_piste: 'Retour sur piste',
     non_conforme: 'Dumping non conforme',
     fin_mission: 'Fin de mission',
+    blast_rejete: 'Blast refuse',
+    checkpoint: 'Checkpoint saute',
+    checkpoint_interdit: 'Checkpoint interdit',
+    zone_approche: 'Zone interdite proche',
+    zone_interdite: 'Entrée en zone interdite',
+    dumping_hors_zone: 'Dumping hors zone',
     arrivee: 'Arrivee DA',
     mission: 'Nouvelle mission',
+    // 24/11 : alerte unique du chauffeur
+    mauvaise_direction: 'Mauvaise direction',
+    demi_tour: 'Demi-tour en cours',
+    retour_direction: 'Retour bonne direction',
   };
 
+  // 24/11 (decision utilisateur) : statuts de la page Alertes. Meme classement que la passerelle (STATUT_ALERTE).
+  const STATUT = {
+    offroad: 'off_route', retour_piste: 'off_route', deviation: 'off_route', retour_trajet: 'off_route', checkpoint: 'off_route',
+    mauvaise_direction: 'wrong_dumping', demi_tour: 'wrong_dumping', retour_direction: 'wrong_dumping',
+    checkpoint_interdit: 'wrong_dumping', zone_approche: 'wrong_dumping', zone_interdite: 'wrong_dumping',
+    dumping_hors_zone: 'wrong_dumping', non_conforme: 'wrong_dumping',
+  };
+  const STATUT_LIBELLE = { off_route: 'Off-route', wrong_dumping: 'Wrong Dumping' };
+  const statutDe = (a) => a.statut || STATUT[a.type] || '';
+
   // alertes d'information : rien a traiter
-  const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1 };
+  // 25/11 (calibrage) : meme regle que toutes les pages (champ `info` de la passerelle, via MSUI)
+  const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
+    demi_tour: 1, checkpoint_valide: 1, zone_approche: 1, blast_rejete: 1 };
+  const estInfo = (a) => (window.MSUI && MSUI.estInfo) ? MSUI.estInfo(a) : !!TYPES_INFO[a.type];
+  const debutShift = () => (window.MSUI && MSUI.debutShiftMs) ? MSUI.debutShiftMs() : debutJourMs();
 
   let filtreDt = '';
   let filtreType = '';
+  let filtreStatut = '';
   let seulementNonVues = true;
+  let filtrePeriode = '';
+  let filtreDate = '';
 
   function passerelle() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
@@ -40,6 +68,70 @@
     }).catch(() => { });
   }
 
+  const deux = (n) => String(n).padStart(2, '0');
+  const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août',
+    'septembre', 'octobre', 'novembre', 'décembre'];
+  const ms = (a) => new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
+
+  // Journee d'exploitation : 06 h - 06 h (comme le tonnage de Home)
+  function debutJourMs() {
+    const d = new Date();
+    if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+    d.setHours(6, 0, 0, 0);
+    return d.getTime();
+  }
+
+  // Compteurs de la rangee, pied de tableau et date : calcules sur les vraies alertes
+  function rendreCompteurs(etat, affichees) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const seuilMs = (etat.seuilRougeMin || 10) * 60000;
+    const debut = debutJourMs();
+    const jour = (etat.alertes || []).filter((a) => ms(a) >= debut);
+    // non vues / en retard : shift en cours, comme la pastille de la barre et Home
+    const nonVues = jour.filter((a) => ms(a) >= debutShift() && !Number(a.acquittee) && !estInfo(a));
+    const enRetard = nonVues.filter((a) => Date.now() - ms(a) > seuilMs);
+    set('rCountTotal', deux(jour.length));
+    set('rCountUnseen', deux(nonVues.length));
+    set('rCountLate', deux(enRetard.length));
+    set('rCountLateLabel', 'au-delà de ' + (etat.seuilRougeMin || 10) + ' min');
+    const n = new Date();
+    set('rCounterDate', n.getDate() + ' ' + MOIS[n.getMonth()] + ' ' + n.getFullYear() + ' · ' + deux(n.getHours()) + ':' + deux(n.getMinutes()));
+    const aVoir = affichees.filter((a) => !Number(a.acquittee) && !estInfo(a)).length;
+    set('alertsFootLeft', affichees.length + (affichees.length > 1 ? ' événements · ' : ' événement · ') +
+      aVoir + ' non vus · ' + (affichees.length - aVoir) + ' vus ou informatifs');
+    set('alertsFootSeuil', 'Seuil d’alerte rouge : ' + (etat.seuilRougeMin || 10) + ' minutes · configurable dans Settings');
+  }
+
+  // Fenetre [debut, fin[ en ms selon la periode choisie (journee d'exploitation 06 h - 06 h)
+  function fenetre() {
+    const j = 86400000;
+    const d0 = debutJourMs();
+    if (filtrePeriode === 'jour') return [d0, d0 + j];
+    if (filtrePeriode === 'hier') return [d0 - j, d0];
+    if (filtrePeriode === '7j') return [d0 - 6 * j, d0 + j];
+    if (filtrePeriode === 'date' && filtreDate) {
+      const p = filtreDate.split('-').map(Number);
+      const d = new Date(p[0], p[1] - 1, p[2], 6, 0, 0, 0).getTime();
+      return [d, d + j];
+    }
+    return null;
+  }
+
+  // Cycle de vie (offroad / deviation) : ouverte -> le DT est revenu (retour_le) -> cloturee quand l'Office l'a aussi vue
+  const AVEC_CYCLE = { offroad: 1, deviation: 1, checkpoint: 1, checkpoint_interdit: 1 };
+  function dureeCourte(s) {
+    s = Math.max(0, Math.round(Number(s) || 0));
+    return s >= 60 ? Math.floor(s / 60) + ' min ' + deux(s % 60) + ' s' : s + ' s';
+  }
+  function etatCycle(a) {
+    if (!AVEC_CYCLE[a.type]) return '';
+    if (a.retour_le && a.retour_cause === 'arrivee_da') return 'Mission terminée en dumping area à ' + MSUI.heure(a.retour_le);
+    if (a.type === 'checkpoint' || a.type === 'checkpoint_interdit') return '';
+    return a.retour_le
+      ? 'DT revenu à ' + MSUI.heure(a.retour_le) + ' (après ' + dureeCourte(a.retour_duree_s) + ')'
+      : 'DT toujours hors trajet';
+  }
+
   function render(etat) {
     const tbody = document.getElementById('alertsBody');
     if (!tbody) return;
@@ -49,17 +141,22 @@
       const f = filtreDt.toUpperCase();
       alertes = alertes.filter((a) => String(a.dt_code || '').toUpperCase().indexOf(f) >= 0);
     }
+    const fen = fenetre();
+    if (fen) alertes = alertes.filter((a) => ms(a) >= fen[0] && ms(a) < fen[1]);
     if (filtreType) alertes = alertes.filter((a) => a.type === filtreType);
-    if (seulementNonVues) alertes = alertes.filter((a) => !a.acquittee);
+    if (filtreStatut) alertes = alertes.filter((a) => statutDe(a) === filtreStatut);
+    if (seulementNonVues) alertes = alertes.filter((a) => !Number(a.acquittee) && !estInfo(a));
 
     const compteur = document.getElementById('alertsCompteur');
     if (compteur) {
-      const nonVues = (etat.alertes || []).filter((a) => !a.acquittee && !TYPES_INFO[a.type]).length;
+      const nonVues = (etat.alertes || []).filter((a) => window.MSUI && MSUI.aTraiter ? MSUI.aTraiter(a) : (!Number(a.acquittee) && !estInfo(a))).length;
       compteur.textContent = nonVues ? nonVues + ' a traiter' : '';
     }
 
+    rendreCompteurs(etat, alertes);
+
     if (!alertes.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">' +
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">' +
         (etat.passerelleDown ? 'Passerelle injoignable' : 'Aucune alerte.') +
         '</td></tr>';
       return;
@@ -69,20 +166,22 @@
     tbody.innerHTML = alertes.map((a) => {
       const t = new Date(String(a.created_at).replace(' ', 'T') + 'Z').getTime();
       const age = Date.now() - t;
-      const aTraiter = !TYPES_INFO[a.type] && !a.acquittee;
+      const aTraiter = !estInfo(a) && !Number(a.acquittee);
       const urgent = aTraiter && age > seuilMs;
-      const cls = urgent ? 'sev-high' : (TYPES_INFO[a.type] ? 'status-done' : 'sev-medium');
+      const cls = urgent ? 'sev-high' : (estInfo(a) ? 'status-done' : 'sev-medium');
       return '<tr' + (urgent ? ' class="alerte-urgente"' : '') + '>' +
         '<td>' + MSUI.heure(a.created_at) + '</td>' +
         '<td>' + MSUI.esc(a.dt_code) + '</td>' +
+        '<td>' + (statutDe(a) ? '<span class="alert-statut alert-statut-' + statutDe(a) + '">' + STATUT_LIBELLE[statutDe(a)] + '</span>' : '') + '</td>' +
         '<td>' + MSUI.esc(TYPE_LIBELLE[a.type] || a.type) + '</td>' +
-        '<td>' + MSUI.esc(a.message) + '</td>' +
+        '<td>' + MSUI.esc(a.message) +
+          (etatCycle(a) ? '<br><small class="' + (a.retour_le ? 'muted' : 'sev-high') + '">' + MSUI.esc(etatCycle(a)) + '</small>' : '') + '</td>' +
         '<td>' + (a.acquittee
           ? '<span class="status-done">Vue</span>'
-          : (aTraiter ? '<span class="' + cls + '">A traiter</span>'
+          : (aTraiter ? '<span class="' + cls + '">Non vue</span>'
                       : '<span class="status-done">Info</span>')) + '</td>' +
         '<td>' + (aTraiter ?
-          '<button class="team-btn" data-acquit="' + a.id + '"><i class="fas fa-check"></i> Vu</button>' : '') +
+          '<button class="team-btn" data-acquit="' + a.id + '">Marquer vu</button>' : (a.acquittee ? '<span class="muted">' + (AVEC_CYCLE[a.type] ? (a.retour_le ? 'Clôturée' : 'Vue · DT hors trajet') : 'Acquittée') + '</span>' : '')) +
         '</td>' +
         '</tr>';
     }).join('');
@@ -94,8 +193,19 @@
 
     const dt = document.getElementById('fltDt');
     if (dt) dt.addEventListener('input', () => { filtreDt = dt.value.trim(); render(MSUI.etat); });
+    const st = document.getElementById('fltStatut');
+    if (st) st.addEventListener('change', () => { filtreStatut = st.value; render(MSUI.etat); });
     const ty = document.getElementById('fltType');
     if (ty) ty.addEventListener('change', () => { filtreType = ty.value; render(MSUI.etat); });
+    const per = document.getElementById('fltPeriode');
+    const dateBox = document.getElementById('fltDateBox');
+    const dat = document.getElementById('fltDate');
+    if (per) per.addEventListener('change', () => {
+      filtrePeriode = per.value;
+      if (dateBox) dateBox.hidden = per.value !== 'date';
+      render(MSUI.etat);
+    });
+    if (dat) dat.addEventListener('change', () => { filtreDate = dat.value; render(MSUI.etat); });
     const nv = document.getElementById('fltNonVues');
     if (nv) nv.addEventListener('change', () => { seulementNonVues = nv.checked; render(MSUI.etat); });
 
