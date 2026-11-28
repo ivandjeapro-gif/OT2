@@ -55,6 +55,7 @@
             <aside class="sidebar" id="sidebar">
                 <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/ot-config.js"></script>
             <script src="../js/navbar.js"></script>
 
             <!-- MAIN CONTENT AREA -->
@@ -74,7 +75,8 @@
                         </button>
                     </header>
 
-                    <div class="lv-onglets-ligne">
+                    <!-- 28/11 : onglets et volets (carte, KPI, enregistrements) caches au profil viewer -->
+                    <div class="lv-onglets-ligne" data-acces="geologue">
                         <div class="lv-onglets" role="tablist">
                             <button type="button" role="tab" class="actif" data-onglet="carte" aria-selected="true">Carte &amp; tracking</button>
                             <button type="button" role="tab" data-onglet="kpi" aria-selected="false">KPI &amp; panneaux</button>
@@ -84,7 +86,7 @@
                     </div>
 
                     <div class="lv-grille">
-                        <div class="lv-principal">
+                        <div class="lv-principal" data-acces="geologue">
 
                             <!-- ============ ONGLET CARTE & TRACKING ============ -->
                             <div class="lv-volet actif" data-volet="carte" role="tabpanel">
@@ -129,11 +131,6 @@
                                         <button type="button" class="lv-resume" data-section="secCouches"><span class="lbl">Couches GeoTIFF</span><b id="sumCouches">--</b><small>Activer toutes · Diagnostic</small></button>
                                         <button type="button" class="lv-resume" data-section="secZones"><span class="lbl">Zones minières</span><b id="sumZones">--</b><small>Création et modification des zones</small></button>
                                         <button type="button" class="lv-resume" data-section="secTrails"><span class="lbl">Trails</span><b id="sumTrails">--</b><small>Manuel ou GeoJSON / CSV</small></button>
-                                    </div>
-                                    <div class="lv-affichage">
-                                        <span class="lbl">Affichage</span>
-                                        <label class="check-item"><input type="checkbox" id="cfgShowZones" checked /> Zones</label>
-                                        <label class="check-item"><input type="checkbox" id="cfgShowLabels" checked /> Labels engins</label>
                                     </div>
 
                                     <!-- editeur detaille : visible en mode Modifier (classe .locked retiree par app.js) -->

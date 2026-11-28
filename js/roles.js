@@ -1,34 +1,50 @@
 /* =====================================================================
- * roles.js — profils de l'application (20/11).
+ * roles.js — profils de l'application (20/11, refonte 28/11).
  *
- *   admin     : toutes les pages (Settings compris).
- *   senor     : « Senor_Geology » = Géologue + la page Senor.
- *               CONNEXION UNIQUE : un seul poste à la fois sur ce compte.
- *   geologue  : Home, Live, Alerts, Inbox, Dig Plan, Sync, Aide & raccourcis.
+ *   admin     : toutes les pages (Settings, Sync compris).
+ *   senor     : « Senor_Geology » = Géologue + la page Senor (consignes délicates).
+ *               UN SEUL compte à la fois (decision 28/11 : jamais plusieurs géologues capables de modifier
+ *               les consignes) ; CONNEXION UNIQUE : un seul poste à la fois sur ce compte.
+ *   geologue  : Viewer + Alerts, Inbox, Dig Plan, Aide & raccourcis.
+ *   viewer    : Home (lecture) et Live (Périmètre de suivi, Salle de contrôle, PRESENTER) — rien à modifier.
  *
- * L'ancien profil « viewer » est lu comme « geologue » (compatibilité).
- * Module PUR (aucune dépendance Firebase / DOM) : testé en Node
- * (scripts/test-roles.mjs), puis branché dans auth.js.
+ * Ce qui n'est pas accessible est CACHÉ (pages du menu et éléments marqués data-acces="geologue|senor|admin").
+ * Profil vide ou inconnu : viewer (le moins de droits).
+ * Module PUR (aucune dépendance Firebase / DOM) : testé en Node (scripts/test-roles.mjs), branché dans auth.js.
  * ===================================================================== */
 
+const PAGES_VIEWER = ['home', 'live'];
+const PAGES_GEOLOGUE = PAGES_VIEWER.concat(['alerts', 'inbox', 'digplan', 'aide']);
+
 export const ROLES = {
-  admin:    { libelle: 'Admin',          pages: '*' },
-  senor:    { libelle: 'Senor_Geology',  pages: ['home', 'live', 'alerts', 'inbox', 'digplan', 'sync', 'aide', 'senor'] },
-  geologue: { libelle: 'Géologue',       pages: ['home', 'live', 'alerts', 'inbox', 'digplan', 'sync', 'aide'] },
+  admin:    { libelle: 'Admin',          rang: 3, pages: '*' },
+  senor:    { libelle: 'Senor_Geology',  rang: 2, pages: PAGES_GEOLOGUE.concat(['senor']) },
+  geologue: { libelle: 'Géologue',       rang: 1, pages: PAGES_GEOLOGUE },
+  viewer:   { libelle: 'Viewer',         rang: 0, pages: PAGES_VIEWER },
 };
 
 /** Rôles proposés à la création / au changement de rôle, dans l'ordre du cycle. */
-export const ORDRE_ROLES = ['admin', 'senor', 'geologue'];
+export const ORDRE_ROLES = ['admin', 'senor', 'geologue', 'viewer'];
 
-/** Profil Firestore → rôle connu (viewer / inconnu / vide → geologue : le plus restreint des profils d'usage). */
+/** Profil Firestore → rôle connu (vide / inconnu → viewer : le moins de droits). */
 export function normaliserRole(role) {
   const r = String(role || '').trim().toLowerCase();
   if (r === 'admin') return 'admin';
   if (r === 'senor' || r === 'senor_geology' || r === 'senorgeology') return 'senor';
-  return 'geologue';
+  if (r === 'geologue' || r === 'géologue' || r === 'geologist') return 'geologue';
+  return 'viewer';
 }
 
 export const libelleRole = (role) => ROLES[normaliserRole(role)].libelle;
+
+/** Rang du rôle (viewer 0 < geologue 1 < senor 2 < admin 3). */
+export const rangRole = (role) => ROLES[normaliserRole(role)].rang;
+
+/** Le rôle atteint-il le niveau demandé (« geologue », « senor », « admin ») ? Niveau inconnu : non. */
+export function atteint(role, niveau) {
+  const n = ROLES[String(niveau || '').trim().toLowerCase()];
+  return !!n && rangRole(role) >= n.rang;
+}
 
 /** La page (data-page de la sidebar : home, live, alerts, …) est-elle permise à ce rôle ? */
 export function peutAcceder(role, page) {
@@ -36,13 +52,25 @@ export function peutAcceder(role, page) {
   return p === '*' || p.includes(String(page || '').toLowerCase());
 }
 
+/**
+ * 28/11 : UN SEUL compte Senor (hors administrateurs). `comptes` = [{ id, role, desactive }].
+ * Rend le compte qui détient déjà le rôle (actif, autre que `id`), ou null si le rôle est libre.
+ */
+export function senorDejaPris(comptes, id) {
+  return (comptes || []).find((c) => c && c.id !== id && !c.desactive && normaliserRole(c.role) === 'senor') || null;
+}
+
 /** Page vers laquelle renvoyer un rôle qui a ouvert une page interdite. */
 export const PAGE_REPLI = 'home';
 
-/** Rôle suivant dans le cycle admin → senor → geologue → admin (bouton « changer le rôle »). */
-export function roleSuivant(role) {
-  const i = ORDRE_ROLES.indexOf(normaliserRole(role));
-  return ORDRE_ROLES[(i + 1) % ORDRE_ROLES.length];
+/**
+ * Rôle suivant dans le cycle admin → senor → geologue → viewer → admin (bouton « changer le rôle »).
+ * `senorLibre` = false : le rôle Senor est déjà tenu par un autre compte, le cycle le saute.
+ */
+export function roleSuivant(role, senorLibre = true) {
+  let i = ORDRE_ROLES.indexOf(normaliserRole(role));
+  do { i = (i + 1) % ORDRE_ROLES.length; } while (ORDRE_ROLES[i] === 'senor' && !senorLibre);
+  return ORDRE_ROLES[i];
 }
 
 /** Rôle à connexion unique ? */

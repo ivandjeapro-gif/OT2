@@ -43,8 +43,7 @@
     if (global_OTCFG()) return global_OTCFG().passerelle();
     const saved = localStorage.getItem(BASE_KEY);
     if (saved) return saved.replace(/\/+$/, '');
-    const host = window.location.hostname || 'localhost';
-    return window.location.protocol + '//' + host + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   async function jsend(path, method, body) {
@@ -1382,8 +1381,7 @@
   }
 
   function jgetPasserelle(path) {
-    const host = window.location.hostname || 'localhost';
-    return fetch('http://' + host + ':8101' + path).then((r) => {
+    return fetch(base() + path).then((r) => {     // 28/11 : meme adresse que le reste (lien en ligne compris)
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     });
@@ -1440,8 +1438,7 @@
     if (!oreblocs.length) return;
     const enCoursIds = [];
     try {
-      const host = window.location.hostname || 'localhost';
-      const r = await fetch('http://' + host + ':8101/api/minage_actuel');
+      const r = await fetch(base() + '/api/minage_actuel');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const maintenant = d.maintenant ? new Date(String(d.maintenant).replace(' ', 'T') + 'Z') : null;

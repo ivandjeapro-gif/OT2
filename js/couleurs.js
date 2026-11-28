@@ -24,7 +24,7 @@
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
     let b = '';
     try { b = localStorage.getItem('sgApiBase') || ''; } catch (e) { /* stockage indisponible */ }
-    return (b || (location.protocol + '//' + (location.hostname || 'localhost') + ':8101')).replace(/\/+$/, '');
+    return (b || (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle')).replace(/\/+$/, '');
   }
 
   function poserVariables() {

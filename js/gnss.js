@@ -184,7 +184,7 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (s) => document.querySelector(s);
-  const base = () => (window.OTCFG && OTCFG.passerelle) ? OTCFG.passerelle() : location.protocol + '//' + (location.hostname || 'localhost') + ':8101';
+  const base = () => (window.OTCFG && OTCFG.passerelle) ? OTCFG.passerelle() : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
 
   async function appel(chemin, methode, corps) {
     const r = await fetch(base() + chemin, {

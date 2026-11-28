@@ -17,7 +17,7 @@
 
   function passerelle() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
-    return 'http://' + location.hostname + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const deux = (n) => String(n).padStart(2, '0');

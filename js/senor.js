@@ -17,10 +17,10 @@
     .replace(/"/g, '&quot;');
 
   function base() {
+    if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();     // 28/11 : lien en ligne compris
     const saved = localStorage.getItem(BASE_KEY);
     if (saved) return saved.replace(/\/+$/, '');
-    const host = window.location.hostname || 'localhost';
-    return window.location.protocol + '//' + host + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   async function jsend(path, method, body) {

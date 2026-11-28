@@ -19,7 +19,7 @@
 
     const PASSERELLE = () => (global.OTCFG && OTCFG.passerelle)
         ? OTCFG.passerelle()
-        : 'http://' + (location.hostname || 'localhost') + ':8101';
+        : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
 
     // ----------------------------------------------------------- etats ---
     // Couleurs tirees du logo Lafigue ; rouge reserve a la sortie de route.

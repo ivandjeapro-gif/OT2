@@ -3346,13 +3346,18 @@ body {
     background: #ece8dc; border-radius: var(--r-radius); padding: 22px 24px; margin-bottom: 26px;
 }
 #page-alerts .r-filter-field { display: flex; flex-direction: column; gap: 8px; }
-#page-alerts .r-filter-field:nth-child(1) { width: 290px; }
-#page-alerts .r-filter-field:nth-child(2) { width: 350px; }
+/* 27/11 : une seule rangee alignee en bas : Engin | Statut | Type | Periode | (Date) | Non vues ... Tout marquer vu */
+#page-alerts .r-filtercard { gap: 16px 20px; }
+#page-alerts .r-filter-field.flt-engin { width: 240px; }
+#page-alerts .r-filter-field.flt-statut { width: 190px; }
+#page-alerts .r-filter-field.flt-type { width: 250px; }
+#page-alerts .r-filter-field.flt-periode { width: 210px; }
 #page-alerts .r-filter-label { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--r-text-3); }
 #page-alerts .r-input { height: 44px; padding: 0 14px; background: #fff; border: 1px solid transparent; border-radius: 4px; font-size: 14px; color: var(--r-text); width: 100%; box-sizing: border-box; }
 #page-alerts .r-input:focus { outline: 2px solid var(--r-accent); outline-offset: 0; }
 #page-alerts .r-filter-check { display: flex; align-items: center; gap: 10px; height: 44px; font-size: 14px; color: var(--r-text); cursor: pointer; }
-#page-alerts .r-filtercard .r-btn-dark { margin-left: auto; height: 40px; }
+#page-alerts .r-filtercard .r-btn-dark { margin-left: auto; height: 44px; padding: 0 22px; white-space: nowrap; }
+#page-alerts .r-filtercard .r-filter-check { margin-left: 4px; white-space: nowrap; }
 
 #page-alerts .r-counterrow { display: flex; align-items: baseline; gap: 64px; margin: 0 0 24px; }
 #page-alerts .r-counter { display: flex; align-items: baseline; gap: 22px; }
@@ -3392,8 +3397,7 @@ body {
 #page-alerts .r-table .muted { color: var(--r-text-3); }
 #page-alerts .r-tablefoot { display: flex; justify-content: space-between; padding: 26px 0 0; font-size: 12.5px; color: var(--r-text-2); }
 #page-alerts .r-infoband .highlight-green { color: var(--r-text); background: none; font-weight: 700; }
-#page-alerts .r-filter-field:nth-child(3) { width: 220px; }
-#page-alerts #fltDateBox { width: 190px; }
+#page-alerts #fltDateBox { width: 170px; }
 #page-alerts #fltDateBox[hidden] { display: none; }
 
 /* ===== PAGE INBOX (maquette « Inbox · Bureau minéral V2 ») ===== */
@@ -3873,3 +3877,28 @@ body {
 #page-digplan .dp-kpi b { font-size: 26px !important; line-height: 1.1; letter-spacing: -.5px; }
 #page-digplan .dp-kpi span { font-family: var(--mono); font-size: 10px !important; letter-spacing: .1em; }
 #page-digplan .dp-kpi small { font-size: 12px; color: var(--r-text-2); }
+
+/* ===== 27/11 : page Alerts en onglets (meme modele que Parametres : Connexion / Flotte / Tablettes / GNSS) ===== */
+#page-alerts .al-onglets { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 28px; padding: 0; background: none; border: 0; box-shadow: none; }
+#page-alerts .al-onglets .onglet {
+    width: 204px; height: 48px; padding: 0 18px; border: 0; border-radius: 2px; background: #e7e3d8;
+    color: #1e221c; font-size: 15px; font-weight: 400; letter-spacing: 0; text-align: left; cursor: pointer; box-shadow: none;
+}
+#page-alerts .al-onglets .onglet:hover { background: #e7e3d8; color: #1e221c; transform: none; }
+#page-alerts .al-onglets .onglet.actif { background: #232b2a; color: #fff; box-shadow: none; }
+#page-alerts .al-volet[hidden],
+#page-alerts .al-seul-alertes[hidden] { display: none !important; }
+#page-alerts .al-volet > .r-listtitle:first-child { margin-top: 0; }
+#page-alerts .r-lien { background: none; border: 0; padding: 0; font: inherit; color: var(--r-text); text-decoration: underline; cursor: pointer; }
+
+/* ===== 28/11 : profils. <html data-role="viewer|geologue|senor|admin"> (pose par auth.js / navbar.js).
+   Tout element data-acces="geologue|senor|admin" au-dessus du profil connecte est CACHE (jamais grise).
+   Sans profil connu (avant connexion), rien n'est cache : l'ecran de connexion couvre la page. ===== */
+html[data-role="viewer"] [data-acces="geologue"],
+html[data-role="viewer"] [data-acces="senor"],
+html[data-role="viewer"] [data-acces="admin"],
+html[data-role="geologue"] [data-acces="senor"],
+html[data-role="geologue"] [data-acces="admin"],
+html[data-role="senor"] [data-acces="admin"] { display: none !important; }
+/* Live, profil viewer : pas d'onglets ni de volets (carte, KPI, enregistrements) ; le cote prend toute la largeur */
+html[data-role="viewer"] #page-live .lv-grille { grid-template-columns: minmax(0, 1fr) !important; }

@@ -15,7 +15,7 @@ import {
   collection, getDocs, getDoc, doc, setDoc, query, orderBy, runTransaction,
 } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
 import {
-  normaliserRole, libelleRole, peutAcceder, roleSuivant, connexionUnique, PAGE_REPLI,
+  normaliserRole, libelleRole, peutAcceder, roleSuivant, connexionUnique, PAGE_REPLI, senorDejaPris,
   ouvrirSessionUnique, battementSessionUnique, fermerSessionUnique, SESSION_BATTEMENT_MS,
 } from './roles.js';
 
@@ -32,9 +32,12 @@ const PAGE_CONNEXION = /\/connexion\.html$/i.test(location.pathname);
 (function relaisJetonPasserelle() {
   const nativeFetch = window.fetch.bind(window);
   function basePasserelle() {
+    // 28/11 : meme regle que ot-config.js (lien en ligne : relais /passerelle du meme serveur)
+    if (window.OTCFG && typeof OTCFG.passerelle === 'function') return OTCFG.passerelle().replace(/\/+$/, '');
     let base = '';
     try { base = localStorage.getItem('sgApiBase') || ''; } catch (e) { /* stockage indisponible */ }
-    return (base || (location.protocol + '//' + (location.hostname || 'localhost') + ':8101')).replace(/\/+$/, '');
+    if (base && location.protocol === 'https:' && /^http:/i.test(base)) base = '';
+    return (base || (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle')).replace(/\/+$/, '');
   }
   window.fetch = async function (input, init) {
     try {
@@ -271,12 +274,12 @@ async function upsertProfile(user) {
   const ref = doc(db, 'users', user.uid);
   const snap = await fsOp(getDoc(ref));
   if (snap.exists()) return snap.data();
-  // premier profil vu = admin, sinon geologue (profil d'usage le plus restreint)
-  let role = 'geologue';
+  // premier profil vu = admin, sinon viewer (28/11 : le moins de droits ; un admin l'eleve ensuite)
+  let role = 'viewer';
   try {
     const tous = await fsOp(getDocs(collection(db, 'users')));
     if (tous.empty) role = 'admin';
-  } catch (e) { /* liste refusee : on reste geologue */ }
+  } catch (e) { /* liste refusee : on reste viewer */ }
   const prof = {
     email: user.email || '',
     nom: user.displayName || (user.email || '').split('@')[0],
@@ -288,7 +291,7 @@ async function upsertProfile(user) {
 }
 
 // Navigation selon le profil (js/roles.js) : admin = tout ; senor = geologue + Senor ;
-// geologue = Home, Live, Alerts, Inbox, Dig Plan, Sync, Aide. Retourne false si la page
+// geologue = Home, Live, Alerts, Inbox, Dig Plan, Aide ; viewer = Home, Live. Pages interdites CACHEES. Retourne false si la page
 // courante est interdite : on renvoie alors sur Home (et l'ecran n'est pas devoile).
 function applyNavAccess(role) {
   const masques = [];
@@ -376,11 +379,24 @@ function setAccountStatus(msg, cls) {
   if (msg) setTimeout(() => { el.textContent = ''; el.className = 'account-status'; }, 4000);
 }
 
+function descriptionRole(role) {
+  return { admin: ' (toutes les pages)',
+    senor: ' (pages du Geologue + Senor ; un seul compte Senor ; connexion unique)',
+    geologue: ' (Home, Live, Alerts, Inbox, Dig Plan, Aide)',
+    viewer: ' (Home et Live en lecture : Perimetre de suivi, Salle de controle, Presenter)' }[normaliserRole(role)] || '';
+}
+
+/** 28/11 : comptes Firestore (id, role, desactive) pour la regle « un seul Senor ». */
+async function comptesRoles() {
+  const tous = await fsOp(getDocs(query(collection(db, 'users'))));
+  return tous.docs.map((d) => ({ id: d.id, role: d.data().role, desactive: !!d.data().desactive, nom: d.data().nom || d.data().email || d.id }));
+}
+
 async function addAccount(e) {
   e.preventDefault();
   const nom = (($('#accNom') || {}).value || '').trim();
   const email = (($('#accEmail') || {}).value || '').trim();
-  const role = normaliserRole(($('#accRole') || {}).value || 'geologue');
+  const role = normaliserRole(($('#accRole') || {}).value || 'viewer');
   const password = ($('#accPassword') || {}).value || '';
   if (!nom || !email || !password) {
     setAccountStatus('Nom, email et mot de passe requis', 'err');
@@ -389,6 +405,19 @@ async function addAccount(e) {
   if (password.length < 6) {
     setAccountStatus('Mot de passe : 6 caracteres minimum (Firebase)', 'err');
     return;
+  }
+  if (role === 'senor') {
+    // 28/11 : un seul compte Senor (jamais plusieurs geologues capables de modifier les consignes)
+    try {
+      const pris = senorDejaPris(await comptesRoles(), null);
+      if (pris) {
+        setAccountStatus('Le role Senor est deja tenu par ' + pris.nom + ' : retirez-le d\'abord.', 'err');
+        return;
+      }
+    } catch (e2) {
+      setAccountStatus('Verification du role Senor impossible : ' + (e2.code || e2.message), 'err');
+      return;
+    }
   }
   try {
     // instance secondaire : ne change pas la session de l'admin connecte
@@ -446,7 +475,9 @@ async function onAccountAction(e) {
     if (!snap.exists()) { setAccountStatus('Compte introuvable', 'err'); return; }
     const data = snap.data();
     if (btn.dataset.action === 'role') {
-      const newRole = roleSuivant(data.role);
+      const comptes = await comptesRoles();
+      const senorPris = senorDejaPris(comptes, uid);
+      const newRole = roleSuivant(data.role, !senorPris);
       if (data.role === 'admin' && newRole !== 'admin') {
         // ne jamais retirer le dernier admin actif
         const tous = await fsOp(getDocs(query(collection(db, 'users'))));
@@ -462,9 +493,9 @@ async function onAccountAction(e) {
           'Changer le role de "' + nomCompte + '" ?',
           { titre: 'Changement de role', danger: false,
             details: 'Role actuel : ' + libelleRole(data.role) + ' -> ' + libelleRole(newRole) +
-                     (newRole === 'admin' ? ' (toutes les pages)'
-                       : newRole === 'senor' ? ' (pages du Geologue + Senor, connexion unique)'
-                       : ' (Home, Live, Alerts, Inbox, Dig Plan, Sync, Aide)') + '. Continuer ?',
+                     descriptionRole(newRole) +
+                     (senorPris && normaliserRole(data.role) === 'admin'
+                       ? '. (Senor saute : deja tenu par ' + senorPris.nom + ')' : '') + '. Continuer ?',
             libelleOk: 'Changer le role' })) return;
       const sp = Splash.bloquer('Modification du compte...', nomCompte);
       await fsOp(setDoc(ref, { role: newRole }, { merge: true }));
@@ -479,6 +510,13 @@ async function onAccountAction(e) {
           d.id !== uid && d.data().role === 'admin' && !d.data().desactive);
         if (autres.length === 0) {
           setAccountStatus('Impossible : dernier admin actif', 'err');
+          return;
+        }
+      }
+      if (!willDisable && normaliserRole(data.role) === 'senor') {
+        const pris = senorDejaPris(await comptesRoles(), uid);
+        if (pris) {
+          setAccountStatus('Reactivation impossible : le role Senor est deja tenu par ' + pris.nom, 'err');
           return;
         }
       }
@@ -595,6 +633,9 @@ function initAuth() {
         ? { nom: myProfile.nom, email: user.email }
         : user, myProfile ? myProfile.role : '');
       const roleCourant = normaliserRole(myProfile ? myProfile.role : '');
+      // 28/11 : profil pose sur <html data-role> : refonte.css CACHE tout element data-acces au-dessus du profil
+      document.documentElement.dataset.role = roleCourant;
+      if (window.OreNavbar) window.OreNavbar.memoriser({ roleCode: roleCourant });
       // profil « Senor_Geology » : un seul poste a la fois
       if (!(await prendreSessionUnique(user, roleCourant))) return;
       if (PAGE_CONNEXION) {                // page de connexion dediee : session ouverte -> Home

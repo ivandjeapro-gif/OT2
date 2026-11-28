@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Profils (Admin / Senor_Geology / Géologue) et connexion unique — js/roles.js. node scripts/test-roles.mjs */
+/** Profils (Admin / Senor_Geology / Géologue / Viewer) et connexion unique — js/roles.js. node scripts/test-roles.mjs */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const R = await import(pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), '../js/roles.js')).href);
@@ -9,14 +9,26 @@ const PAGES = ['home', 'live', 'alerts', 'inbox', 'senor', 'digplan', 'settings'
 const vues = (r) => PAGES.filter((p) => R.peutAcceder(r, p));
 
 check('admin : toutes les pages', vues('admin').length === PAGES.length);
-check('geologue : Home, Live, Alerts, Inbox, DigPlan, Sync, Aide (ni Senor ni Settings)',
-  JSON.stringify(vues('geologue')) === JSON.stringify(['home', 'live', 'alerts', 'inbox', 'digplan', 'sync', 'aide']), vues('geologue').join());
-check('senor : pages du geologue + Senor (pas Settings)',
-  JSON.stringify(vues('senor')) === JSON.stringify(['home', 'live', 'alerts', 'inbox', 'senor', 'digplan', 'sync', 'aide']), vues('senor').join());
-check('ancien « viewer » lu comme geologue', R.normaliserRole('viewer') === 'geologue' && !R.peutAcceder('viewer', 'senor'));
-check('role vide / inconnu : le plus restreint', R.normaliserRole('') === 'geologue' && R.normaliserRole('xyz') === 'geologue');
+check('viewer : Home et Live seulement', JSON.stringify(vues('viewer')) === JSON.stringify(['home', 'live']), vues('viewer').join());
+check('geologue : viewer + Alerts, Inbox, DigPlan, Aide (ni Senor, ni Settings, ni Sync)',
+  JSON.stringify(vues('geologue')) === JSON.stringify(['home', 'live', 'alerts', 'inbox', 'digplan', 'aide']), vues('geologue').join());
+check('senor : pages du geologue + Senor (ni Settings ni Sync)',
+  JSON.stringify(vues('senor')) === JSON.stringify(['home', 'live', 'alerts', 'inbox', 'senor', 'digplan', 'aide']), vues('senor').join());
+check('Sync : admin seulement', PAGES.filter(() => true).length && ['viewer', 'geologue', 'senor'].every((r) => !R.peutAcceder(r, 'sync')) && R.peutAcceder('admin', 'sync'));
+check('« viewer » est un vrai viewer', R.normaliserRole('viewer') === 'viewer' && !R.peutAcceder('viewer', 'alerts'));
+check('role vide / inconnu : viewer (le moins de droits)', R.normaliserRole('') === 'viewer' && R.normaliserRole('xyz') === 'viewer');
+check('« geologue » / « Géologue » reconnus', R.normaliserRole('geologue') === 'geologue' && R.normaliserRole('Géologue') === 'geologue');
 check('« Senor_Geology » reconnu', R.normaliserRole('Senor_Geology') === 'senor' && R.normaliserRole('SENOR') === 'senor');
-check('cycle de roles', R.roleSuivant('admin') === 'senor' && R.roleSuivant('senor') === 'geologue' && R.roleSuivant('geologue') === 'admin');
+check('rangs', R.rangRole('viewer') === 0 && R.rangRole('geologue') === 1 && R.rangRole('senor') === 2 && R.rangRole('admin') === 3);
+check('atteint : niveaux', R.atteint('geologue', 'geologue') && !R.atteint('viewer', 'geologue') && R.atteint('admin', 'senor')
+  && !R.atteint('geologue', 'senor') && !R.atteint('admin', 'inconnu'));
+check('cycle de roles', R.roleSuivant('admin') === 'senor' && R.roleSuivant('senor') === 'geologue'
+  && R.roleSuivant('geologue') === 'viewer' && R.roleSuivant('viewer') === 'admin');
+check('cycle : Senor deja pris -> saute', R.roleSuivant('admin', false) === 'geologue');
+const comptes = [{ id: 'a', role: 'admin' }, { id: 'b', role: 'senor' }, { id: 'c', role: 'geologue' }, { id: 'd', role: 'senor', desactive: true }];
+check('senor deja pris par b', R.senorDejaPris(comptes, 'c')?.id === 'b');
+check('b peut garder son role', R.senorDejaPris(comptes, 'b') === null);
+check('compte desactive ignore', R.senorDejaPris([{ id: 'd', role: 'senor', desactive: true }], 'c') === null);
 check('connexion unique : senor seulement', R.connexionUnique('senor') && !R.connexionUnique('admin') && !R.connexionUnique('geologue'));
 
 // --- connexion unique : deux postes, un compte

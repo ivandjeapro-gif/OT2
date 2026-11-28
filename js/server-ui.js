@@ -444,7 +444,7 @@
 
   // ---- codes de teneur : table {code -> grade} tenue par la passerelle (/api/codes_teneur) ----
   const passerelleCodes = () => (window.OTCFG && OTCFG.passerelle)
-    ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+    ? OTCFG.passerelle() : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   const listeCodes = (txt) => String(txt || '').split(/[,\s;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
 
   async function chargerCodesTeneur() {
@@ -789,7 +789,7 @@
   // flotte, POST /api/mqtt/rapprocher pour un effet immediat (sinon la
   // passerelle rattrape d'elle-meme toutes les 30 s).
   const passerelleBase = () => (window.OTCFG && OTCFG.passerelle)
-    ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+    ? OTCFG.passerelle() : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   let etatMqtt = null;            // derniere reponse /api/mqtt/comptes
 
   function celluleTempsReel(code, actif) {

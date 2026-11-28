@@ -2409,6 +2409,11 @@ def appliquer_position_engin(conn, code, typ, x, y, horodatage=None, relayer=Tru
             verifier_deviation(conn, code, instant)
         except Exception as e:
             print("DEVIATION: verification impossible pour %s: %s" % (code, e))
+        # 27/11 : DT charge a l'arret (panne) : alerte pour le bureau seulement
+        try:
+            verifier_arret_charge(conn, code, instant)
+        except Exception as e:
+            print("ARRET CHARGE: verification impossible pour %s: %s" % (code, e))
 
 
 # --------------------------------------------- authentification des trames --
@@ -2789,6 +2794,7 @@ def boucle_statuts():
             conn = get_conn()
             try:
                 statuts_engins(conn)
+                verifier_arrets_charges(conn)       # 27/11 : DT charge a l'arret, meme sans nouvelle position
             finally:
                 conn.close()
         except Exception as e:
@@ -3150,7 +3156,9 @@ def fin_surveillance_dt(conn, dt_code, cause="fin_mission"):
     if conn.execute("SELECT 1 FROM missions WHERE dt_code=? AND statut='en_cours' LIMIT 1", (dt_code,)).fetchone():
         return                                   # une autre mission (nouveau chargement) est deja suivie
     conn.execute("UPDATE engins SET offroad=0, offroad_depuis='', offroad_candidat_depuis='' WHERE code=?", (dt_code,))
-    for typ in ("offroad", "deviation"):
+    with _arret_charge_verrou:
+        _arret_charge.pop(dt_code, None)
+    for typ in ("offroad", "deviation", "arret_charge"):
         conn.execute(
             "UPDATE alertes SET retour_le=datetime('now'), retour_cause=?, "
             "retour_duree_s=MAX(0, CAST((julianday('now') - julianday(created_at)) * 86400 AS INTEGER)) "
@@ -4210,6 +4218,88 @@ def verifier_offroad(conn, dt_code, instant=None):
     return evenement
 
 
+# 27/11 (regle utilisateur) : DT CHARGE A L'ARRET (panne, depart a la mecanique avec du materiau a bord).
+# Alerte pour le BUREAU SEULEMENT : jamais publiee au chauffeur (absente de TYPES_ALERTE_CHAUFFEUR, voix off coupee),
+# la tablette n'en sait rien. Conditions, toutes requises :
+#   - le DT a une mission en cours (il est charge : de la fin du chargement au dumping valide) ;
+#   - il reste dans un cercle de ARRET_CHARGE_RAYON_M (bruit du GPS du telephone compris) depuis ARRET_CHARGE_MIN ;
+#   - hors des endroits ou s'arreter charge est normal : dumping areas / RomPads, oreblocs, a moins de
+#     OFFROAD_RAYON_EXCA_M d'une pelle (memes zones que la sortie de route).
+# Une alerte par arret ; elle est close quand le DT repart (« reprise_arret », information) ou quand sa mission se
+# ferme (fin_surveillance_dt). Evaluee a chaque position ET toutes les 30 s (boucle_statuts) : un DT en panne dont le
+# module GNSS n'emet plus que rarement est quand meme signale. ARRET_CHARGE_MIN = 0 coupe l'alerte.
+ARRET_CHARGE_DEFAUT_MIN = 3
+ARRET_CHARGE_RAYON_M = 20.0
+_arret_charge = {}                      # code DT -> {"x", "y", "depuis", "alerte"}
+_arret_charge_verrou = threading.Lock()
+
+
+def arret_charge_minutes():
+    """Duree (minutes, decimales permises : 0.5 = 30 s) avant l'alerte « DT charge a l'arret » ; 0 = coupee."""
+    try:
+        v = float(str(param_lire("ARRET_CHARGE_MIN", str(ARRET_CHARGE_DEFAUT_MIN))).replace(",", "."))
+    except (TypeError, ValueError):
+        return float(ARRET_CHARGE_DEFAUT_MIN)
+    return max(0.0, min(v, 1440.0))
+
+
+def verifier_arret_charge(conn, dt_code, instant=None):
+    """Met a jour le suivi d'arret du DT charge ; cree / clot l'alerte « arret_charge ». Rend l'evenement ou None."""
+    seuil_min = arret_charge_minutes()
+    dt = conn.execute("SELECT x, y FROM engins WHERE code=? AND type='DT' AND actif=1", (dt_code,)).fetchone()
+    mission = mission_a_surveiller(conn, dt_code) if dt else None
+    maintenant = instant or now_iso()
+    with _arret_charge_verrou:
+        etat = _arret_charge.get(dt_code)
+        if not dt or not mission or seuil_min <= 0 or dt["x"] is None or dt["y"] is None:
+            _arret_charge.pop(dt_code, None)
+            return None
+        x, y = float(dt["x"]), float(dt["y"])
+        zone = zone_hors_piste_autorisee(conn, x, y, offroad_reglages())
+        if zone or etat is None or distance(x, y, etat["x"], etat["y"]) > ARRET_CHARGE_RAYON_M:
+            # repart (ou arrive dans une zone ou s'arreter est normal) : nouvel ancrage, alerte close
+            evenement = None
+            if etat and etat["alerte"]:
+                duree = int(_secondes_depuis(etat["depuis"], maintenant))
+                clore_alertes_ouvertes(conn, dt_code, "arret_charge", maintenant, cause="reprise")
+                message = "%s repart apres %d min a l'arret charge%s." % (
+                    dt_code, max(1, duree // 60), (" (%s)" % zone) if zone else "")
+                creer_alerte(conn, "reprise_arret", dt_code, message, voix_off=0)
+                evenement = {"type": "reprise_arret", "dt_code": dt_code, "x": x, "y": y, "duree_s": duree,
+                             "mission_id": mission["id"], "message": message}
+            _arret_charge[dt_code] = {"x": x, "y": y, "depuis": maintenant, "alerte": False}
+            if zone:
+                _arret_charge[dt_code]["depuis"] = ""       # dans une zone normale : le chrono ne tourne pas
+            if evenement:
+                enregistrer_alerte_office(conn, evenement)
+            return evenement
+        if etat["alerte"] or not etat["depuis"]:
+            return None
+        duree = _secondes_depuis(etat["depuis"], maintenant)
+        if duree < seuil_min * 60:
+            return None
+        etat["alerte"] = True
+        message = "DT CHARGE A L'ARRET : %s immobile depuis %d min hors zone de chargement / dumping." % (
+            dt_code, max(1, int(duree // 60)))
+        creer_alerte(conn, "arret_charge", dt_code, message, voix_off=0)
+        evenement = {"type": "arret_charge", "dt_code": dt_code, "x": x, "y": y, "depuis": etat["depuis"],
+                     "duree_s": int(duree), "mission_id": mission["id"], "message": message}
+    enregistrer_alerte_office(conn, evenement)
+    return evenement
+
+
+def verifier_arrets_charges(conn):
+    """Toutes les 30 s : tous les DT en mission (et oubli de ceux qui n'en ont plus)."""
+    codes = [r["dt_code"] for r in conn.execute("SELECT DISTINCT dt_code FROM missions WHERE statut='en_cours'")]
+    with _arret_charge_verrou:
+        anciens = [c for c in _arret_charge if c not in codes]
+    for c in set(codes) | set(anciens):
+        try:
+            verifier_arret_charge(conn, c)
+        except Exception as e:
+            print("ARRET CHARGE: verification impossible pour %s: %s" % (c, e))
+
+
 def alertes_liste(conn, depuis="", jusqua=""):
     """Alertes (200 dernieres) ; depuis / jusqua (heure locale AAAA-MM-JJ HH:MM:SS) bornent UNE journee
     ou UN shift ; sans borne, tout l'historique (page Alertes). created_at est en UTC."""
@@ -4232,7 +4322,8 @@ def alertes_liste(conn, depuis="", jusqua=""):
 # bonne direction, demi-tour fait), checkpoint franchi dans le bon sens, approche d'une zone (pre-alerte de la
 # tablette ; l'alerte a traiter est zone_interdite), rejet d'import Dig Plan (erreur de donnees, pas de terrain).
 ALERTES_INFO = frozenset(("fin_mission", "arrivee", "mission", "retour_piste", "retour_trajet", "retour_direction",
-                          "demi_tour", "checkpoint_valide", "zone_approche", "blast_rejete"))
+                          "demi_tour", "checkpoint_valide", "zone_approche", "blast_rejete",
+                          "reprise_arret"))
 
 
 def etat_offroad(conn):
@@ -8941,7 +9032,7 @@ def gnss_lister(conn):
 # des signatures que pour ses propres API, role lu dans Firestore, mis en cache 60 s.
 # Exemptions : le poste de la passerelle lui-meme (127.0.0.1 : script, console, XBee) ;
 # AUTH_ECRITURES=0 coupe le controle (depannage).
-RANG_ROLE = {"geologue": 1, "senor": 2, "admin": 3}
+RANG_ROLE = {"viewer": 0, "geologue": 1, "senor": 2, "admin": 3}     # 28/11 : viewer = lecture seule
 # Prefixes d'ecritures : le plus restrictif d'abord. Ecriture inconnue = admin (refus par defaut).
 ECRITURES_ADMIN = ("/api/relais", "/api/tablettes", "/api/gnss", "/api/jetons", "/api/radio", "/api/offroad", "/api/mqtt/", "/api/sg/", "/api/cles_dt", "/api/calibration_",
                    "/api/ot_reconcilier", "/api/pistes_pousser", "/api/travels_roads_reprojeter",
@@ -8967,7 +9058,8 @@ def role_requis(path):
 
 
 def role_du_jeton(jeton):
-    """Profil (admin / senor / geologue) du porteur du jeton, ou None. Verifie aupres du SaaS local."""
+    """Profil (admin / senor / geologue / viewer) du porteur du jeton, ou None. Verifie aupres du SaaS local.
+    28/11 : un viewer est reconnu (rang 0) : toutes ses ecritures sont refusees (403, profil insuffisant)."""
     if not jeton:
         return None
     maintenant = time.time()
@@ -8991,11 +9083,15 @@ def role_du_jeton(jeton):
     return role
 
 
-def ecriture_autorisee(adresse, path, entete_authorization):
-    """(autorise, code, message)."""
+def ecriture_autorisee(adresse, path, entete_authorization, relaye=False):
+    """(autorise, code, message).
+    28/11 : `relaye` = la demande arrive par le relais du dashboard ou par le tunnel Cloudflare (en-tetes X-OT-Relais,
+    X-Forwarded-For, Cf-Connecting-Ip). Elle vient alors techniquement de ce poste (127.0.0.1) mais c'est un VISITEUR :
+    elle n'a jamais la confiance accordee au poste lui-meme (connexion et profil exiges). Sans cela, tout visiteur du
+    lien aurait pu modifier reglages, blasts, missions ou installer des APK sans etre connecte."""
     if not auth_ecritures_active():
         return True, 200, ""
-    if adresse in ("127.0.0.1", "::1", "localhost"):
+    if adresse in ("127.0.0.1", "::1", "localhost") and not relaye:
         return True, 200, ""
     requis = role_requis(path)
     jeton = ""
@@ -9222,9 +9318,13 @@ class Handler(BaseHTTPRequestHandler):
         if method != "GET":                  # les lectures sondees chaque seconde ne polluent plus la console
             print("ROUTE_API:", method, path)
         if method in ("POST", "PUT", "DELETE"):
-            ok, code, message = ecriture_autorisee(self.client_address[0], path, self.headers.get("Authorization", ""))
+            relaye = bool(self.headers.get("X-OT-Relais") or self.headers.get("X-Forwarded-For")
+                          or self.headers.get("Cf-Connecting-Ip"))
+            ok, code, message = ecriture_autorisee(self.client_address[0], path, self.headers.get("Authorization", ""),
+                                                   relaye=relaye)
             if not ok:
-                print("AUTH: refus %s %s depuis %s (%s)" % (method, path, self.client_address[0], message))
+                print("AUTH: refus %s %s depuis %s (%s)" % (
+                    method, path, self.headers.get("X-Forwarded-For") or self.client_address[0], message))
                 return self._send_json(code, {"error": message})
         # Sante SANS verrou : aucune base lue. Derriere LOCK, elle disait la
         # passerelle « injoignable » des qu'une autre route le gardait.
@@ -10599,6 +10699,7 @@ class Handler(BaseHTTPRequestHandler):
                         "marge_affectation_sg": _reglages_etat["sg"],
                         "missions_source": missions_source(),
                         "videos_jours": videos_jours(),
+                        "arret_charge_min": arret_charge_minutes(),
                         "surcharge_env": [c for c in _PARAMS_RELAIS
                                           if os.environ.get(c, "")],
                     })
@@ -10624,7 +10725,9 @@ class Handler(BaseHTTPRequestHandler):
                               "geo_franchissement_m": "GEO_FRANCHISSEMENT_M",
                               "geo_vitesse_min_kmh": "GEO_VITESSE_MIN_KMH",
                               # 26/11 : conservation des videos du tracking (jours, 0 = jamais supprimees)
-                              "videos_jours": "VIDEOS_JOURS"}
+                              "videos_jours": "VIDEOS_JOURS",
+                              # 27/11 : DT charge a l'arret (minutes, 0 = coupee)
+                              "arret_charge_min": "ARRET_CHARGE_MIN"}
                     ecrits = []
                     for champ, cle in connus.items():
                         if champ not in body:
@@ -10673,6 +10776,14 @@ class Handler(BaseHTTPRequestHandler):
                             if not (0 <= j <= 3650):
                                 return self._send_json(400, {"error": "conservation des videos : 0 (jamais) a 3650 jours"})
                             valeur = str(j)
+                        if cle == "ARRET_CHARGE_MIN":
+                            try:
+                                m = float(valeur.replace(",", ".") or str(ARRET_CHARGE_DEFAUT_MIN))
+                            except ValueError:
+                                m = -1
+                            if not (0 <= m <= 1440):
+                                return self._send_json(400, {"error": "DT charge a l'arret : 0 (coupee) a 1440 minutes"})
+                            valeur = "%g" % m
                         if cle == "Z_FLITCH_ACTIF" and valeur != "":
                             valeur = "0" if valeur.lower() in ("0", "non", "false", "off") else "1"
                         param_ecrire(conn, cle, valeur)

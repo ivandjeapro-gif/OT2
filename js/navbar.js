@@ -83,6 +83,8 @@
     if (mail && c.email) mail.textContent = c.email;
     var role = document.querySelector('.sidebar-user .user-role');
     if (role && c.role) role.textContent = c.role;
+    // 28/11 : profil connu de la page precedente -> elements reserves caches des le premier affichage
+    if (c.roleCode) document.documentElement.dataset.role = c.roleCode;
     (c.masques || []).forEach(function (p) {
       var l = document.querySelector('.sidebar-link[data-page="' + p + '"]');
       if (l) l.classList.add('nav-hidden');
@@ -197,7 +199,7 @@
     if (window.OTCFG && typeof OTCFG.passerelle === 'function') {
       return OTCFG.passerelle();
     }
-    return 'http://' + location.hostname + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   function brancherBadgeAlertes() {

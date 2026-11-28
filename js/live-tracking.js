@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const CS = CarteSuivi;
     const PASSERELLE = () => (window.OTCFG && OTCFG.passerelle)
-        ? OTCFG.passerelle() : 'http://' + (location.hostname || 'localhost') + ':8101';
+        ? OTCFG.passerelle() : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
     const fmt = (n) => Number(n || 0).toLocaleString('fr-FR');
     const texte = (el, t) => { if (el) el.textContent = t; };
 

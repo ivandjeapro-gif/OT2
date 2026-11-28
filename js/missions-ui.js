@@ -17,7 +17,7 @@
 
   function basePasserelle() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
-    return 'http://' + location.hostname + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   const ETAT = {
@@ -128,7 +128,7 @@
   // alertes d'information : rien a traiter (fin, arrivee, retours a la normale)
   // 25/11 (calibrage) : la passerelle marque chaque alerte (champ `info`, ALERTES_INFO) ; cette liste identique
   // ne sert que face a une passerelle plus ancienne. Toutes les pages comptent avec estInfo / aTraiter.
-  const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
+  const TYPES_INFO = { reprise_arret: 1, fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
     demi_tour: 1, checkpoint_valide: 1, zone_approche: 1, blast_rejete: 1 };
   const estInfo = (a) => !!(a && (a.info !== undefined ? Number(a.info) : TYPES_INFO[a.type]));
 
