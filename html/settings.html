@@ -52,6 +52,7 @@
             <aside class="sidebar" id="sidebar">
                 <!-- navbar generee par js/navbar.js -->
             </aside>
+            <script src="../js/ot-config.js"></script>
             <script src="../js/navbar.js"></script>
 
             <!-- MAIN CONTENT AREA -->
@@ -279,6 +280,11 @@
                                     </div>
                                     <div class="relais-aide">Les vidéos (Live › Enregistrements) plus anciennes sont supprimées automatiquement du PC de la passerelle ; l'enregistrement en cours n'est jamais touché. Les CSV du tracking sont conservés.</div>
                                     <div class="form-row">
+                                        <label for="relaisArretCharge">DT chargé à l'arrêt : alerte au bureau après (min, 0 = coupée)</label>
+                                        <input type="number" class="form-input" id="relaisArretCharge" min="0" max="1440" step="0.5" />
+                                    </div>
+                                    <div class="relais-aide">Panne ou départ à la mécanique avec du matériau à bord : DT en mission immobile hors zone de chargement / dumping. Alerte pour le bureau seulement, jamais affichée ni dite sur la tablette du DT.</div>
+                                    <div class="form-row">
                                         <label for="relaisAlerteRouge">Alerte non vue en rouge apres (min)</label>
                                         <input type="number" class="form-input" id="relaisAlerteRouge" min="1" max="1440" step="1" />
                                     </div>
@@ -470,8 +476,9 @@
                                             <input type="text" class="form-input-sm" id="accNom" placeholder="Nom" required />
                                             <input type="email" class="form-input-sm" id="accEmail" placeholder="Email" />
                                             <select class="form-select-sm" id="accRole">
+                                                <option value="viewer">Viewer (Home et Live en lecture)</option>
                                                 <option value="geologue">Géologue</option>
-                                                <option value="senor">Senor_Geology (connexion unique)</option>
+                                                <option value="senor">Senor_Geology (un seul compte, connexion unique)</option>
                                                 <option value="admin">Admin</option>
                                             </select>
                                             <input type="password" class="form-input-sm" id="accPassword" placeholder="Mot de passe" required />

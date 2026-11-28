@@ -257,7 +257,8 @@
               (it.detail ? '<span class="file-detail">' + MSUI.esc(it.detail) + '</span>' : '') +
             '</span>' +
             '<span class="file-age">' + (it.age || '') + '</span>' +
-            '<button type="button" class="file-marquer" data-alerte="' + (it.id || '') + '">' +
+            // 28/11 : « Marquer vu » cache au profil viewer (lecture seule)
+            '<button type="button" class="file-marquer" data-acces="geologue" data-alerte="' + (it.id || '') + '">' +
               'Marquer vu</button>' +
           '</div>' +
         '</div>' +
@@ -298,7 +299,7 @@
   // base passerelle : meme logique que missions-ui (OTCFG, sinon :8101)
   function basePasserelleHome() {
     if (window.OTCFG && typeof OTCFG.passerelle === 'function') return OTCFG.passerelle();
-    return 'http://' + location.hostname + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   // Total du parc (referentiel administratif, SaaS :8100, table sync_flotte).

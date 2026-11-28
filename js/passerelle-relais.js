@@ -18,7 +18,7 @@
 
   function base() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
-    return 'http://' + (location.hostname || 'localhost') + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   function statut(txt, ok) {
@@ -90,6 +90,7 @@
           (r.derniere_ligne_trajet ? ' / trajet ' + r.derniere_ligne_trajet : '');
       $('#relaisChargementsIntervalle').value = d.chargements_intervalle_s || 5;
       $('#relaisVideosJours').value = d.videos_jours !== undefined ? d.videos_jours : 30;
+      if ($('#relaisArretCharge')) $('#relaisArretCharge').value = d.arret_charge_min !== undefined ? d.arret_charge_min : 3;
       const c = d.chargements || {};
       const libC = { ok: 'OK', lent: 'en retard', ko: 'EN ECHEC', attente: 'en attente de la 1re lecture',
                      non_configure: 'Serveur_SG non configure' };
@@ -128,6 +129,7 @@
       remontees_intervalle_s: $('#relaisRemonteesIntervalle').value.trim(),
       chargements_intervalle_s: $('#relaisChargementsIntervalle').value.trim(),
       videos_jours: $('#relaisVideosJours').value.trim() || '30',
+      arret_charge_min: ($('#relaisArretCharge') ? $('#relaisArretCharge').value.trim() : '') || '3',
       z_flitch_actif: $('#relaisZActif').value,
       z_hauteur_antenne_m: $('#relaisZAntenne').value.trim() || '0',
       z_marge_m: $('#relaisZMarge').value.trim() || '1.5',

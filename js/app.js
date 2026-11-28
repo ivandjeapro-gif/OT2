@@ -1717,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const base = () => (window.OTCFG && OTCFG.passerelle)
             ? OTCFG.passerelle()
-            : 'http://' + (location.hostname || 'localhost') + ':8101';
+            : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
         // 25/11 (calibrage) : objectifs gardes sur la passerelle, lus par le dashboard de tout poste
         // (avant : seulement dans ce navigateur, d'ou « Planned shift -- » ailleurs)
         function enregistrer() {
@@ -1793,7 +1793,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const base = () => (window.OTCFG && OTCFG.passerelle)
             ? OTCFG.passerelle()
-            : 'http://' + (location.hostname || 'localhost') + ':8101';
+            : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
         let enEdition = false;   // ne pas ecraser une saisie en cours
 
         function statut(txt, cls, dot) {
@@ -1885,10 +1885,12 @@ document.addEventListener('DOMContentLoaded', () => {
             zoom: parseInt(document.getElementById('cfgZoom').value),
             zones: getZones(),
             trails: trailsForPresent,
-            showZones: document.getElementById('cfgShowZones').checked,
+            // 27/11 : la section « Affichage » (Zones, Labels engins) a disparu des reglages ;
+            // la carte live garde ses propres cases (barre de la carte)
+            showZones: (document.getElementById('cfgShowZones') || { checked: true }).checked,
             // 26/11 : la case « Trails » a disparu ; l'affichage des pistes suit le reglage « Trajets » (Diffusion)
             showTrails: (document.getElementById('cfgShowTrails') || { checked: true }).checked,
-            showLabels: document.getElementById('cfgShowLabels').checked,
+            showLabels: (document.getElementById('cfgShowLabels') || { checked: true }).checked,
             showAlerts: (document.getElementById('cfgShowAlerts') || { checked: true }).checked,
             basemap: basemapVal,
             mbtilesUrl: document.getElementById('cfgMbtilesUrl').value,

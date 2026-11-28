@@ -18,7 +18,7 @@
 
   function base() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
-    return location.protocol + '//' + (location.hostname || 'localhost') + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   async function appel(chemin, methode, corps) {

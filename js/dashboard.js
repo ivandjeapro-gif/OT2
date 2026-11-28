@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const $ = (id) => document.getElementById(id);
     // adresse reglee dans Parametres (ot-config.js) ; par defaut : cette machine, :8101
     const PASSERELLE = (window.OTCFG && OTCFG.passerelle)
-        ? OTCFG.passerelle() : 'http://' + (window.location.hostname || 'localhost') + ':8101';
+        ? OTCFG.passerelle() : (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
     const getJSON = (url) => fetch(url, { cache: 'no-store' }).then((r) => {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -503,7 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 25/11 : « bonne direction » et « demi-tour en cours » (tablette) sont des retours a la normale, pas des alertes
     // 25/11 (calibrage) : meme regle que toutes les pages (champ `info` de la passerelle ; liste identique en repli)
-    const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
+    const TYPES_INFO = { reprise_arret: 1, fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
     demi_tour: 1, checkpoint_valide: 1, zone_approche: 1, blast_rejete: 1 };
     const estInfo = (a) => !!(a && (a.info !== undefined ? Number(a.info) : TYPES_INFO[a.type]));
     // 25/11 : une information (retour sur piste, fin de mission...) ne reste affichee que ce temps, avec son anciennete

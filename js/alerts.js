@@ -29,6 +29,9 @@
     mauvaise_direction: 'Mauvaise direction',
     demi_tour: 'Demi-tour en cours',
     retour_direction: 'Retour bonne direction',
+    // 27/11 : panne / mecanique avec materiau a bord (bureau seulement)
+    arret_charge: 'DT chargé à l\'arrêt',
+    reprise_arret: 'DT chargé reparti',
   };
 
   // 24/11 (decision utilisateur) : statuts de la page Alertes. Meme classement que la passerelle (STATUT_ALERTE).
@@ -43,7 +46,7 @@
 
   // alertes d'information : rien a traiter
   // 25/11 (calibrage) : meme regle que toutes les pages (champ `info` de la passerelle, via MSUI)
-  const TYPES_INFO = { fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
+  const TYPES_INFO = { reprise_arret: 1, fin_mission: 1, arrivee: 1, mission: 1, retour_piste: 1, retour_trajet: 1, retour_direction: 1,
     demi_tour: 1, checkpoint_valide: 1, zone_approche: 1, blast_rejete: 1 };
   const estInfo = (a) => (window.MSUI && MSUI.estInfo) ? MSUI.estInfo(a) : !!TYPES_INFO[a.type];
   const debutShift = () => (window.MSUI && MSUI.debutShiftMs) ? MSUI.debutShiftMs() : debutJourMs();
@@ -57,7 +60,7 @@
 
   function passerelle() {
     if (window.OTCFG && OTCFG.passerelle) return OTCFG.passerelle();
-    return 'http://' + location.hostname + ':8101';
+    return (location.port === '8100' ? location.protocol + '//' + (location.hostname || 'localhost') + ':8101' : location.origin + '/passerelle');
   }
 
   function acquitter(id) {
@@ -145,6 +148,7 @@
     if (fen) alertes = alertes.filter((a) => ms(a) >= fen[0] && ms(a) < fen[1]);
     if (filtreType) alertes = alertes.filter((a) => a.type === filtreType);
     if (filtreStatut) alertes = alertes.filter((a) => statutDe(a) === filtreStatut);
+    const avantNonVues = alertes.length;     // 27/11 : pour expliquer une liste vide
     if (seulementNonVues) alertes = alertes.filter((a) => !Number(a.acquittee) && !estInfo(a));
 
     const compteur = document.getElementById('alertsCompteur');
@@ -156,9 +160,23 @@
     rendreCompteurs(etat, alertes);
 
     if (!alertes.length) {
+      // 27/11 : « Non vues seulement » masque les alertes deja vues et les informations : on le dit, avec le
+      // moyen de les afficher (avant : « Aucune alerte. » alors que le compteur annoncait des alertes du jour)
+      const masquees = seulementNonVues ? avantNonVues : 0;
       tbody.innerHTML = '<tr><td colspan="7" class="muted">' +
-        (etat.passerelleDown ? 'Passerelle injoignable' : 'Aucune alerte.') +
+        (etat.passerelleDown ? 'Passerelle injoignable'
+          : masquees ? 'Aucune alerte non vue. ' + masquees + ' alerte' + (masquees > 1 ? 's' : '') +
+            ' déjà vue' + (masquees > 1 ? 's' : '') + ' ou informative' + (masquees > 1 ? 's' : '') + ' masquée' + (masquees > 1 ? 's' : '') +
+            ' · <button type="button" class="r-lien" id="btnVoirToutes">Afficher toutes les alertes</button>'
+          : 'Aucune alerte.') +
         '</td></tr>';
+      const voir = document.getElementById('btnVoirToutes');
+      if (voir) voir.addEventListener('click', () => {
+        const nv = document.getElementById('fltNonVues');
+        if (nv) nv.checked = false;
+        seulementNonVues = false;
+        render(MSUI.etat);
+      });
       return;
     }
 
@@ -237,4 +255,32 @@
   } else {
     init();
   }
+})();
+
+/* 27/11 : page Alerts en onglets (Alertes · Dumping report · Off-road report), meme modele que Parametres.
+   Les filtres engin / periode servent aux trois ; statut, type, « non vues » et « tout marquer vu » ne concernent
+   que la liste des alertes : caches sur les rapports. L'onglet choisi est garde pour la session. */
+(function initOngletsAlertes() {
+  const barre = document.getElementById('alertsOnglets');
+  if (!barre) return;
+  const CLE = 'oreTrackingAlertsOnglet';
+  function montrer(cible) {
+    const boutons = barre.querySelectorAll('.onglet');
+    if (![...boutons].some((b) => b.dataset.onglet === cible)) cible = 'alertes';
+    boutons.forEach((b) => {
+      const actif = b.dataset.onglet === cible;
+      b.classList.toggle('actif', actif);
+      b.setAttribute('aria-selected', actif ? 'true' : 'false');
+    });
+    document.querySelectorAll('#page-alerts .al-volet').forEach((v) => { v.hidden = v.dataset.onglet !== cible; });
+    document.querySelectorAll('#page-alerts .al-seul-alertes').forEach((el) => { el.hidden = cible !== 'alertes'; });
+    try { sessionStorage.setItem(CLE, cible); } catch (e) { /* stockage indisponible */ }
+  }
+  barre.addEventListener('click', (e) => {
+    const b = e.target.closest('.onglet');
+    if (b) montrer(b.dataset.onglet);
+  });
+  let depart = 'alertes';
+  try { depart = sessionStorage.getItem(CLE) || 'alertes'; } catch (e) { /* stockage indisponible */ }
+  montrer(depart);
 })();

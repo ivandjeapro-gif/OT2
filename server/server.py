@@ -559,12 +559,20 @@ _ROLE_CACHE = {}          # uid -> (role, expire)
 
 
 def normaliser_role(r):
+    """28/11 : meme regle que js/roles.js. viewer (le moins de droits) < geologue < senor < admin.
+    Vide / inconnu -> viewer (avant : geologue)."""
     r = str(r or "").strip().lower()
     if r == "admin":
         return "admin"
     if r in ("senor", "senor_geology", "senorgeology"):
         return "senor"
-    return "geologue"         # viewer / inconnu : le plus restreint des profils d'usage
+    if r in ("geologue", "g\u00e9ologue", "geologist"):
+        return "geologue"
+    return "viewer"
+
+
+# Ecritures du dashboard (POST / PUT / DELETE) permises a un viewer : se connecter / se deconnecter seulement.
+ECRITURES_VIEWER = {("POST", "/api/auth/login"), ("POST", "/api/auth/logout")}
 
 
 def role_firestore(jeton, uid):
@@ -1647,6 +1655,10 @@ ALLOWED_TABLES = {"zones", "trails", "engins", "voyages", "alertes", "comptes",
 
 
 
+# 28/11 : port de la passerelle de ce poste, cible du relais /passerelle (lanceur : 8101)
+PASSERELLE_PORT = int(os.environ.get("PASSERELLE_PORT", "8101") or 8101)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "OreTrackingServer/2.0"
@@ -1677,7 +1689,87 @@ class Handler(BaseHTTPRequestHandler):
             return auth[7:].strip()
         return ""
 
+    # ------------------------------------------------------------------------------------------------------------
+    # 28/11 : RELAIS /passerelle/... -> passerelle (:8101) sur CE poste. Le dashboard publie en ligne (Cloudflare
+    # Tunnel) n'a qu'UNE adresse https : une page ouverte par le lien appelle la passerelle en /passerelle/<route>
+    # (meme origine : pas de contenu mixte http/https, le cookie Cloudflare Access couvre tout). Le relais :
+    #   - transmet methode, corps et en-tetes utiles (Authorization, Range pour les videos...) ;
+    #   - ajoute X-OT-Relais et X-Forwarded-For (vraie adresse du visiteur) : la passerelle ne traite JAMAIS une
+    #     demande relayee comme venant du poste lui-meme (sinon tout visiteur aurait les droits d'ecriture locaux) ;
+    #   - recopie la reponse en flux (videos de plusieurs Mo sans tout charger en memoire).
+    # En local (http://<poste>:8100) les pages continuent d'appeler :8101 directement : rien ne change sur site.
+    _RELAIS_PREFIXE = "/passerelle"
+    _SAUT = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
+             "transfer-encoding", "upgrade", "host", "content-length"}
+
+    def ip_visiteur(self):
+        """Adresse reelle du visiteur : celle donnee par Cloudflare quand la demande arrive par le tunnel (le tunnel
+        se connecte depuis ce poste, 127.0.0.1), sinon l'adresse de la connexion."""
+        ip = self.client_address[0]
+        if ip in ("127.0.0.1", "::1"):
+            cf = (self.headers.get("Cf-Connecting-Ip") or "").strip()
+            if cf:
+                return cf
+        return ip
+
+    def est_relais(self, path):
+        return path == self._RELAIS_PREFIXE or path.startswith(self._RELAIS_PREFIXE + "/")
+
+    def relayer_passerelle(self, methode):
+        import http.client
+        brut = self.path[len(self._RELAIS_PREFIXE):] or "/"
+        if not brut.startswith("/"):
+            brut = "/" + brut
+        corps = None
+        try:
+            n = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            n = 0
+        if n > 0:
+            corps = self.rfile.read(n)
+        entetes = {k: v for k, v in self.headers.items() if k.lower() not in self._SAUT}
+        entetes["X-OT-Relais"] = "1"
+        entetes["X-Forwarded-For"] = self.ip_visiteur()
+        entetes["X-Forwarded-Proto"] = "https" if self.headers.get("Cf-Connecting-Ip") else "http"
+        if corps is not None:
+            entetes["Content-Length"] = str(len(corps))
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", PASSERELLE_PORT, timeout=120)
+            c.request(methode, brut, body=corps, headers=entetes)
+            r = c.getresponse()
+        except Exception as e:
+            return self._json(502, {"error": "passerelle injoignable (%s)" % e})
+        try:
+            longueur = r.getheader("Content-Length")
+            donnees = None
+            if longueur is None:                 # reponse sans longueur : lue entiere pour la poser
+                donnees = r.read()
+            self.send_response(r.status, r.reason)
+            for k, v in r.getheaders():
+                if k.lower() not in self._SAUT:
+                    self.send_header(k, v)
+            self.send_header("Content-Length", str(len(donnees)) if donnees is not None else longueur)
+            self.end_headers()
+            if methode == "HEAD":
+                return
+            if donnees is not None:
+                self.wfile.write(donnees)
+                return
+            reste = int(longueur)
+            while reste > 0:
+                bloc = r.read(min(65536, reste))
+                if not bloc:
+                    break
+                self.wfile.write(bloc)
+                reste -= len(bloc)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                  # visiteur parti (video fermee) : rien a faire
+        finally:
+            c.close()
+
     def do_OPTIONS(self):
+        if self.est_relais(unquote(urlparse(self.path).path)):
+            return self.relayer_passerelle("OPTIONS")
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -1691,6 +1783,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = unquote(urlparse(self.path).path)
         try:
+            if self.est_relais(path):
+                return self.relayer_passerelle("GET")
             if path.startswith("/api/"):
                 return self.route_api(path, "GET")
             return self.serve_static(path)
@@ -1700,6 +1794,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = unquote(urlparse(self.path).path)
         try:
+            if self.est_relais(path):
+                return self.relayer_passerelle("POST")
             return self.route_api(path, "POST")
         except Exception as e:
             return self._json(500, {"error": str(e)})
@@ -1707,6 +1803,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         path = unquote(urlparse(self.path).path)
         try:
+            if self.est_relais(path):
+                return self.relayer_passerelle("PUT")
             return self.route_api(path, "PUT")
         except Exception as e:
             return self._json(500, {"error": str(e)})
@@ -1714,6 +1812,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         path = unquote(urlparse(self.path).path)
         try:
+            if self.est_relais(path):
+                return self.relayer_passerelle("DELETE")
             return self.route_api(path, "DELETE")
         except Exception as e:
             return self._json(500, {"error": str(e)})
@@ -1731,7 +1831,8 @@ class Handler(BaseHTTPRequestHandler):
             ("POST", "/api/android/detect"),
             ("POST", "/api/tablettes/detect"),
         }
-        if (method, path) not in PUBLIC and auth_context(self) is None:
+        ctx_auth = None if (method, path) in PUBLIC else auth_context(self)
+        if (method, path) not in PUBLIC and ctx_auth is None:
             # consommer le corps de la requete avant de refuser, sinon les
             # octets restants corrompent la prochaine requete keep-alive
             try:
@@ -1741,6 +1842,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return self._json(401, {"error": "authentification requise"})
+
+        # 28/11 : profil VIEWER = lecture seule. Toute modification du dashboard lui est refusee ici (le cacher
+        # dans les pages ne suffit pas : un appel direct a l'API reste possible).
+        if method in ("POST", "PUT", "DELETE") and ctx_auth is not None and (method, path) not in ECRITURES_VIEWER:
+            if ctx_auth.get("via") == "firebase":
+                role_ctx = role_firestore(self._token(), ctx_auth["uid"])
+            else:
+                role_ctx = normaliser_role(ctx_auth.get("role"))
+            # profil illisible (Firestore injoignable, site hors Internet) : on ne bloque pas les autres profils
+            if role_ctx == "viewer":
+                try:
+                    cl = int(self.headers.get("Content-Length", 0) or 0)
+                    if cl > 0:
+                        self.rfile.read(cl)
+                except Exception:
+                    pass
+                return self._json(403, {"error": "profil Viewer : lecture seule"})
 
         conn = get_conn()
         try:
@@ -1930,7 +2048,7 @@ class Handler(BaseHTTPRequestHandler):
                 pwd = body.get("password") or ""
                 if not ident or not pwd:
                     return self._json(400, {"error": "identifiant et mot de passe requis"})
-                ip = self.client_address[0]
+                ip = self.ip_visiteur()       # 28/11 : par le tunnel, tout le monde arrive de 127.0.0.1
                 blocked, wait = _login_blocked(ident, ip)
                 if blocked:
                     return self._json(429, {

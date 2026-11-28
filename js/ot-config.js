@@ -43,11 +43,14 @@
 
     /** Passerelle Senor Geology (terrain) : positions, missions, oreblocs. */
     passerelle() {
+      const loc = global.location || { protocol: 'http:', hostname: 'localhost', port: '8100', origin: 'http://localhost:8100' };
       const saved = lire(CLES.passerelle, '');
-      if (saved) return sansSlash(saved);
-      const host = (global.location && global.location.hostname) || 'localhost';
-      const proto = (global.location && global.location.protocol) || 'http:';
-      return proto + '//' + host + ':8101';
+      // 28/11 : une adresse gardee en http:// est ignoree sur une page https (le navigateur la bloquerait)
+      if (saved && !(loc.protocol === 'https:' && /^http:/i.test(saved))) return sansSlash(saved);
+      // 28/11 (dashboard en ligne, Cloudflare Tunnel) : page servie par le poste (:8100) -> passerelle :8101 du meme
+      // hote, comme avant ; page ouverte par le lien (https, sans port) -> relais /passerelle du meme serveur.
+      if (loc.port === '8100') return (loc.protocol || 'http:') + '//' + (loc.hostname || 'localhost') + ':8101';
+      return sansSlash(loc.origin) + '/passerelle';
     },
 
     /** Serveur_OT (Apps Script). Jette si non configure. */
